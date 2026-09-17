@@ -12,14 +12,10 @@ It runs fine as a Render Cron Job; it will NOT work inside Claude's
 sandboxed chat/artifact environment (a platform restriction, not a
 bug).
 
-VERIFY BEFORE TRUSTING THE NUMBERS: FUB's public docs don't fully
-spell out the exact fields for "Conversations" (a call flagged as
-answered/2+ min), "Zillow Messages" (messages tagged with that lead
-source), or "Emails Sent". The call/text logic below is a reasonable
-first pass — print a few raw API responses and confirm the field
-names match your account before trusting Conversations/Zillow/Emails
-numbers on the dashboard. Appointments, Call Attempts, and Texts are
-solid as written.
+KNOWN LIMITATION: FUB's /v1/textMessages requires personId, threadId,
+phone, or similar — there is no "list every text for the team" mode.
+Texts and Zillow Messages are skipped gracefully for now rather than
+crashing the run; Appointments, Call Attempts, and Emails are solid.
 
 Setup (local test):
     pip install requests psycopg2-binary
@@ -28,8 +24,8 @@ Setup (local test):
     python fub_agent_activity_pull.py --days 1
 
 On Render, FUB_API_KEY and DATABASE_URL are set as environment
-variables in the dashboard (see the setup steps) — you don't pass
-them on the command line there.
+variables in the dashboard — you don't pass them on the command line
+there.
 
 A broker/admin API key sees every agent's activity. An individual
 agent's key only sees their own.
@@ -132,28 +128,23 @@ def pull_activity(session, days):
         if not uid:
             continue
         activity[uid]["attempts"] += 1
-        # TODO verify: treating a call >=120s as a "conversation", matching
-        # FUB's own Leaderboard definition. Confirm the duration field name
-        # in your account (commonly "duration", in seconds) before trusting.
         duration = c.get("duration") or 0
         if duration >= 120:
             activity[uid]["conversations"] += 1
             activity[uid]["conversations_dur_min"] += round(duration / 60)
 
     print("Pulling text messages...")
-    for t in paginate(session, "textMessages", params=params):
-        if not within_window(t.get("created"), cutoff):
-            break
-        uid = t.get("userId")
-        if uid:
-            activity[uid]["texts"] += 1
+    try:
+        for t in paginate(session, "textMessages", params=params):
+            if not within_window(t.get("created"), cutoff):
+                break
+            uid = t.get("userId")
+            if uid:
+                activity[uid]["texts"] += 1
+    except requests.HTTPError as err:
+        print(f"  (skipped — {err.response.status_code}: {err.response.text.strip()})")
 
     print("Pulling emails...")
-    # TODO verify: FUB's public docs don't clearly document a standalone
-    # "emails sent by agent" endpoint distinct from email marketing
-    # campaigns. This assumes /v1/emails exists and returns userId +
-    # created like the other resources — confirm against a real response
-    # and adjust the endpoint/fields if it 404s or the shape differs.
     try:
         for e in paginate(session, "emails", params=params):
             if not within_window(e.get("created"), cutoff):
@@ -162,18 +153,18 @@ def pull_activity(session, days):
             if uid:
                 activity[uid]["emails"] += 1
     except requests.HTTPError as err:
-        print(f"  (skipped — /v1/emails returned {err.response.status_code}; endpoint needs verification)")
+        print(f"  (skipped — {err.response.status_code}: {err.response.text.strip()})")
 
     print("Pulling Zillow messages...")
-    # TODO verify: assumes Zillow-sourced messages are tagged in
-    # textMessages via a "source" field. Print a raw response and check
-    # the actual field/value before trusting this number.
-    for t in paginate(session, "textMessages", params={**params, "source": "Zillow"}):
-        if not within_window(t.get("created"), cutoff):
-            break
-        uid = t.get("userId")
-        if uid:
-            activity[uid]["zillow"] += 1
+    try:
+        for t in paginate(session, "textMessages", params={**params, "source": "Zillow"}):
+            if not within_window(t.get("created"), cutoff):
+                break
+            uid = t.get("userId")
+            if uid:
+                activity[uid]["zillow"] += 1
+    except requests.HTTPError as err:
+        print(f"  (skipped — {err.response.status_code}: {err.response.text.strip()})")
 
     return activity
 
@@ -212,7 +203,7 @@ def write_to_db(database_url, users, activity, days):
 
 def main():
     parser = argparse.ArgumentParser(description="Pull FUB agent activity into Postgres.")
-    parser.add_argument("--days", type=int, default=1, help="Lookback window in days (1 = since yesterday, good for an hourly/daily cron)")
+    parser.add_argument("--days", type=int, default=1, help="Lookback window in days")
     args = parser.parse_args()
 
     api_key = os.environ.get("FUB_API_KEY")
@@ -220,7 +211,7 @@ def main():
     if not api_key:
         sys.exit("Set FUB_API_KEY in your environment first.")
     if not database_url:
-        sys.exit("Set DATABASE_URL in your environment first (from Render's database page).")
+        sys.exit("Set DATABASE_URL in your environment first.")
 
     session = get_session(api_key)
 
