@@ -1,1 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Leaderboard — Dream Homes Team</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #EEF0F5; }
+    .page { max-width: 1360px; margin: 0 auto; padding: 32px 24px; }
+    h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 28px; font-weight: 600; color: #1F2A44; }
+    .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8B93A1; }
+    .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+    .totals .kpi { background: #fff; border-radius: 12px; padding: 13px 14px; box-shadow: 0 1px 3px rgba(31,42,68,0.05); }
+    .kpi-val { font-size: 19px; font-weight: 700; color: #1F2A44; font-family: 'IBM Plex Mono', monospace; }
+    .kpi-lbl { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8B93A1; }
+    .podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .card { background: #fff; border-radius: 16px; padding: 20px 18px 16px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 1px 3px rgba(31,42,68,0.08); }
+    .avatar { width: 64px; height: 64px; border-radius: 999px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 19px; font-weight: 600; }
+    .badge { width: 24px; height: 24px; border-radius: 999px; background: #1F2A44; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border: 2px solid #fff; margin-top: -12px; }
+    .name { font-weight: 700; color: #1F2A44; font-size: 14px; margin: 6px 0 4px; }
+    .score { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; color: #7B8FF0; }
+    .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 9px; font-size: 11px; color: #5B6472; font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
+    .rows { display: flex; flex-direction: column; gap: 6px; }
+    .row { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px; padding: 8px 16px; box-shadow: 0 1px 2px rgba(31,42,68,0.05); }
+    .row .rank { width: 18px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; color: #8B93A1; }
+    .row .avatar { width: 30px; height: 30px; font-size: 10.5px; }
+    .row .name { width: 140px; font-weight: 600; color: #1F2A44; font-size: 13px; margin: 0; }
+    .row .stats { flex-grow: 1; justify-content: flex-start; margin: 0; }
+    .row .score { font-size: 16px; }
+    .empty { background: #fff; border-radius: 16px; padding: 40px; text-align: center; color: #8B93A1; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px;">
+    <h1>Leaderboard</h1>
+    <span class="sub">Dream Homes Team &middot; live data</span>
+  </div>
 
+  {% if not has_data %}
+  <div class="empty">No data yet — waiting on the first successful cron run.</div>
+  {% else %}
+
+  <div class="podium">
+    {% for agent in podium %}
+    <div class="card">
+      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}</div>
+      <div class="badge">{{ agent.rank }}</div>
+      <div class="name">{{ agent.name }}</div>
+      <div class="score">{{ "{:,}".format(agent.score) }}</div>
+      <div class="stats">
+        <span>Appts {{ agent.appts }}</span>
+        <span>Conv {{ agent.conversations }} ({{ agent.conversations_dur_label }})</span>
+        <span>Attempts {{ agent.attempts }}</span>
+        <span>Texts {{ agent.texts }}</span>
+        <span>Zillow {{ agent.zillow }}</span>
+        <span>Emails {{ agent.emails }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="totals">
+    <div class="kpi"><div class="kpi-val">{{ totals.appts }}</div><div class="kpi-lbl">Appointments</div></div>
+    <div class="kpi"><div class="kpi-val">{{ totals.conversations }} <span style="font-size:11px;color:#A9B0BC;">({{ totals.conversations_dur_label }})</span></div><div class="kpi-lbl">Conversations</div></div>
+    <div class="kpi"><div class="kpi-val">{{ totals.attempts }}</div><div class="kpi-lbl">Call Attempts</div></div>
+    <div class="kpi"><div class="kpi-val">{{ totals.texts }}</div><div class="kpi-lbl">Text Messages</div></div>
+    <div class="kpi"><div class="kpi-val">{{ totals.zillow }}</div><div class="kpi-lbl">Zillow Messages</div></div>
+    <div class="kpi"><div class="kpi-val">{{ totals.emails }}</div><div class="kpi-lbl">Emails</div></div>
+  </div>
+
+  <div class="rows">
+    {% for agent in rest %}
+    <div class="row">
+      <div class="rank">{{ agent.rank }}</div>
+      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}</div>
+      <div class="name">{{ agent.name }}</div>
+      <div class="stats">
+        <span>Appts {{ agent.appts }}</span>
+        <span>Conv {{ agent.conversations }}</span>
+        <span>Attempts {{ agent.attempts }}</span>
+        <span>Texts {{ agent.texts }}</span>
+        <span>Zillow {{ agent.zillow }}</span>
+        <span>Emails {{ agent.emails }}</span>
+      </div>
+      <div class="score">{{ "{:,}".format(agent.score) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% endif %}
+</div>
+</body>
+</html>
