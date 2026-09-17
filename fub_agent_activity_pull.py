@@ -112,17 +112,25 @@ def pull_activity(session, days):
     })
 
     print("Pulling appointments...")
+    seen_sample = False
     for a in paginate(session, "appointments"):
+        if not seen_sample:
+            print(f"  (sample record created={a.get('created')!r})")
+            seen_sample = True
         if not within_window(a.get("created"), cutoff):
-            continue
+            break
         uid = a.get("userId") or a.get("assignedUserId")
         if uid:
             activity[uid]["appts"] += 1
 
     print("Pulling calls (attempts + conversations)...")
+    seen_sample = False
     for c in paginate(session, "calls"):
+        if not seen_sample:
+            print(f"  (sample record created={c.get('created')!r})")
+            seen_sample = True
         if not within_window(c.get("created"), cutoff):
-            continue
+            break
         uid = c.get("userId")
         if not uid:
             continue
@@ -136,7 +144,7 @@ def pull_activity(session, days):
     try:
         for t in paginate(session, "textMessages"):
             if not within_window(t.get("created"), cutoff):
-                continue
+                break
             uid = t.get("userId")
             if uid:
                 activity[uid]["texts"] += 1
@@ -147,7 +155,7 @@ def pull_activity(session, days):
     try:
         for e in paginate(session, "emails"):
             if not within_window(e.get("created"), cutoff):
-                continue
+                break
             uid = e.get("userId")
             if uid:
                 activity[uid]["emails"] += 1
@@ -158,7 +166,7 @@ def pull_activity(session, days):
     try:
         for t in paginate(session, "textMessages", params={"source": "Zillow"}):
             if not within_window(t.get("created"), cutoff):
-                continue
+                break
             uid = t.get("userId")
             if uid:
                 activity[uid]["zillow"] += 1
