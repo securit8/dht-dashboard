@@ -106,24 +106,23 @@ def within_window(created_str, cutoff):
 
 def pull_activity(session, days):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    params = {"sort": "created", "order": "desc"}
     activity = defaultdict(lambda: {
         "appts": 0, "conversations": 0, "conversations_dur_min": 0,
         "attempts": 0, "texts": 0, "zillow": 0, "emails": 0,
     })
 
     print("Pulling appointments...")
-    for a in paginate(session, "appointments", params=params):
+    for a in paginate(session, "appointments"):
         if not within_window(a.get("created"), cutoff):
-            break
+            continue
         uid = a.get("userId") or a.get("assignedUserId")
         if uid:
             activity[uid]["appts"] += 1
 
     print("Pulling calls (attempts + conversations)...")
-    for c in paginate(session, "calls", params=params):
+    for c in paginate(session, "calls"):
         if not within_window(c.get("created"), cutoff):
-            break
+            continue
         uid = c.get("userId")
         if not uid:
             continue
@@ -135,9 +134,9 @@ def pull_activity(session, days):
 
     print("Pulling text messages...")
     try:
-        for t in paginate(session, "textMessages", params=params):
+        for t in paginate(session, "textMessages"):
             if not within_window(t.get("created"), cutoff):
-                break
+                continue
             uid = t.get("userId")
             if uid:
                 activity[uid]["texts"] += 1
@@ -146,9 +145,9 @@ def pull_activity(session, days):
 
     print("Pulling emails...")
     try:
-        for e in paginate(session, "emails", params=params):
+        for e in paginate(session, "emails"):
             if not within_window(e.get("created"), cutoff):
-                break
+                continue
             uid = e.get("userId")
             if uid:
                 activity[uid]["emails"] += 1
@@ -157,9 +156,9 @@ def pull_activity(session, days):
 
     print("Pulling Zillow messages...")
     try:
-        for t in paginate(session, "textMessages", params={**params, "source": "Zillow"}):
+        for t in paginate(session, "textMessages", params={"source": "Zillow"}):
             if not within_window(t.get("created"), cutoff):
-                break
+                continue
             uid = t.get("userId")
             if uid:
                 activity[uid]["zillow"] += 1
