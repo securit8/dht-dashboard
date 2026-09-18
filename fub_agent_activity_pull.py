@@ -132,6 +132,16 @@ def pull_message_events(session, cutoff):
             if uid:
                 events.append({"fub_id": t["id"], "event_type": "text",
                                 "user_id": uid, "created_at": created, "duration_min": 0})
+                
+        for z in paginate(session, "textMessages", params={"personId": pid, "source": "Zillow"}):
+            created = parse_dt(z.get("created"))
+            if created is None or created < cutoff or z.get("isIncoming"):
+                continue
+            uid = z.get("userId")
+            if uid:
+                events.append({"fub_id": z["id"], "event_type": "zillow",
+                                "user_id": uid, "created_at": created, "duration_min": 0})
+        
 
         for e in paginate(session, "emails", params={"personId": pid}):
             created = parse_dt(e.get("created") or e.get("date"))
