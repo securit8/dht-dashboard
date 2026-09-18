@@ -1,16 +1,52 @@
 import os
+import secrets
+from functools import wraps
 from datetime import datetime, timedelta, timezone
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, session, redirect, url_for
+
 import psycopg2
 import psycopg2.extras
 
 app = Flask(__name__)
+app.secret_key = os.environ["SECRET_KEY"]
+
 DATABASE_URL = os.environ["DATABASE_URL"]
+DASHBOARD_USERNAME = os.environ["DASHBOARD_USERNAME"]
+DASHBOARD_PASSWORD = os.environ["DASHBOARD_PASSWORD"]
 
 PALETTE = ['#E8A87C', '#7B8FF0', '#8FD3C8', '#F2B84B', '#C99BE0',
            '#7ECF8B', '#E88BA0', '#8FB8E0', '#D9A066', '#9AA5B1']
 
 PERIODS = {"today", "week", "month", "year"}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if secrets.compare_digest(username, DASHBOARD_USERNAME) and secrets.compare_digest(password, DASHBOARD_PASSWORD):
+            session["logged_in"] = True
+            session.permanent = True
+            return redirect(request.args.get("next") or url_for("leaderboard"))
+        error = "Incorrect username or password."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 def period_start(period):
@@ -41,7 +77,9 @@ def get_agents(period):
                COUNT(*) FILTER (WHERE event_type = 'appt') AS appts,
                COUNT(*) FILTER (WHERE event_type = 'conversation') AS conversations,
                COALESCE(SUM(duration_min) FILTER (WHERE event_type = 'conversation'), 0) AS conversations_dur_min,
-               COUNT(*) FILTER (WHERE event_type = 'attempt') AS attempts
+               COUNT(*) FILTER (WHERE event_type = 'attempt') AS attempts,
+               COUNT(*) FILTER (WHERE event_type = 'text') AS texts,
+               COUNT(*) FILTER (WHERE event_type = 'email') AS emails
         FROM agent_events
         WHERE created_at >= %s
         GROUP BY agent_name
@@ -53,13 +91,14 @@ def get_agents(period):
     agents = []
     for r in rows:
         appts, conversations, attempts = r["appts"] or 0, r["conversations"] or 0, r["attempts"] or 0
+        texts, emails = r["texts"] or 0, r["emails"] or 0
         agents.append({
             "name": r["agent_name"],
             "initials": "".join(w[0] for w in r["agent_name"].split()[:2]).upper(),
             "appts": appts, "conversations": conversations,
             "conversations_dur_label": duration_label(r["conversations_dur_min"]),
-            "attempts": attempts, "texts": 0, "zillow": 0, "emails": 0,
-            "score": appts * 500 + conversations * 100 + attempts * 10,
+            "attempts": attempts, "texts": texts, "zillow": 0, "emails": emails,
+            "score": appts * 500 + conversations * 100 + attempts * 10 + texts * 2 + emails * 1,
         })
     agents.sort(key=lambda a: a["score"], reverse=True)
     for i, a in enumerate(agents):
@@ -71,12 +110,15 @@ def get_agents(period):
         "conversations": sum(a["conversations"] for a in agents),
         "conversations_dur_label": duration_label(sum(r["conversations_dur_min"] or 0 for r in rows)),
         "attempts": sum(a["attempts"] for a in agents),
-        "texts": 0, "zillow": 0, "emails": 0,
+        "texts": sum(a["texts"] for a in agents),
+        "zillow": 0,
+        "emails": sum(a["emails"] for a in agents),
     }
     return agents, totals
 
 
 @app.route("/")
+@login_required
 def leaderboard():
     period = request.args.get("period", "today")
     if period not in PERIODS:
@@ -86,5 +128,5 @@ def leaderboard():
                             totals=totals, has_data=len(agents) > 0, period=period)
 
 
-   if __name__ == "__main__":
-       app.run(port=int(os.environ.get("PORT", 5000)))
+if __name__ == "__main__":
+    app.run(port=int(os.environ.get("PORT", 5000)))
