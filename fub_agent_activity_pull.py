@@ -104,7 +104,8 @@ def within_window(created_str, cutoff):
 
 
 def pull_activity(session, days):
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+  now = datetime.now(timezone.utc)
+    cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
     activity = defaultdict(lambda: {
         "appts": 0, "conversations": 0, "conversations_dur_min": 0,
         "attempts": 0, "texts": 0, "zillow": 0, "emails": 0,
