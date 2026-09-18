@@ -36,12 +36,14 @@
     <h1>Leaderboard</h1>
     <span class="sub">Dream Homes Team &middot; live data</span>
   </div>
+
   <div style="display: flex; gap: 6px; margin-bottom: 20px;">
     <a href="?period=today" style="text-decoration:none; font-size:12px; font-weight:600; padding:7px 16px; border-radius:999px; background:{{ '#7B8FF0' if period=='today' else '#fff' }}; color:{{ '#fff' if period=='today' else '#8B93A1' }};">Today</a>
     <a href="?period=week" style="text-decoration:none; font-size:12px; font-weight:600; padding:7px 16px; border-radius:999px; background:{{ '#7B8FF0' if period=='week' else '#fff' }}; color:{{ '#fff' if period=='week' else '#8B93A1' }};">This Week</a>
     <a href="?period=month" style="text-decoration:none; font-size:12px; font-weight:600; padding:7px 16px; border-radius:999px; background:{{ '#7B8FF0' if period=='month' else '#fff' }}; color:{{ '#fff' if period=='month' else '#8B93A1' }};">This Month</a>
     <a href="?period=year" style="text-decoration:none; font-size:12px; font-weight:600; padding:7px 16px; border-radius:999px; background:{{ '#7B8FF0' if period=='year' else '#fff' }}; color:{{ '#fff' if period=='year' else '#8B93A1' }};">This Year</a>
   </div>
+
   {% if not has_data %}
   <div class="empty">No data yet — waiting on the first successful cron run.</div>
   {% else %}
