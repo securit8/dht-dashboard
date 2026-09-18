@@ -1,17 +1,17 @@
 """
 Follow Up Boss event pull script — Render Cron Job version.
 
-First run ever: backfills --days worth of history (default 400,
-covers a full year). Every run after that: only pulls events since
-the last successful run, with a small overlap buffer for safety.
-Duplicate events are silently skipped (unique constraint), so the
-overlap costs nothing.
+Pulls appointments, calls, and — via a bounded per-person lookup —
+texts and emails, writing one row per individual event into Postgres
+so the dashboard can total any period on demand.
 
-Uses cursor-based pagination — no offset depth limit.
+Texts/emails work around FUB's API restriction (no team-wide listing)
+by first finding people updated since the cutoff (cheap, sorted,
+bounded), then checking just those people's messages individually.
+This only works because most leads are inactive on any given day —
+checking all 12,000+ leads every run would not be feasible.
 
-KNOWN LIMITATION: /v1/textMessages and /v1/emails both require
-personId/threadId/etc, so Texts, Zillow Messages, and Emails aren't
-tracked yet.
+Uses cursor-based pagination throughout — no offset depth limit.
 """
 
 import argparse
@@ -25,7 +25,7 @@ import requests
 
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
-OVERLAP_MINUTES = 15  # safety cushion so nothing slips through between runs
+OVERLAP_MINUTES = 15
 
 
 def get_session(api_key: str) -> requests.Session:
@@ -70,16 +70,16 @@ def fetch_users(session):
     return users
 
 
-def parse_dt(created_str):
-    if not created_str:
+def parse_dt(s):
+    if not s:
         return None
     try:
-        return datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except ValueError:
         return None
 
 
-def pull_events(session, cutoff):
+def pull_activity(session, cutoff):
     events = []
 
     print("Pulling appointments...")
@@ -108,6 +108,41 @@ def pull_events(session, cutoff):
             events.append({"fub_id": c["id"], "event_type": "conversation",
                             "user_id": uid, "created_at": created, "duration_min": round(duration / 60)})
 
+    return events
+
+
+def pull_message_events(session, cutoff):
+    """Bounded per-person loop for texts/emails — only checks people
+    updated since cutoff, not the whole lead database."""
+    events = []
+    checked = 0
+
+    for person in paginate(session, "people", params={"sort": "-updated"}):
+        updated = parse_dt(person.get("updated"))
+        if updated is None or updated < cutoff:
+            break
+        pid = person["id"]
+        checked += 1
+
+        for t in paginate(session, "textMessages", params={"personId": pid}):
+            created = parse_dt(t.get("created"))
+            if created is None or created < cutoff or t.get("isIncoming"):
+                continue
+            uid = t.get("userId")
+            if uid:
+                events.append({"fub_id": t["id"], "event_type": "text",
+                                "user_id": uid, "created_at": created, "duration_min": 0})
+
+        for e in paginate(session, "emails", params={"personId": pid}):
+            created = parse_dt(e.get("created") or e.get("date"))
+            if created is None or created < cutoff:
+                continue
+            uid = e.get("userId")
+            if uid:
+                events.append({"fub_id": e["id"], "event_type": "email",
+                                "user_id": uid, "created_at": created, "duration_min": 0})
+
+    print(f"  Checked {checked} recently-updated people for texts/emails.")
     return events
 
 
@@ -172,8 +207,8 @@ def write_events_to_db(database_url, users, events, run_started_at):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--days", type=int, default=400, help="First-run backfill window only")
-    parser.add_argument("--full", action="store_true", help="Force a full backfill even if this isn't the first run")
+    parser.add_argument("--days", type=int, default=400)
+    parser.add_argument("--full", action="store_true")
     args = parser.parse_args()
 
     api_key = os.environ.get("FUB_API_KEY")
@@ -204,8 +239,13 @@ def main():
     print("Pulling agent roster...")
     users = fetch_users(session)
 
-    events = pull_events(session, cutoff)
-    print(f"Collected {len(events)} events.")
+    events = pull_activity(session, cutoff)
+    print(f"Collected {len(events)} appointment/call events.")
+
+    print("Pulling texts/emails (bounded to recently-updated people)...")
+    message_events = pull_message_events(session, cutoff)
+    print(f"Collected {len(message_events)} text/email events.")
+    events += message_events
 
     written = write_events_to_db(database_url, users, events, run_started_at)
     print(f"Wrote {written} events. Next run will pull since {run_started_at.isoformat()}.")
