@@ -111,17 +111,14 @@ def pull_activity(session, days):
         "attempts": 0, "texts": 0, "zillow": 0, "emails": 0,
     })
 
-    print("Pulling appointments...")
-    seen_sample = False
+        print("Pulling appointments...")
     for a in paginate(session, "appointments"):
-        if not seen_sample:
-            print(f"  (sample record created={a.get('created')!r})")
-            seen_sample = True
         if not within_window(a.get("created"), cutoff):
             break
-        uid = a.get("userId") or a.get("assignedUserId")
-        if uid:
-            activity[uid]["appts"] += 1
+        for invitee in a.get("invitees", []):
+            uid = invitee.get("userId")
+            if uid:
+                activity[uid]["appts"] += 1
 
     print("Pulling calls (attempts + conversations)...")
     seen_sample = False
