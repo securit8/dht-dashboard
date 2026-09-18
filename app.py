@@ -79,6 +79,7 @@ def get_agents(period):
                COALESCE(SUM(duration_min) FILTER (WHERE event_type = 'conversation'), 0) AS conversations_dur_min,
                COUNT(*) FILTER (WHERE event_type = 'attempt') AS attempts,
                COUNT(*) FILTER (WHERE event_type = 'text') AS texts,
+               COUNT(*) FILTER (WHERE event_type = 'zillow') AS zillow,
                COUNT(*) FILTER (WHERE event_type = 'email') AS emails
         FROM agent_events
         WHERE created_at >= %s
@@ -91,14 +92,14 @@ def get_agents(period):
     agents = []
     for r in rows:
         appts, conversations, attempts = r["appts"] or 0, r["conversations"] or 0, r["attempts"] or 0
-        texts, emails = r["texts"] or 0, r["emails"] or 0
+        texts, zillow, emails = r["texts"] or 0, r["zillow"] or 0, r["emails"] or 0
         agents.append({
             "name": r["agent_name"],
             "initials": "".join(w[0] for w in r["agent_name"].split()[:2]).upper(),
             "appts": appts, "conversations": conversations,
             "conversations_dur_label": duration_label(r["conversations_dur_min"]),
-            "attempts": attempts, "texts": texts, "zillow": 0, "emails": emails,
-            "score": appts * 500 + conversations * 100 + attempts * 10 + texts * 2 + emails * 1,
+            "attempts": attempts, "texts": texts, "zillow": zillow, "emails": emails,
+            "score": appts * 500 + conversations * 100 + attempts * 10 + texts * 2 + emails * 1 + zillow * 5,
         })
     agents.sort(key=lambda a: a["score"], reverse=True)
     for i, a in enumerate(agents):
@@ -111,7 +112,7 @@ def get_agents(period):
         "conversations_dur_label": duration_label(sum(r["conversations_dur_min"] or 0 for r in rows)),
         "attempts": sum(a["attempts"] for a in agents),
         "texts": sum(a["texts"] for a in agents),
-        "zillow": 0,
+        "zillow": sum(a["zillow"] for a in agents),
         "emails": sum(a["emails"] for a in agents),
     }
     return agents, totals
