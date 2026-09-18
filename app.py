@@ -19,14 +19,12 @@ PALETTE = ['#E8A87C', '#7B8FF0', '#8FD3C8', '#F2B84B', '#C99BE0',
 
 PERIODS = {"today", "week", "month", "year"}
 
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        print(f"DEBUG login_required: session={dict(session)}", flush=True)
         if not session.get("logged_in"):
-            print("DEBUG login_required: NOT logged in, redirecting", flush=True)
             return redirect(url_for("login", next=request.path))
-        print("DEBUG login_required: logged in, calling view", flush=True)
         return view(*args, **kwargs)
     return wrapped
 
@@ -119,15 +117,14 @@ def get_agents(period):
     }
     return agents, totals
 
+
 @app.route("/")
 @login_required
 def leaderboard():
-    print("DEBUG leaderboard: view function actually running", flush=True)
     period = request.args.get("period", "today")
     if period not in PERIODS:
         period = "today"
     agents, totals = get_agents(period)
-    print(f"DEBUG leaderboard: got {len(agents)} agents, rendering leaderboard.html", flush=True)
     return render_template("leaderboard.html", podium=agents[:3], rest=agents[3:],
                             totals=totals, has_data=len(agents) > 0, period=period)
 
