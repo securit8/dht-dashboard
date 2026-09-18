@@ -21,7 +21,7 @@
     <h1>Dream Homes Team</h1>
     <div class="sub">Sign in to view the dashboard</div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post">
+    <form method="post" action="/login">
       <label for="username">Username</label>
       <input type="text" id="username" name="username" autocomplete="username" required>
       <label for="password">Password</label>
