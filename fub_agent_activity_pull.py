@@ -1,21 +1,20 @@
 """
 Follow Up Boss agent-activity pull script — Render Cron Job version.
 
-Pulls calls, text messages, appointments, and newly-assigned leads for
-every agent on the team and writes a per-agent summary into Postgres
-(Render's managed database). The dashboard's web service reads from
-that same table, so every run of this script is what keeps the
-numbers current — no CSV, no manual upload.
+Pulls calls, appointments, and (where the API allows) text messages,
+emails, and Zillow messages for every agent on the team, and writes a
+per-agent summary into Postgres (Render's managed database). The
+dashboard's web service reads from that same table.
 
 IMPORTANT: this needs open internet access to api.followupboss.com.
 It runs fine as a Render Cron Job; it will NOT work inside Claude's
 sandboxed chat/artifact environment (a platform restriction, not a
 bug).
 
-KNOWN LIMITATION: FUB's /v1/textMessages requires personId, threadId,
-phone, or similar — there is no "list every text for the team" mode.
-Texts and Zillow Messages are skipped gracefully for now rather than
-crashing the run; Appointments, Call Attempts, and Emails are solid.
+KNOWN LIMITATION: FUB's /v1/textMessages and /v1/emails both require
+personId, threadId, or similar — there is no "list every message for
+the team" mode. Both are skipped gracefully rather than crashing the
+run. Appointments, Call Attempts, and Conversations are solid.
 
 Setup (local test):
     pip install requests psycopg2-binary
@@ -111,7 +110,7 @@ def pull_activity(session, days):
         "attempts": 0, "texts": 0, "zillow": 0, "emails": 0,
     })
 
-        print("Pulling appointments...")
+    print("Pulling appointments...")
     for a in paginate(session, "appointments"):
         if not within_window(a.get("created"), cutoff):
             break
@@ -121,11 +120,7 @@ def pull_activity(session, days):
                 activity[uid]["appts"] += 1
 
     print("Pulling calls (attempts + conversations)...")
-    seen_sample = False
     for c in paginate(session, "calls"):
-        if not seen_sample:
-            print(f"  (sample record created={c.get('created')!r})")
-            seen_sample = True
         if not within_window(c.get("created"), cutoff):
             break
         uid = c.get("userId")
