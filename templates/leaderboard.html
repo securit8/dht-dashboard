@@ -7,8 +7,12 @@
   <style>
     body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #EEF0F5; }
     .page { max-width: 1360px; margin: 0 auto; padding: 32px 24px; }
-    h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 28px; font-weight: 600; color: #1F2A44; }
+    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand img { width: 44px; height: 44px; border-radius: 8px; }
+    h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; color: #1F2A44; }
     .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8B93A1; }
+    .logout { font-size: 12px; color: #8B93A1; text-decoration: none; }
     .tabs { display: flex; gap: 6px; margin-bottom: 20px; }
     .tabs a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
     .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
@@ -30,16 +34,17 @@
     .row .stats { flex-grow: 1; justify-content: flex-start; margin: 0; }
     .row .score { font-size: 16px; }
     .empty { background: #fff; border-radius: 16px; padding: 40px; text-align: center; color: #8B93A1; }
-    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-    .logout { font-size: 12px; color: #8B93A1; text-decoration: none; }
   </style>
 </head>
 <body>
 <div class="page">
   <div class="top">
-    <div style="display: flex; align-items: baseline; gap: 12px;">
-      <h1>Leaderboard</h1>
-      <span class="sub">Dream Homes Team &middot; live data</span>
+    <div class="brand">
+      <img src="{{ url_for('static', filename='dht-logo.png') }}" alt="Dream Homes Team">
+      <div>
+        <h1>Leaderboard</h1>
+        <span class="sub">Dream Homes Team &middot; live data</span>
+      </div>
     </div>
     <a class="logout" href="/logout">Log out</a>
   </div>
