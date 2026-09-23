@@ -118,6 +118,72 @@ def get_agents(period):
     return agents, totals
 
 
+def _distinct_people(cur, event_type, start, end=None):
+    if end:
+        cur.execute("""
+            SELECT COUNT(DISTINCT person_id) FROM agent_events
+            WHERE event_type = %s AND person_id IS NOT NULL
+              AND created_at >= %s AND created_at < %s
+        """, (event_type, start, end))
+    else:
+        cur.execute("""
+            SELECT COUNT(DISTINCT person_id) FROM agent_events
+            WHERE event_type = %s AND person_id IS NOT NULL AND created_at >= %s
+        """, (event_type, start))
+    return cur.fetchone()[0] or 0
+
+
+def _pct_change(cur_val, prev_val):
+    if prev_val == 0:
+        return None if cur_val == 0 else "new"
+    return round((cur_val - prev_val) / prev_val * 100)
+
+
+def get_funnel(period):
+    start = period_start(period)
+    now = datetime.now(timezone.utc)
+    length = now - start
+    prev_start = start - length
+    prev_end = start
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+
+    new_leads = _distinct_people(cur, "lead", start)
+    contacted = _distinct_people(cur, "attempt", start)
+    appt_set = _distinct_people(cur, "appt", start)
+
+    new_leads_prev = _distinct_people(cur, "lead", prev_start, prev_end)
+    contacted_prev = _distinct_people(cur, "attempt", prev_start, prev_end)
+    appt_set_prev = _distinct_people(cur, "appt", prev_start, prev_end)
+
+    cur.close()
+    conn.close()
+
+    top = max(new_leads, 1)
+    stages = [
+        {"label": "New Leads", "count": new_leads, "pct_of_top": 100,
+         "change": _pct_change(new_leads, new_leads_prev), "tracked": True},
+        {"label": "Contacted", "count": contacted, "pct_of_top": round(contacted / top * 100, 1),
+         "change": _pct_change(contacted, contacted_prev), "tracked": True},
+        {"label": "Appt. Set", "count": appt_set, "pct_of_top": round(appt_set / top * 100, 1),
+         "change": _pct_change(appt_set, appt_set_prev), "tracked": True},
+        {"label": "Appt. Met", "count": 0, "pct_of_top": 0, "change": None, "tracked": False},
+        {"label": "Closed Deal", "count": 0, "pct_of_top": 0, "change": None, "tracked": False},
+    ]
+    return stages
+
+
+@app.route("/funnel")
+@login_required
+def funnel():
+    period = request.args.get("period", "month")
+    if period not in PERIODS:
+        period = "month"
+    stages = get_funnel(period)
+    return render_template("funnel.html", stages=stages, period=period)
+
+
 @app.route("/")
 @login_required
 def leaderboard():
