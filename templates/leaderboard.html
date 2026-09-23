@@ -13,6 +13,10 @@
     h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; color: #1F2A44; }
     .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8B93A1; }
     .logout { font-size: 12px; color: #8B93A1; text-decoration: none; }
+    .nav { display: flex; gap: 6px; margin-bottom: 20px; }
+    .nav a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
+    .nav .active { background: #7B8FF0; color: #fff; }
+    .nav .inactive { background: #fff; color: #8B93A1; }
     .tabs { display: flex; gap: 6px; margin-bottom: 20px; }
     .tabs a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
     .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
@@ -47,6 +51,11 @@
       </div>
     </div>
     <a class="logout" href="/logout">Log out</a>
+  </div>
+
+  <div class="nav">
+    <a class="inactive" href="/funnel">Sales Funnel</a>
+    <a class="active" href="/">Leaderboard</a>
   </div>
 
   <div class="tabs">
