@@ -1,15 +1,11 @@
 """
 Follow Up Boss event pull script — Render Cron Job version.
 
-Pulls appointments, calls, and — via a bounded per-person lookup —
-texts and emails, writing one row per individual event into Postgres
-so the dashboard can total any period on demand.
-
-Texts/emails work around FUB's API restriction (no team-wide listing)
-by first finding people updated since the cutoff (cheap, sorted,
-bounded), then checking just those people's messages individually.
-This only works because most leads are inactive on any given day —
-checking all 12,000+ leads every run would not be feasible.
+Pulls appointments, calls, and (bounded, per recently-updated person)
+texts and emails, writing one row per individual event into Postgres.
+Also now pulls new leads (/v1/people) and tags events with person_id
+so the dashboard can build a Sales Funnel (distinct leads per stage),
+not just raw activity counts.
 
 Uses cursor-based pagination throughout — no offset depth limit.
 """
@@ -26,6 +22,8 @@ import requests
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
 OVERLAP_MINUTES = 15
+MIN_REQUEST_INTERVAL = 0.75  # seconds between requests — keeps us safely under FUB's 1,000/10min cap
+_last_request_time = 0.0
 
 
 def get_session(api_key: str) -> requests.Session:
@@ -36,11 +34,18 @@ def get_session(api_key: str) -> requests.Session:
 
 
 def paginate(session, endpoint, params=None):
+    global _last_request_time
     params = dict(params or {})
     params.setdefault("limit", PAGE_SIZE)
     next_link = None
     while True:
+        elapsed = time.time() - _last_request_time
+        if elapsed < MIN_REQUEST_INTERVAL:
+            time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+
         resp = session.get(next_link) if next_link else session.get(f"{API_BASE}/{endpoint}", params=params)
+        _last_request_time = time.time()
+
         if resp.status_code == 429:
             time.sleep(int(resp.headers.get("Retry-After", 10)))
             continue
@@ -80,6 +85,8 @@ def parse_dt(s):
 
 
 def pull_activity(session, cutoff):
+    """Appointments and calls, tagged with person_id where available so
+    the funnel can count distinct leads, not just event counts."""
     events = []
 
     print("Pulling appointments...")
@@ -87,11 +94,14 @@ def pull_activity(session, cutoff):
         created = parse_dt(a.get("created"))
         if created is None or created < cutoff:
             break
-        for invitee in a.get("invitees", []):
+        invitees = a.get("invitees", [])
+        # first lead-side invitee (personId set) represents the lead this appointment is with
+        lead_person_id = next((inv.get("personId") for inv in invitees if inv.get("personId")), None)
+        for invitee in invitees:
             uid = invitee.get("userId")
             if uid:
-                events.append({"fub_id": a["id"], "event_type": "appt",
-                                "user_id": uid, "created_at": created, "duration_min": 0})
+                events.append({"fub_id": a["id"], "event_type": "appt", "user_id": uid,
+                                "created_at": created, "duration_min": 0, "person_id": lead_person_id})
 
     print("Pulling calls (attempts + conversations)...")
     for c in paginate(session, "calls"):
@@ -101,13 +111,30 @@ def pull_activity(session, cutoff):
         uid = c.get("userId")
         if not uid:
             continue
-        events.append({"fub_id": c["id"], "event_type": "attempt",
-                        "user_id": uid, "created_at": created, "duration_min": 0})
+        pid = c.get("personId")
+        events.append({"fub_id": c["id"], "event_type": "attempt", "user_id": uid,
+                        "created_at": created, "duration_min": 0, "person_id": pid})
         duration = c.get("duration") or 0
         if duration >= 120:
-            events.append({"fub_id": c["id"], "event_type": "conversation",
-                            "user_id": uid, "created_at": created, "duration_min": round(duration / 60)})
+            events.append({"fub_id": c["id"], "event_type": "conversation", "user_id": uid,
+                            "created_at": created, "duration_min": round(duration / 60), "person_id": pid})
 
+    return events
+
+
+def pull_new_leads(session, cutoff):
+    """New leads assigned to the team — the top of the Sales Funnel.
+    Stops as soon as we hit a person outside the window (people list
+    defaults to newest-first)."""
+    events = []
+    for p in paginate(session, "people"):
+        created = parse_dt(p.get("created"))
+        if created is None or created < cutoff:
+            break
+        uid = p.get("assignedUserId")
+        if uid:
+            events.append({"fub_id": p["id"], "event_type": "lead", "user_id": uid,
+                            "created_at": created, "duration_min": 0, "person_id": p["id"]})
     return events
 
 
@@ -130,18 +157,8 @@ def pull_message_events(session, cutoff):
                 continue
             uid = t.get("userId")
             if uid:
-                events.append({"fub_id": t["id"], "event_type": "text",
-                                "user_id": uid, "created_at": created, "duration_min": 0})
-                
-        for z in paginate(session, "textMessages", params={"personId": pid, "source": "Zillow"}):
-            created = parse_dt(z.get("created"))
-            if created is None or created < cutoff or z.get("isIncoming"):
-                continue
-            uid = z.get("userId")
-            if uid:
-                events.append({"fub_id": z["id"], "event_type": "zillow",
-                                "user_id": uid, "created_at": created, "duration_min": 0})
-        
+                events.append({"fub_id": t["id"], "event_type": "text", "user_id": uid,
+                                "created_at": created, "duration_min": 0, "person_id": pid})
 
         for e in paginate(session, "emails", params={"personId": pid}):
             created = parse_dt(e.get("created") or e.get("date"))
@@ -149,8 +166,8 @@ def pull_message_events(session, cutoff):
                 continue
             uid = e.get("userId")
             if uid:
-                events.append({"fub_id": e["id"], "event_type": "email",
-                                "user_id": uid, "created_at": created, "duration_min": 0})
+                events.append({"fub_id": e["id"], "event_type": "email", "user_id": uid,
+                                "created_at": created, "duration_min": 0, "person_id": pid})
 
     print(f"  Checked {checked} recently-updated people for texts/emails.")
     return events
@@ -169,6 +186,8 @@ def ensure_tables(cur):
             UNIQUE (fub_id, event_type, user_id)
         )
     """)
+    # Safe to run every time — no-op if the column already exists
+    cur.execute("ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS person_id BIGINT")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pull_state (
             id INT PRIMARY KEY DEFAULT 1,
@@ -202,10 +221,10 @@ def write_events_to_db(database_url, users, events, run_started_at):
         if not name:
             continue
         cur.execute("""
-            INSERT INTO agent_events (fub_id, event_type, user_id, agent_name, created_at, duration_min)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (fub_id, event_type, user_id) DO NOTHING
-        """, (e["fub_id"], e["event_type"], e["user_id"], name, e["created_at"], e["duration_min"]))
+            INSERT INTO agent_events (fub_id, event_type, user_id, agent_name, created_at, duration_min, person_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (fub_id, event_type, user_id) DO UPDATE SET person_id = EXCLUDED.person_id
+        """, (e["fub_id"], e["event_type"], e["user_id"], name, e["created_at"], e["duration_min"], e.get("person_id")))
         written += 1
 
     set_last_pulled_at(cur, run_started_at)
@@ -251,6 +270,11 @@ def main():
 
     events = pull_activity(session, cutoff)
     print(f"Collected {len(events)} appointment/call events.")
+
+    print("Pulling new leads...")
+    lead_events = pull_new_leads(session, cutoff)
+    print(f"Collected {len(lead_events)} new lead events.")
+    events += lead_events
 
     print("Pulling texts/emails (bounded to recently-updated people)...")
     message_events = pull_message_events(session, cutoff)
