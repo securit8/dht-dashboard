@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sales Funnel — Dream Homes Team</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #EEF0F5; }
+    .page { max-width: 1360px; margin: 0 auto; padding: 32px 24px; }
+    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand img { width: 44px; height: 44px; border-radius: 8px; }
+    h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; color: #1F2A44; }
+    .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8B93A1; }
+    .logout { font-size: 12px; color: #8B93A1; text-decoration: none; }
+    .nav { display: flex; gap: 6px; margin-bottom: 20px; }
+    .nav a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
+    .nav .active { background: #7B8FF0; color: #fff; }
+    .nav .inactive { background: #fff; color: #8B93A1; }
+    .tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+    .tabs a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
+    .funnel-card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); }
+    .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin-bottom: 28px; }
+    .stage-head { text-align: center; padding: 0 8px; }
+    .stage-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #8B93A1; margin-bottom: 6px; }
+    .stage-count { font-family: 'IBM Plex Mono', monospace; font-size: 32px; font-weight: 700; color: #1F2A44; }
+    .stage-count.untracked { color: #C6CBD4; }
+    .stage-change { font-size: 11px; margin-top: 6px; }
+    .stage-change.up { color: #2FA867; }
+    .stage-change.down { color: #C0392B; }
+    .stage-change.flat { color: #8B93A1; }
+    .bars { display: flex; align-items: flex-end; gap: 10px; height: 160px; }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+    .bar { width: 100%; border-radius: 8px 8px 0 0; background: #7B8FF0; display: flex; align-items: flex-start; justify-content: center; padding-top: 10px; min-height: 26px; }
+    .bar.untracked { background: #EEF0F5; border: 1px dashed #D3D8E0; }
+    .bar-pct { color: #fff; font-size: 13px; font-weight: 700; }
+    .bar-pct.dim { color: #A9B0BC; }
+    .note { font-size: 10.5px; color: #8B93A1; margin-top: 20px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <div class="brand">
+      <img src="{{ url_for('static', filename='dht-logo.png') }}" alt="Dream Homes Team">
+      <div>
+        <h1>Sales Funnel</h1>
+        <span class="sub">Dream Homes Team &middot; live data</span>
+      </div>
+    </div>
+    <a class="logout" href="/logout">Log out</a>
+  </div>
+
+  <div class="nav">
+    <a class="active" href="/funnel">Sales Funnel</a>
+    <a class="inactive" href="/">Leaderboard</a>
+  </div>
+
+  <div class="tabs">
+    <a href="?period=today" style="background:{{ '#7B8FF0' if period=='today' else '#fff' }}; color:{{ '#fff' if period=='today' else '#8B93A1' }};">Today</a>
+    <a href="?period=week" style="background:{{ '#7B8FF0' if period=='week' else '#fff' }}; color:{{ '#fff' if period=='week' else '#8B93A1' }};">This Week</a>
+    <a href="?period=month" style="background:{{ '#7B8FF0' if period=='month' else '#fff' }}; color:{{ '#fff' if period=='month' else '#8B93A1' }};">This Month</a>
+    <a href="?period=year" style="background:{{ '#7B8FF0' if period=='year' else '#fff' }}; color:{{ '#fff' if period=='year' else '#8B93A1' }};">This Year</a>
+  </div>
+
+  <div class="funnel-card">
+    <div class="stages">
+      {% for s in stages %}
+      <div class="stage-head">
+        <div class="stage-label">{{ s.label }}</div>
+        <div class="stage-count {{ '' if s.tracked else 'untracked' }}">{{ s.count if s.tracked else '--' }}</div>
+        {% if s.tracked %}
+          {% if s.change is none %}
+            <div class="stage-change flat">-- vs prior period</div>
+          {% elif s.change == 'new' %}
+            <div class="stage-change up">new this period</div>
+          {% elif s.change >= 0 %}
+            <div class="stage-change up">&#8599; +{{ s.change }}% vs prior period</div>
+          {% else %}
+            <div class="stage-change down">&#8600; {{ s.change }}% vs prior period</div>
+          {% endif %}
+        {% else %}
+          <div class="stage-change flat">not yet tracked</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="bars">
+      {% for s in stages %}
+      <div class="bar-col">
+        <div class="bar {{ '' if s.tracked else 'untracked' }}" style="height: {{ [s.pct_of_top, 6]|max if s.tracked else 100 }}%;">
+          {% if s.tracked %}
+            <span class="bar-pct">{{ s.pct_of_top }}%</span>
+          {% else %}
+            <span class="bar-pct dim">--</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="note">
+      New Leads, Contacted, and Appt. Set are real, live counts of distinct leads from Follow Up Boss. Appt. Met and Closed Deal aren't wired up yet — those need appointment-outcome and deal data we haven't pulled in.
+    </div>
+  </div>
+</div>
+</body>
+</html>
