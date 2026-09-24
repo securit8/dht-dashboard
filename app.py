@@ -626,7 +626,13 @@ def agent_snapshot():
                             years=CTE.by_year(cur, cte_name), deals=CTE.agent_deals(cur, cte_name))
                 elif tab == "goals":
                     R.ensure_app_tables(cur)
-                    data["goals"] = R.goals_view(cur, f, uid)
+                    # Appointments -> under contract uses CTE deals when the agent is in CTE
+                    uc = None
+                    if CTE.ready(cur):
+                        cte_name = CTE.name_for(cur, data["info"]["name"]) if data["info"] else None
+                        if cte_name:
+                            uc = CTE.deal_counts(cur, f.start, f.end, cte_name)["written"]
+                    data["goals"] = R.goals_view(cur, f, uid, uc)
                 else:
                     R.ensure_app_tables(cur)
                     data["notes"] = R.coaching_notes(cur, uid, request.args.get("author") or None,

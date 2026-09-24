@@ -754,37 +754,43 @@ def agent_financials(cur, f, uid, now):
 # Goals & Pacing metrics: (key, label, higher_is_better, unit)
 GOAL_METRICS = [
     ("avg_call_min", "Average Call Time (min)", True, ""),
-    ("contacts_per_lead", "Contacts Per Lead", True, ""),
     ("conversations", "Conversations", True, ""),
+    ("convos_per_appt", "Conversations per Appointment", False, ""),
     ("texts", "Texts Sent", True, ""),
     ("emails", "Emails Sent", True, ""),
     ("appts", "Total Appointments", True, ""),
     ("held", "Appointments Held", True, ""),
+    ("appt_to_contract", "Appointments to Under Contract", True, "%"),
     ("trash_rate", "Assign-to-Trash Rate", False, "%"),
 ]
 
 
-def goal_actuals(cur, f):
+def goal_actuals(cur, f, under_contract=None):
+    """under_contract: deals that went under contract in the period (the app
+    passes the CTE count); falls back to FUB deals written."""
     p = f.params()
     e = one(cur, f"""
         SELECT COALESCE(AVG(e.duration_min) FILTER (WHERE e.event_type = 'conversation'), 0) AS avg_call_min,
                COUNT(*) FILTER (WHERE e.event_type = 'conversation') AS conversations,
                COUNT(*) FILTER (WHERE e.event_type = 'text') AS texts,
-               COUNT(*) FILTER (WHERE e.event_type = 'email') AS emails,
-               COUNT(*) FILTER (WHERE e.event_type = ANY(%(contact_types)s)) AS contacts
+               COUNT(*) FILTER (WHERE e.event_type = 'email') AS emails
         FROM agent_events e WHERE e.created_at >= %(start)s AND e.created_at < %(end)s AND {EVENTS_F}""", p)
     lp = one(cur, f"""
         SELECT COUNT(*) AS leads, COUNT(*) FILTER (WHERE LOWER(TRIM(p.stage)) = ANY(%(trash_stages)s)) AS trashed
         FROM people p WHERE p.created_at >= %(start)s AND p.created_at < %(end)s AND {PEOPLE_F}""", p)
     fc = funnel_counts(cur, f)
+    uc = fc["written"] if under_contract is None else under_contract
     return {"avg_call_min": round(float(e["avg_call_min"]), 1),
-            "contacts_per_lead": round(e["contacts"] / lp["leads"], 1) if lp["leads"] else 0,
-            "conversations": e["conversations"], "texts": e["texts"], "emails": e["emails"],
-            "appts": fc["appts_set"], "held": fc["held"], "trash_rate": pct(lp["trashed"], lp["leads"])}
+            "conversations": e["conversations"],
+            "convos_per_appt": round(e["conversations"] / fc["appts_set"], 1) if fc["appts_set"] else 0,
+            "texts": e["texts"], "emails": e["emails"],
+            "appts": fc["appts_set"], "held": fc["held"],
+            "appt_to_contract": pct(uc, fc["appts_set"]), "under_contract": uc,
+            "trash_rate": pct(lp["trashed"], lp["leads"])}
 
 
-def goals_view(cur, f, uid):
-    actual = goal_actuals(cur, f)
+def goals_view(cur, f, uid, under_contract=None):
+    actual = goal_actuals(cur, f, under_contract)
     targets = {r["metric"]: float(r["target"]) for r in fetch(
         cur, "SELECT metric, target FROM agent_goals WHERE user_id = %(u)s", {"u": uid})}
     out = []
@@ -799,7 +805,10 @@ def goals_view(cur, f, uid):
             progress = min(round(a / t * 100), 100) if t else 0
             status = "meeting" if a <= t else "approaching" if a <= t * 1.25 else "below"
         out.append({"key": key, "label": label, "actual": actual[key], "target": t, "unit": unit,
-                    "higher": higher, "progress": progress, "status": status})
+                    "higher": higher, "progress": progress, "status": status,
+                    "detail": {"convos_per_appt": f"{actual['conversations']:,} conversations / {actual['appts']:,} appointments",
+                               "appt_to_contract": f"{actual['under_contract']:,} under contract / {actual['appts']:,} appointments",
+                               }.get(key)})
     return out
 
 

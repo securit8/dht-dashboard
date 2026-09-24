@@ -209,7 +209,7 @@
       <div class="card-head"><h2>Goals &amp; Pacing</h2><span class="muted">{{ rng.label }}</span></div>
       {% for g in goals %}
         <div class="goal">
-          <div>{{ g.label }}{% if not g.higher %} <span class="muted">(limit, lower is better)</span>{% endif %}</div>
+          <div>{{ g.label }}{% if not g.higher %} <span class="muted">(lower is better)</span>{% endif %}{% if g.detail %} <span class="muted">&middot; {{ g.detail }}</span>{% endif %}</div>
           <div style="text-align:right;font-family:'IBM Plex Mono',monospace">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}</div>
           <div class="track"><div class="fill g-{{ g.status }}" style="width: {{ g.progress if g.target else 100 }}%"></div></div>
         </div>
