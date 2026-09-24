@@ -67,6 +67,9 @@
           {{ m.chg(s.chg) }}
           <div class="fbar-wrap"><div class="fbar" style="height: {{ [s.pct, 4]|max }}%">{{ s.pct }}%</div></div>
           <div class="muted" style="margin-top:6px">{{ s.count|num }} Leads</div>
+          {% if loop.last and cte_closed is defined %}
+            <div class="muted" style="margin-top:4px"><b style="color:var(--ink)">{{ cte_closed.closed|num }}</b> closed in CTE ({{ cte_closed.closed_vol|money }})</div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -169,7 +172,7 @@
         {% for y in cte.years if y.closed_deals or y.accepted or y.written_offers %}
         <tr><td><b>{{ y.year }}</b></td><td class="n">{{ y.closed_deals|num }}</td><td class="n">{{ y.volume|money }}</td>
             <td class="n">{{ y.gci|money }}</td><td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.written_offers|num }}</td>
-            <td class="n">{{ y.open_houses|num }}</td><td class="n">{{ y.listings_signed|num }}</td></tr>
+            <td class="n">{{ y.open_houses|num }}</td><td class="n">{{ y.listing_agreements|num }}</td></tr>
         {% endfor %}
       </table></div>
     </div>

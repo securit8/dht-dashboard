@@ -36,13 +36,28 @@
           <div><b>{{ ov.held|num }}</b>Held</div>
           <div><b>{{ ov.held_pct }}%</b>Held %</div>
         </div>{{ m.chg(ov.chg.appts) }}</div>
-      <div><div class="kpi-lbl">Deals</div>
+      <div><div class="kpi-lbl">Deals{% if ov.cte %} &middot; CTE{% endif %}</div>
+        {% if ov.cte %}
+        <div class="split">
+          <div><b>{{ ov.cte.written|num }}</b>Written</div>
+          <div><b>{{ ov.cte.pending|num }}</b>Pending</div>
+          <div><b>{{ ov.cte.closed|num }}</b>Closed</div>
+        </div>{{ m.chg(ov.cte.chg_deals) }}
+        <div class="kpi-lbl" style="margin-top:12px">Deals &middot; FUB</div>
+        {% endif %}
         <div class="split">
           <div><b>{{ ov.written|num }}</b>Written</div>
           <div><b>{{ ov.pending|num }}</b>Pending</div>
           <div><b>{{ ov.closed|num }}</b>Closed</div>
         </div>{{ m.chg(ov.chg.deals) }}</div>
-      <div><div class="kpi-lbl">Conversion</div>
+      <div><div class="kpi-lbl">Conversion{% if ov.cte %} &middot; CTE{% endif %}</div>
+        {% if ov.cte %}
+        <div class="split">
+          <div><b>{{ ov.cte.closed_pct }}%</b>Closed %</div>
+          <div><b>{{ ov.cte.closed_pending_pct }}%</b>Closed and Pending %</div>
+        </div>
+        <div class="kpi-lbl" style="margin-top:12px">Conversion &middot; FUB</div>
+        {% endif %}
         <div class="split">
           <div><b>{{ ov.closed_pct }}%</b>Closed %</div>
           <div><b>{{ ov.closed_pending_pct }}%</b>Closed and Pending %</div>
@@ -54,7 +69,16 @@
   <div class="grid2" style="margin-bottom:20px">
     <div class="card board">
       <h3>Top Agents</h3>
+      {% if top_agents_cte is defined %}
+      <div class="eyebrow" style="margin:-8px 0 8px">Closed deals &middot; CTE &middot; {{ rng.label }}</div>
+      <ol>
+        {% for a in top_agents_cte %}<li><span>{{ a.name }}</span><b>{{ a.value }} &nbsp;|&nbsp; {{ a.volume|money }}</b></li>
+        {% else %}<li class="none">No closed deals in these dates</li>{% endfor %}
+      </ol>
+      <div class="eyebrow" style="margin:16px 0 8px">Closed deals &middot; FUB</div>
+      {% else %}
       <div class="eyebrow" style="margin:-8px 0 8px">Closed deals &middot; {{ rng.label }}</div>
+      {% endif %}
       <ol>
         {% for a in top_agents %}<li><span>{{ a.name }}</span><b>{{ a.deals }} &nbsp;|&nbsp; {{ a.volume|money }}</b></li>
         {% else %}<li class="none">No closed deals in these dates</li>{% endfor %}

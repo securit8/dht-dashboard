@@ -29,8 +29,8 @@
         <div class="kpi-sub">Open houses held (Lead Gen)</div></div>
       <div><div class="kpi-lbl">Accepted Offers</div><div class="kpi-val">{{ kpi.accepted|num }}</div>
         <div class="kpi-sub">Went under contract &middot; {{ kpi.fell_through|num }} later fell through</div></div>
-      <div><div class="kpi-lbl">Listings Signed</div><div class="kpi-val">{{ kpi.listings_signed|num }}</div>
-        <div class="kpi-sub">Lead Gen &middot; deal log shows {{ kpi.listing_agreements|num }} listing agreements</div></div>
+      <div><div class="kpi-lbl">Listings Signed</div><div class="kpi-val">{{ kpi.listing_agreements|num }}</div>
+        <div class="kpi-sub">Listing deals by Signed Date (deal log)</div></div>
     </div>
   </div>
 
@@ -51,7 +51,7 @@
       </div>
     </div>
     <div class="card">
-      <h3>Lead gen activity</h3>
+      <h3>Lead gen activity <span class="muted" style="font-weight:400">&middot; hand-entered in CTE; the FUB pages are the main source for activity</span></h3>
       <div class="kpis">
         <div><div class="kpi-lbl">Dials</div><div class="kpi-val">{{ kpi.dials|num }}</div></div>
         <div><div class="kpi-lbl">Contacts</div><div class="kpi-val">{{ kpi.contacts|num }}</div></div>
@@ -76,7 +76,7 @@
       {% for y in years %}
       <tr><td class="y">{{ y.year }}</td>
           <td class="n">{{ y.written_offers|num }}</td><td class="n">{{ y.open_houses|num }}</td>
-          <td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.listings_signed|num }}</td>
+          <td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.listing_agreements|num }}</td>
           <td class="n sep">{{ y.closed_deals|num }}</td><td class="n">{{ y.buyer_closed }} / {{ y.listing_closed }}</td>
           <td class="n">{{ y.volume|money }}</td><td class="n">{{ y.avg_price|money }}</td>
           <td class="n">{{ y.gci|money }}</td><td class="n">{{ pctf(y.avg_pct) }}</td>
@@ -109,7 +109,7 @@
       {% for a in agents %}
       <tr><td><a href="{{ qs(cte_agent=a.name) }}">{{ a.name }}</a></td>
           <td class="n">{{ a.written_offers|num }}</td><td class="n">{{ a.open_houses|num }}</td>
-          <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.listings_signed|num }}</td>
+          <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.listing_agreements|num }}</td>
           <td class="n">{{ a.closed_deals|num }}</td><td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
           <td class="n">{{ a.agent_gci|money if a.agent_gci else '--' }}</td>
           <td class="n">{{ a.dials|num }}</td><td class="n">{{ a.contacts|num }}</td>

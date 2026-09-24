@@ -193,6 +193,14 @@ def hide_future(values, year):
     return [v if i < today.month else None for i, v in enumerate(values)]
 
 
+def cte_agent_for(cur, fub_uid):
+    """CTE name for a FUB agent filter (None = whole team). An agent who isn't
+    in CTE gets a name that matches nothing, so their CTE numbers are 0."""
+    if not fub_uid:
+        return None
+    return CTE.name_for(cur, R.agent_names(cur).get(fub_uid)) or "(not in CTE)"
+
+
 def filter_options(cur, agents=True, sources=True):
     opts = {}
     if agents:
@@ -332,14 +340,37 @@ def sales_manager():
         data = {}
         if ready:
             rows = R.team_overview(cur, f)
+            kpis = R.sales_manager_kpis(cur, f, today)
+            top = R.top_performers(cur, f, today)
+            has_cte = CTE.ready(cur)
+            if has_cte:
+                # CTE deal numbers next to the FUB ones (the owner asked for both)
+                cte_agent = cte_agent_for(cur, f.agent)
+                y = R.ytd(f, today)
+                for band, ff, prev in (("period", f, f.previous()), ("ytd", y, y.year_earlier())):
+                    c = CTE.deal_counts(cur, ff.start, ff.end, cte_agent, f.source)
+                    pc = CTE.deal_counts(cur, prev.start, prev.end, cte_agent, f.source)
+                    c["chg_written"] = R.change(c["written"], pc["written"])
+                    c["chg_closed"] = R.change(c["closed"], pc["closed"])
+                    c["conversion"] = R.pct(c["closed"] + c["pending"], kpis[band]["new_leads"], 2)
+                    kpis[band]["cte"] = c
+                by_agent = CTE.deals_by_agent(cur, f.start, f.end, f.source)
+                for r in rows:
+                    r["cte"] = by_agent.get(r["name"].lower(), {"written": 0, "pending": 0, "closed": 0})
+                top["cte_closers"] = CTE.top_deals(cur, today.replace(month=1, day=1), today + timedelta(days=1),
+                                                   "closed", f.source)
+                top["cte_written"] = CTE.top_deals(cur, today - timedelta(days=90), today + timedelta(days=1),
+                                                   "written", f.source)
             data = dict(
-                kpis=R.sales_manager_kpis(cur, f, today),
-                rows=rows,
+                kpis=kpis, rows=rows, has_cte=has_cte,
                 avg=R.team_average(rows, ["total_leads", "appts", "held", "held_pct", "accepted",
                                           "accepted_pct", "pending", "closed", "conversion",
                                           "calls", "conversations", "texts", "emails"]),
-                top=R.top_performers(cur, f, today),
+                top=top,
                 **filter_options(cur))
+            if has_cte and rows:
+                data["avg"]["cte"] = {k: round(sum(r["cte"][k] for r in rows) / len(rows), 2)
+                                      for k in ("written", "pending", "closed")}
     return render_template("sales_manager.html", view=view, ready=ready, rng=rng,
                            buckets=R.BUCKETS, **data)
 
@@ -415,6 +446,17 @@ def lead_source():
                        "deals": [hide_future(R.monthly_series(cur, f, year, "deals"), year),
                                  R.monthly_series(cur, f, year - 1, "deals")]},
                 **filter_options(cur))
+            if CTE.ready(cur):  # CTE deal numbers next to the FUB ones
+                cte_agent = cte_agent_for(cur, f.agent)
+                c = CTE.deal_counts(cur, f.start, f.end, cte_agent, f.source)
+                prev = f.previous()
+                pc = CTE.deal_counts(cur, prev.start, prev.end, cte_agent, f.source)
+                leads = data["ov"]["leads"]
+                c["closed_pct"] = R.pct(c["closed"], leads, 2)
+                c["closed_pending_pct"] = R.pct(c["closed"] + c["pending"], leads, 2)
+                c["chg_deals"] = R.change(c["closed"] + c["pending"], pc["closed"] + pc["pending"])
+                data["ov"]["cte"] = c
+                data["top_agents_cte"] = CTE.top_deals(cur, f.start, f.end, "closed", f.source)
     return render_template("lead_source.html", ready=ready, rng=rng, **data)
 
 
@@ -434,9 +476,21 @@ def business_overview():
             options = CTE.agent_options(cur)
             agent = agent if agent in options else None
             months = CTE.business_months(cur, year, agent, source)
-            quarters, total = CTE.business_quarters(months)
+            # FUB deals as extra rows under the CTE ones (the owner asked for both)
+            fub_uid = next((uid for uid, name in R.agent_names(cur).items()
+                            if agent and name.lower() == agent.lower()), None)
+            if agent and not fub_uid:
+                fub_uid = -1  # agent isn't in FUB: show zeros
+            fub = R.business_months(cur, R.Filters(today, today, fub_uid, source, TEAM_TZ_NAME), year) \
+                if R.table_exists(cur, "deals") else [{"accepted": 0, "deals": 0, "volume": 0}] * 12
+            for m, fm in zip(months, fub):
+                m.update(fub_accepted=fm["accepted"], fub_deals=fm["deals"], fub_volume=float(fm["volume"]))
+            metrics = CTE.BUSINESS_METRICS + [("fub_accepted", "Accepted Deals (FUB)", "n"),
+                                              ("fub_deals", "Pending + Closed Deals (FUB)", "n"),
+                                              ("fub_volume", "Volume (FUB)", "money")]
+            quarters, total = CTE.business_quarters(months, metrics)
             data = dict(
-                source_name="CTE", metrics=CTE.BUSINESS_METRICS, quarters=quarters, total=total,
+                source_name="CTE", metrics=metrics, quarters=quarters, total=total,
                 yoy={y: [m["closed"] for m in CTE.business_months(cur, y, agent, source)] for y in (year - 2, year - 1)}
                 | {year: hide_future([m["closed"] for m in months], year)},
                 top=CTE.business_top(cur, today - timedelta(days=top_days), source),
@@ -535,13 +589,15 @@ def agent_snapshot():
         data = {}
         if ready:
             options = R.agent_options(cur)
-            uid = f.agent or (options[0][0] if options else None)
+            uid = f.agent or R.most_active_agent(cur) or (options[0][0] if options else None)
             data = dict(agent_options=options, source_options=R.source_options(cur), uid=uid,
                         info=R.agent_info(cur, uid) if uid else None)
             if uid:
                 f.agent = uid
                 if tab == "funnel":
                     data["funnel"] = R.agent_funnel(cur, f)
+                    if CTE.ready(cur):
+                        data["cte_closed"] = CTE.deal_counts(cur, f.start, f.end, cte_agent_for(cur, uid), f.source)
                 elif tab == "opportunities":
                     data["opp"] = R.opportunities(cur, uid, now)
                 elif tab == "financial":

@@ -3,6 +3,14 @@
 {% block title %}Sales Manager Report{% endblock %}
 {% block eyebrow %}Sales Manager Report{% endblock %}
 {% block heading %}Sales funnel performance at a glance{% endblock %}
+{% block style %}
+  .pair { display: flex; gap: 14px; margin: 6px 0 4px; }
+  .pair div { display: flex; flex-direction: column; }
+  .pair b { font-family: 'IBM Plex Mono', monospace; font-size: 26px; }
+  .pair div + div b { color: var(--muted); }
+  .pair span { font-size: 11.5px; color: var(--muted); }
+  .tbl .dual { color: var(--muted); }
+{% endblock %}
 
 {% macro kpi_band(k, label, value, chg_label) %}
 <div class="card">
@@ -20,22 +28,41 @@
       <div class="kpi-sub">{{ k.held_rate }}% Held Rate</div>
       {{ m.chg(k.chg_sched, chg_label) }}
     </div>
+    {% set c = k.cte %}
     <div>
       <div class="kpi-lbl">Accepted Deals</div>
+      {% if c %}
+      <div class="pair"><div><b>{{ c.written|num }}</b><span>CTE &middot; {{ c.written_vol|money }}</span></div>
+        <div><b>{{ k.written|num }}</b><span>FUB &middot; {{ k.written_vol|money }}</span></div></div>
+      <div class="kpi-sub">{{ c.cancelled|num }} / {{ k.cancelled|num }} cancelled</div>
+      {{ m.chg(c.chg_written, 'CTE ' ~ chg_label) }}
+      {% else %}
       <div class="kpi-val">{{ k.written|num if k.written else '--' }} <span class="chip">{{ k.cancelled|num }} Cancelled</span></div>
       <div class="kpi-sub">{{ k.written_vol|money }}</div>
       {{ m.chg(k.chg_written, chg_label) }}
+      {% endif %}
     </div>
     <div>
       <div class="kpi-lbl">Deals Pending</div>
+      {% if c %}
+      <div class="pair"><div><b>{{ c.pending|num }}</b><span>CTE &middot; {{ c.pending_vol|money }}</span></div>
+        <div><b>{{ k.pending|num }}</b><span>FUB &middot; {{ k.pending_vol|money }}</span></div></div>
+      {% else %}
       <div class="kpi-val">{{ k.pending|num if k.pending else '--' }}</div>
       <div class="kpi-sub">{{ k.pending_vol|money }}</div>
+      {% endif %}
     </div>
     <div>
       <div class="kpi-lbl">Deals Closed</div>
+      {% if c %}
+      <div class="pair"><div><b>{{ c.closed|num }}</b><span>CTE &middot; {{ c.closed_vol|money }}</span></div>
+        <div><b>{{ k.closed|num }}</b><span>FUB &middot; {{ k.closed_vol|money }}</span></div></div>
+      <div class="kpi-sub" style="color:var(--accent-ink);margin-top:6px">Conversion (from lead assignment): {{ c.conversion }}% CTE &middot; {{ k.conversion }}% FUB</div>
+      {% else %}
       <div class="kpi-val">{{ k.closed|num if k.closed else '--' }}</div>
       <div class="kpi-sub">{{ k.closed_vol|money }}</div>
       <div class="kpi-sub" style="color:var(--accent-ink);margin-top:6px">{{ k.conversion }}% Conversion Rate (from lead assignment)</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -63,12 +90,18 @@
     <table class="tbl">
       {% if view == 'funnel' %}
         <tr><th>Agent name</th><th class="n">Total Leads</th><th class="n">Appointments</th><th class="n">Appts Held</th>
-            <th class="n">Appts Held %</th><th class="n">Accepted Deals</th><th class="n">Accepted Deals %</th>
-            <th class="n">Pending Deals</th><th class="n">Closed Deals</th><th class="n">Conversion Rate</th></tr>
+            <th class="n">Appts Held %</th><th class="n">Accepted Deals{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Accepted Deals % (FUB)</th>
+            <th class="n">Pending{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Closed{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Conversion (FUB)</th></tr>
         {% macro frow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.total_leads|num }}</td>
             <td class="n">{{ r.appts|num }}</td><td class="n">{{ r.held|num }}</td><td class="n">{{ r.held_pct }}%</td>
+            {% if has_cte %}
+            <td class="n">{{ r.cte.written|num }} <span class="dual">/ {{ r.accepted|num }}</span></td><td class="n">{{ r.accepted_pct }}%</td>
+            <td class="n">{{ r.cte.pending|num }} <span class="dual">/ {{ r.pending|num }}</span></td>
+            <td class="n">{{ r.cte.closed|num }} <span class="dual">/ {{ r.closed|num }}</span></td><td class="n">{{ r.conversion }}%</td></tr>
+            {% else %}
             <td class="n">{{ r.accepted|num }}</td><td class="n">{{ r.accepted_pct }}%</td><td class="n">{{ r.pending|num }}</td>
-            <td class="n">{{ r.closed|num }}</td><td class="n">{{ r.conversion }}%</td></tr>{% endmacro %}
+            <td class="n">{{ r.closed|num }}</td><td class="n">{{ r.conversion }}%</td></tr>
+            {% endif %}{% endmacro %}
         {% if rows %}{{ frow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
         {% for r in rows %}{{ frow(r) }}{% endfor %}
       {% elif view == 'stages' %}
@@ -91,14 +124,16 @@
       {% if not rows %}<tr><td colspan="10" class="muted">No activity in these dates.</td></tr>{% endif %}
     </table>
     </div>
-    <div class="note">Leads = new leads assigned in these dates. Appointments = set in these dates; held = scheduled in these dates with a "held" outcome. Accepted = deals written in these dates.</div>
+    <div class="note">Leads = new leads assigned in these dates. Appointments = set in these dates; held = scheduled in these dates with a "held" outcome. Accepted = deals written in these dates.{% if has_cte %} Deal columns show CTE (from the deal log, credited to the Primary Agent) / FUB (Follow Up Boss deals).{% endif %}</div>
   </div>
 
   <h2>Top Performers</h2>
-  <div class="grid4">
-    {{ m.board('Top 5 Closers', 'Year to date', top.closers) }}
+  <div class="grid3">
+    {% if has_cte %}{{ m.board('Top 5 Closers (CTE)', 'Year to date', top.cte_closers) }}{% endif %}
+    {{ m.board('Top 5 Closers' ~ (' (FUB)' if has_cte else ''), 'Year to date', top.closers) }}
     {{ m.board('Top 5 Appointment Bookers', 'Year to date', top.bookers) }}
-    {{ m.board('Top 5 Written', 'Last 90 days', top.written) }}
+    {% if has_cte %}{{ m.board('Top 5 Written (CTE)', 'Last 90 days', top.cte_written) }}{% endif %}
+    {{ m.board('Top 5 Written' ~ (' (FUB)' if has_cte else ''), 'Last 90 days', top.written) }}
     {{ m.board('Top 5 Contact Attempts', 'Last 30 days', top.attempts) }}
   </div>
 {% endif %}

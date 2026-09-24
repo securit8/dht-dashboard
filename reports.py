@@ -36,10 +36,15 @@ STAGE_BUCKETS = {
     "showing homes": "active", "active client": "active", "listing agreement": "active",
     "active listing": "active", "submitting offers": "active",
     "under contract": "closed", "pending": "closed", "closed": "closed", "sale closed": "closed",
-    "trash": "trash", "rejected": "trash", "archived": "trash", "do not contact": "trash",
+    "trash": "trash", "rejected": "trash", "archived": "trash", "archive": "trash", "do not contact": "trash",
 }
 CLOSED_STAGES = [s for s, b in STAGE_BUCKETS.items() if b == "closed"]
 TRASH_STAGES = [s for s, b in STAGE_BUCKETS.items() if b == "trash"]
+# FUB contacts that are not leads (other agents, vendors): left out of every lead count
+NOT_LEAD_STAGES = ["real estate agent", "vendor"]
+# Bulk uploads (source "Import", "BT Mass Upload ...") would swamp new-lead counts;
+# they are left out unless that source is picked in the filter
+IMPORT_SOURCES = "(import|mass upload)"
 
 
 def bucket_for(stage):
@@ -68,8 +73,12 @@ APPT_CLASS = """(CASE
     WHEN a.outcome ~* '(not|no.?show|cancel|resched|miss|didn)' THEN 'not_held'
     ELSE 'held' END)"""
 
+# Real leads only: not agents/vendors, and no bulk imports unless that source is picked
+REAL_LEADS = f"""LOWER(TRIM(COALESCE(p.stage, ''))) <> ALL(%(not_lead_stages)s)
+    AND (%(source)s::text IS NOT NULL OR COALESCE(p.source, '') !~* '{IMPORT_SOURCES}')"""
 PEOPLE_F = f"""(%(agent)s::bigint IS NULL OR p.assigned_user_id = %(agent)s)
-    AND (%(source)s::text IS NULL OR {SRC} = %(source)s)"""
+    AND (%(source)s::text IS NULL OR {SRC} = %(source)s)
+    AND {REAL_LEADS}"""
 EVENTS_F = f"""(%(agent)s::bigint IS NULL OR e.user_id = %(agent)s)
     AND (%(source)s::text IS NULL OR EXISTS (
         SELECT 1 FROM people p WHERE p.person_id = e.person_id AND {SRC} = %(source)s))"""
@@ -92,7 +101,8 @@ class Filters:
     def params(self, **extra):
         p = {"start": self.start, "end": self.end, "agent": self.agent, "source": self.source,
              "tz": self.tz, "contact_types": CONTACT_TYPES,
-             "closed_stages": CLOSED_STAGES, "trash_stages": TRASH_STAGES}
+             "closed_stages": CLOSED_STAGES, "trash_stages": TRASH_STAGES,
+             "not_lead_stages": NOT_LEAD_STAGES}
         p.update(extra)
         return p
 
@@ -151,6 +161,13 @@ def agent_options(cur):
     names = agent_names(cur)
     active = {r["user_id"] for r in fetch(cur, "SELECT DISTINCT user_id FROM agent_events", {})}
     return sorted(((uid, names[uid]) for uid in active if uid in names), key=lambda x: x[1].lower())
+
+
+def most_active_agent(cur, days=30):
+    """The FUB user with the most logged activity lately (Agent Snapshot's default)."""
+    rows = fetch(cur, """SELECT user_id FROM agent_events WHERE created_at >= NOW() - make_interval(days => %(d)s)
+                         GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1""", {"d": days})
+    return rows[0]["user_id"] if rows else None
 
 
 def source_options(cur):
@@ -665,13 +682,14 @@ AT_RISK_SHARE = 0.75  # "at risk" once 75% of the window has passed without cont
 
 
 def opportunities(cur, uid, now):
-    rows = fetch(cur, """
+    rows = fetch(cur, f"""
         SELECT p.person_id, p.name, p.stage, p.created_at, c.last_contact
         FROM people p
         LEFT JOIN (SELECT person_id, MAX(created_at) AS last_contact FROM agent_events
                    WHERE person_id IS NOT NULL AND event_type = ANY(%(contact_types)s)
                    GROUP BY person_id) c ON c.person_id = p.person_id
-        WHERE p.assigned_user_id = %(u)s""", {"u": uid, "contact_types": CONTACT_TYPES})
+        WHERE p.assigned_user_id = %(u)s AND {REAL_LEADS}""",
+        {"u": uid, "contact_types": CONTACT_TYPES, "not_lead_stages": NOT_LEAD_STAGES, "source": None})
     rules = {b: {"label": BUCKET_LABEL[b], "days": d, "completed": 0, "at_risk": 0, "past_due": 0}
              for b, d in FOLLOW_UP_DAYS.items()}
     past_due = []

@@ -59,7 +59,7 @@
     {{ m.board('Top Avg Sale $', period, top.avg|map('board_item', 'avg')|list, money) }}
   </div>
   {% if source_name == "CTE" %}
-  <div class="note">From the CTE deal log (My Business). Accepted = went under contract that month. Closed = closed that month. Pending deals are shown in the month they are projected to close. Top performers use each deal's Primary Agent.</div>
+  <div class="note">From the CTE deal log (My Business). Accepted = went under contract that month. Closed = closed that month. Pending deals are shown in the month they are projected to close. Top performers use each deal's Primary Agent. Rows marked (FUB) come from Follow Up Boss deals, for comparison.</div>
   {% else %}
   <div class="note">All Deals = deals that went pending or closed in the month. Accepted Deals = deals created in the month. Volume uses each deal's price in Follow Up Boss.</div>
   {% endif %}

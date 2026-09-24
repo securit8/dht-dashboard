@@ -107,7 +107,9 @@ def by_year(cur, cte_agent=None):
                    COUNT(*) FILTER (WHERE cl AND d.deal_type = 'Listing') AS listing_closed,
                    COALESCE(SUM(d.sale_price) FILTER (WHERE cl), 0) AS volume,
                    COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci,
-                   COALESCE(AVG(d.commission_pct) FILTER (WHERE cl AND d.commission_pct > 0), 0) AS avg_pct
+                   COALESCE(AVG(d.commission_pct) FILTER (WHERE cl AND d.commission_pct > 0), 0) AS avg_pct,
+                   COUNT(*) FILTER (WHERE d.deal_type = 'Listing'
+                                    AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements
             FROM (SELECT d.*, (d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl
                   FROM cte_deals d WHERE {DEAL_AGENT_MATCH}) d GROUP BY 1""", p):
         years.setdefault(r["year"], {}).update(r)
@@ -120,6 +122,7 @@ def by_year(cur, cte_agent=None):
     out = []
     for y in sorted(years, reverse=True):
         row = {"year": y, "accepted": 0, "fell_through": 0, "closed_deals": 0, "buyer_closed": 0,
+               "listing_agreements": 0,
                "listing_closed": 0, "volume": 0, "gci": 0, "avg_pct": 0, **{c: 0 for c in ACTIVITY},
                **{k: None for k, _ in FIN_LINES}}
         row.update({k: v for k, v in years[y].items() if v is not None})
@@ -143,7 +146,10 @@ def by_agent(cur, start, end):
                    COUNT(*) FILTER (WHERE cl) AS closed_deals,
                    COALESCE(SUM(d.sale_price) FILTER (WHERE cl), 0) AS volume,
                    COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci,
-                   COALESCE(SUM(d.primary_gci) FILTER (WHERE cl), 0) AS agent_gci
+                   COALESCE(SUM(d.primary_gci) FILTER (WHERE cl), 0) AS agent_gci,
+                   COUNT(*) FILTER (WHERE d.deal_type = 'Listing' AND d.signed_date >= %(start)s
+                                    AND d.signed_date < %(end)s
+                                    AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements
             FROM (SELECT d.*, (d.status = 'Closed' AND d.close_date >= %(start)s AND d.close_date < %(end)s
                                AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl FROM cte_deals d) d
             WHERE COALESCE(TRIM(d.primary_agent), '') <> '' GROUP BY 1""", p):
@@ -151,7 +157,7 @@ def by_agent(cur, start, end):
         entry.update({k: v for k, v in r.items() if k != "name"})
     rows = []
     for a in agents.values():
-        for k in ACTIVITY + ["accepted", "closed_deals", "volume", "gci", "agent_gci"]:
+        for k in ACTIVITY + ["accepted", "closed_deals", "volume", "gci", "agent_gci", "listing_agreements"]:
             a[k] = a.get(k) or 0
         if any(a[k] for k in ACTIVITY + ["accepted", "closed_deals"]):
             rows.append(a)
@@ -238,14 +244,16 @@ def business_months(cur, year, cte_agent=None, source=None):
     return out
 
 
-def business_quarters(months):
+def business_quarters(months, metrics=BUSINESS_METRICS):
+    """Sum months into quarters and a year total ("avg" is recomputed, not summed)."""
+    keys = [k for k, _, _ in metrics if k != "avg"]
     quarters = []
     for q in range(4):
         ms = months[q * 3:(q + 1) * 3]
-        row = {"q": q + 1, "months": ms, **{k: sum(m[k] for m in ms) for k, _, _ in BUSINESS_METRICS if k != "avg"}}
+        row = {"q": q + 1, "months": ms, **{k: sum(m[k] for m in ms) for k in keys}}
         row["avg"] = row["volume"] / row["closed"] if row["closed"] else 0
         quarters.append(row)
-    total = {k: sum(q[k] for q in quarters) for k, _, _ in BUSINESS_METRICS if k != "avg"}
+    total = {k: sum(q[k] for q in quarters) for k in keys}
     total["avg"] = total["volume"] / total["closed"] if total["closed"] else 0
     return quarters, total
 
@@ -263,3 +271,57 @@ def business_top(cur, since, source=None):
         r["avg"] = r["vol"] / r["n"] if r["n"] else 0
     top = lambda key: sorted(rows, key=lambda r: r[key], reverse=True)[:5]  # noqa: E731
     return {"volume": top("vol"), "deals": top("n"), "avg": top("avg")}
+
+
+# ---------------------------------------------------------------- deals next to FUB deals
+# Same shape as the FUB deal numbers in reports.funnel_counts, so pages can
+# show both side by side.
+
+def _deal_flags():
+    return """(d.under_contract_date >= %(start)s AND d.under_contract_date < %(end)s
+               AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year) AS uc,
+              (d.status = 'Closed' AND d.close_date >= %(start)s AND d.close_date < %(end)s
+               AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl"""
+
+
+def deal_counts(cur, start, end, cte_agent=None, source=None):
+    """written = went under contract in the period; pending = still pending and
+    went under contract in the period; closed = closed in the period."""
+    p = {"start": start.date(), "end": end.date(), "cte_agent": cte_agent, "source": source, "fell": FELL_THROUGH}
+    return one(cur, f"""
+        SELECT COUNT(*) FILTER (WHERE uc) AS written,
+               COALESCE(SUM(sale_price) FILTER (WHERE uc), 0) AS written_vol,
+               COUNT(*) FILTER (WHERE uc AND status IN %(fell)s) AS cancelled,
+               COUNT(*) FILTER (WHERE uc AND status = 'Pending') AS pending,
+               COALESCE(SUM(sale_price) FILTER (WHERE uc AND status = 'Pending'), 0) AS pending_vol,
+               COUNT(*) FILTER (WHERE cl) AS closed,
+               COALESCE(SUM(sale_price) FILTER (WHERE cl), 0) AS closed_vol,
+               COALESCE(SUM(gci) FILTER (WHERE cl), 0) AS gci
+        FROM (SELECT d.*, {_deal_flags()} FROM cte_deals d
+              WHERE {DEAL_AGENT_MATCH} AND {SOURCE_MATCH}) d""", p)
+
+
+def deals_by_agent(cur, start, end, source=None):
+    """{lowercase primary agent name: {written, pending, closed}} for a period."""
+    p = {"start": start.date(), "end": end.date(), "source": source, "cte_agent": None}
+    out = {}
+    for r in fetch(cur, f"""
+            SELECT LOWER(TRIM(d.primary_agent)) AS name,
+                   COUNT(*) FILTER (WHERE uc) AS written,
+                   COUNT(*) FILTER (WHERE uc AND status = 'Pending') AS pending,
+                   COUNT(*) FILTER (WHERE cl) AS closed
+            FROM (SELECT d.*, {_deal_flags()} FROM cte_deals d WHERE {SOURCE_MATCH}) d
+            WHERE COALESCE(TRIM(d.primary_agent), '') <> '' GROUP BY 1""", p):
+        out[r["name"]] = r
+    return out
+
+
+def top_deals(cur, since, until, kind, source=None, limit=5):
+    """Top agents (Primary Agent) by closed deals or deals written since a date."""
+    p = {"start": since.date(), "end": until.date(), "source": source, "cte_agent": None}
+    flag = "cl" if kind == "closed" else "uc"
+    return [{"name": r["name"], "value": r["n"], "volume": float(r["vol"])} for r in fetch(cur, f"""
+        SELECT TRIM(d.primary_agent) AS name, COUNT(*) AS n, COALESCE(SUM(d.sale_price), 0) AS vol
+        FROM (SELECT d.*, {_deal_flags()} FROM cte_deals d WHERE {SOURCE_MATCH}) d
+        WHERE {flag} AND COALESCE(TRIM(d.primary_agent), '') <> ''
+        GROUP BY 1 ORDER BY 2 DESC, 3 DESC LIMIT {int(limit)}""", p)]
