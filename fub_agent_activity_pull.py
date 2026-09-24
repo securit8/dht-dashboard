@@ -94,7 +94,8 @@ def fetch_users(session, database_url=None):
     """Agent roster as {id: name}. When database_url is given, also saves
     name/email/phone to the agents table for the Agent Snapshot page."""
     users, rows = {}, []
-    for u in paginate(session, "users"):
+    # includeDeleted: past agents still own old calls/appointments and need a name
+    for u in paginate(session, "users", params={"includeDeleted": "true"}):
         name = u.get("name") or f"{u.get('firstName', '')} {u.get('lastName', '')}".strip()
         users[u["id"]] = name or f"User {u['id']}"
         rows.append((u["id"], users[u["id"]], u.get("email") or "", u.get("phone") or "",
