@@ -1,78 +1,43 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Leaderboard — Dream Homes Team</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
-  <style>
-    body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #EEF0F5; }
-    .page { max-width: 1360px; margin: 0 auto; padding: 32px 24px; }
-    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .brand img { width: 44px; height: 44px; border-radius: 8px; }
-    h1 { margin: 0; font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; color: #1F2A44; }
-    .sub { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8B93A1; }
-    .logout { font-size: 12px; color: #8B93A1; text-decoration: none; }
-    .nav { display: flex; gap: 6px; margin-bottom: 20px; }
-    .nav a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
-    .nav .active { background: #7B8FF0; color: #fff; }
-    .nav .inactive { background: #fff; color: #8B93A1; }
-    .tabs { display: flex; gap: 6px; margin-bottom: 20px; }
-    .tabs a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 999px; }
-    .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
-    .totals .kpi { background: #fff; border-radius: 12px; padding: 13px 14px; box-shadow: 0 1px 3px rgba(31,42,68,0.05); }
-    .kpi-val { font-size: 19px; font-weight: 700; color: #1F2A44; font-family: 'IBM Plex Mono', monospace; }
-    .kpi-lbl { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8B93A1; }
-    .podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
-    .card { background: #fff; border-radius: 16px; padding: 20px 18px 16px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 1px 3px rgba(31,42,68,0.08); }
-    .avatar { width: 64px; height: 64px; border-radius: 999px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 19px; font-weight: 600; }
-    .badge { width: 24px; height: 24px; border-radius: 999px; background: #1F2A44; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border: 2px solid #fff; margin-top: -12px; }
-    .name { font-weight: 700; color: #1F2A44; font-size: 14px; margin: 6px 0 4px; }
-    .score { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; color: #7B8FF0; }
-    .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 9px; font-size: 11px; color: #5B6472; font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
-    .rows { display: flex; flex-direction: column; gap: 6px; }
-    .row { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px; padding: 8px 16px; box-shadow: 0 1px 2px rgba(31,42,68,0.05); }
-    .row .rank { width: 18px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; color: #8B93A1; }
-    .row .avatar { width: 30px; height: 30px; font-size: 10.5px; }
-    .row .name { width: 140px; font-weight: 600; color: #1F2A44; font-size: 13px; margin: 0; }
-    .row .stats { flex-grow: 1; justify-content: flex-start; margin: 0; }
-    .row .score { font-size: 16px; }
-    .empty { background: #fff; border-radius: 16px; padding: 40px; text-align: center; color: #8B93A1; }
-  </style>
-</head>
-<body>
-<div class="page">
-  <div class="top">
-    <div class="brand">
-      <img src="{{ url_for('static', filename='dht-logo.png') }}" alt="Dream Homes Team">
-      <div>
-        <h1>Leaderboard</h1>
-        <span class="sub">Dream Homes Team &middot; live data</span>
-      </div>
-    </div>
-    <a class="logout" href="/logout">Log out</a>
-  </div>
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Leaderboard{% endblock %}
+{% block eyebrow %}Leaderboard{% endblock %}
+{% block heading %}Who's putting in the work{% endblock %}
+{% block style %}
+  .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+  .totals .kpi { background: #fff; border-radius: 12px; padding: 13px 14px; box-shadow: 0 1px 3px rgba(31,42,68,0.05); }
+  .totals .kpi-val { font-size: 19px; margin: 0; }
+  .totals .kpi-lbl { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .pcard { background: #fff; border-radius: 16px; padding: 20px 18px 16px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 1px 3px rgba(31,42,68,0.08); }
+  .avatar { width: 64px; height: 64px; border-radius: 999px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 19px; font-weight: 600; position: relative; overflow: hidden; flex-shrink: 0; }
+  .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .row.zero { opacity: 0.6; }
+  .badge { width: 24px; height: 24px; border-radius: 999px; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border: 2px solid #fff; margin-top: -12px; }
+  .name { font-weight: 700; font-size: 14px; margin: 6px 0 4px; }
+  .score { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; color: var(--accent); }
+  .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 9px; font-size: 11px; color: var(--soft); font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
+  .rows { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px; padding: 8px 16px; box-shadow: 0 1px 2px rgba(31,42,68,0.05); }
+  .row .rank { width: 18px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .row .avatar { width: 30px; height: 30px; font-size: 10.5px; }
+  .row .name { width: 160px; font-weight: 600; font-size: 13px; margin: 0; }
+  .row .stats { flex-grow: 1; justify-content: flex-start; margin: 0; }
+  .row .score { font-size: 16px; }
+  @media (max-width: 900px) { .podium { grid-template-columns: 1fr; } .totals { grid-template-columns: repeat(2, 1fr); } .row { flex-wrap: wrap; } }
+{% endblock %}
 
-  <div class="nav">
-    <a class="inactive" href="/funnel">Sales Funnel</a>
-    <a class="active" href="/">Leaderboard</a>
-  </div>
+{% block filters %}{{ m.filter_bar(rng) }}{% endblock %}
 
-  <div class="tabs">
-    <a href="?period=today" style="background:{{ '#7B8FF0' if period=='today' else '#fff' }}; color:{{ '#fff' if period=='today' else '#8B93A1' }};">Today</a>
-    <a href="?period=week" style="background:{{ '#7B8FF0' if period=='week' else '#fff' }}; color:{{ '#fff' if period=='week' else '#8B93A1' }};">This Week</a>
-    <a href="?period=month" style="background:{{ '#7B8FF0' if period=='month' else '#fff' }}; color:{{ '#fff' if period=='month' else '#8B93A1' }};">This Month</a>
-    <a href="?period=year" style="background:{{ '#7B8FF0' if period=='year' else '#fff' }}; color:{{ '#fff' if period=='year' else '#8B93A1' }};">This Year</a>
-  </div>
-
-  {% if not has_data %}
-  <div class="empty">No data yet — waiting on the first successful cron run.</div>
+{% block content %}
+  {% if not podium %}
+  <div class="card empty">No agents yet. This fills in after the first sync from Follow Up Boss.</div>
   {% else %}
 
   <div class="podium">
     {% for agent in podium %}
-    <div class="card">
-      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}</div>
+    <div class="pcard">
+      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="badge">{{ agent.rank }}</div>
       <div class="name">{{ agent.name }}</div>
       <div class="score">{{ "{:,}".format(agent.score) }}</div>
@@ -99,9 +64,9 @@
 
   <div class="rows">
     {% for agent in rest %}
-    <div class="row">
+    <div class="row {{ 'zero' if not agent.score }}">
       <div class="rank">{{ agent.rank }}</div>
-      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}</div>
+      <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="name">{{ agent.name }}</div>
       <div class="stats">
         <span>Appts {{ agent.appts }}</span>
@@ -117,6 +82,4 @@
   </div>
 
   {% endif %}
-</div>
-</body>
-</html>
+{% endblock %}

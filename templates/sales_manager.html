@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Sales Manager Report{% endblock %}
+{% block eyebrow %}Sales Manager Report{% endblock %}
+{% block heading %}Sales funnel performance at a glance{% endblock %}
+
+{% macro kpi_band(k, label, value, chg_label) %}
+<div class="card">
+  <div class="band-label">{{ label }} <b>{{ value }}</b></div>
+  <div class="kpis">
+    <div>
+      <div class="kpi-lbl">Appts Set</div>
+      <div class="kpi-val">{{ k.appts_set|num }}</div>
+      <div class="kpi-sub">{{ k.set_rate }}% Set Rate</div>
+      {{ m.chg(k.chg_set, chg_label) }}
+    </div>
+    <div>
+      <div class="kpi-lbl">Appts Scheduled</div>
+      <div class="kpi-val">{{ k.appts_sched|num }} <span class="chip">{{ k.held|num }} Held</span></div>
+      <div class="kpi-sub">{{ k.held_rate }}% Held Rate</div>
+      {{ m.chg(k.chg_sched, chg_label) }}
+    </div>
+    <div>
+      <div class="kpi-lbl">Accepted Deals</div>
+      <div class="kpi-val">{{ k.written|num if k.written else '--' }} <span class="chip">{{ k.cancelled|num }} Cancelled</span></div>
+      <div class="kpi-sub">{{ k.written_vol|money }}</div>
+      {{ m.chg(k.chg_written, chg_label) }}
+    </div>
+    <div>
+      <div class="kpi-lbl">Deals Pending</div>
+      <div class="kpi-val">{{ k.pending|num if k.pending else '--' }}</div>
+      <div class="kpi-sub">{{ k.pending_vol|money }}</div>
+    </div>
+    <div>
+      <div class="kpi-lbl">Deals Closed</div>
+      <div class="kpi-val">{{ k.closed|num if k.closed else '--' }}</div>
+      <div class="kpi-sub">{{ k.closed_vol|money }}</div>
+      <div class="kpi-sub" style="color:var(--accent-ink);margin-top:6px">{{ k.conversion }}% Conversion Rate (from lead assignment)</div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty() }}
+{% else %}
+  {{ kpi_band(kpis.period, 'Selected timeframe', rng.label, 'vs prev. period') }}
+  {{ kpi_band(kpis.ytd, 'Year to date totals', kpis.ytd_year, 'vs ' ~ (kpis.ytd_year - 1)) }}
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Team Overview</h2>
+      <div class="seg">
+        <a class="{{ 'on' if view == 'funnel' }}" href="{{ qs(view='funnel') }}">Sales Funnel</a>
+        <a class="{{ 'on' if view == 'stages' }}" href="{{ qs(view='stages') }}">Stage Breakdown</a>
+        <a class="{{ 'on' if view == 'outreach' }}" href="{{ qs(view='outreach') }}">Outreach Activity</a>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+    <table class="tbl">
+      {% if view == 'funnel' %}
+        <tr><th>Agent name</th><th class="n">Total Leads</th><th class="n">Appointments</th><th class="n">Appts Held</th>
+            <th class="n">Appts Held %</th><th class="n">Accepted Deals</th><th class="n">Accepted Deals %</th>
+            <th class="n">Pending Deals</th><th class="n">Closed Deals</th><th class="n">Conversion Rate</th></tr>
+        {% macro frow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.total_leads|num }}</td>
+            <td class="n">{{ r.appts|num }}</td><td class="n">{{ r.held|num }}</td><td class="n">{{ r.held_pct }}%</td>
+            <td class="n">{{ r.accepted|num }}</td><td class="n">{{ r.accepted_pct }}%</td><td class="n">{{ r.pending|num }}</td>
+            <td class="n">{{ r.closed|num }}</td><td class="n">{{ r.conversion }}%</td></tr>{% endmacro %}
+        {% if rows %}{{ frow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
+        {% for r in rows %}{{ frow(r) }}{% endfor %}
+      {% elif view == 'stages' %}
+        <tr><th>Agent name</th><th class="n">Leads Currently Assigned</th><th class="n">Top of Funnel Stages</th>
+            <th class="n">Leads Unresponsive</th><th class="n">Appointments Outstanding</th><th class="n">Long Nurture</th>
+            <th class="n">Short Nurture</th><th class="n">Active Buyer &amp; Seller</th><th class="n">Reject/Trash</th>
+            <th class="n">Closed/Under Contract</th></tr>
+        {% macro srow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.total_leads|num }}</td>
+            {% for k in ['new', 'attempted', 'appt', 'long', 'short', 'active', 'trash', 'closed'] %}<td class="n">{{ r.stages[k]|num }}</td>{% endfor %}</tr>{% endmacro %}
+        {% if rows %}{{ srow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
+        {% for r in rows %}{{ srow(r) }}{% endfor %}
+      {% else %}
+        <tr><th>Agent name</th><th class="n">Call Attempts</th><th class="n">Conversations</th>
+            <th class="n">Text Attempts</th><th class="n">Email Attempts</th></tr>
+        {% macro orow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.calls|num }}</td>
+            <td class="n">{{ r.conversations|num }}</td><td class="n">{{ r.texts|num }}</td><td class="n">{{ r.emails|num }}</td></tr>{% endmacro %}
+        {% if rows %}{{ orow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
+        {% for r in rows %}{{ orow(r) }}{% endfor %}
+      {% endif %}
+      {% if not rows %}<tr><td colspan="10" class="muted">No activity in these dates.</td></tr>{% endif %}
+    </table>
+    </div>
+    <div class="note">Leads = new leads assigned in these dates. Appointments = set in these dates; held = scheduled in these dates with a "held" outcome. Accepted = deals written in these dates.</div>
+  </div>
+
+  <h2>Top Performers</h2>
+  <div class="grid4">
+    {{ m.board('Top 5 Closers', 'Year to date', top.closers) }}
+    {{ m.board('Top 5 Appointment Bookers', 'Year to date', top.bookers) }}
+    {{ m.board('Top 5 Written', 'Last 90 days', top.written) }}
+    {{ m.board('Top 5 Contact Attempts', 'Last 30 days', top.attempts) }}
+  </div>
+{% endif %}
+{% endblock %}

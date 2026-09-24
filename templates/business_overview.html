@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Business Overview{% endblock %}
+{% block eyebrow %}Business Overview{% endblock %}
+{% block heading %}Your business KPIs by quarter and month{% endblock %}
+{% block style %}
+  .chart-box { position: relative; height: 280px; }
+  .tbl td.q { font-weight: 700; }
+{% endblock %}
+
+{% block filters %}{% if ready %}
+  {{ m.filter_bar(none, agent_options, source_options, [
+       {'name': 'year', 'label': 'Year', 'default': year|string, 'options': years|map('string')|map('pair')|list}]) }}
+{% endif %}{% endblock %}
+
+{% macro cell(v, kind) %}{% if not v %}--{% elif kind == 'money' %}{{ v|money }}{% else %}{{ v|num }}{% endif %}{% endmacro %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty('Waiting for the first deal sync from Follow Up Boss.') }}
+{% else %}
+  {% set metrics = [('accepted', 'Accepted Deals', 'n'), ('deals', 'All Deals', 'n'), ('volume', 'Volume', 'money'), ('avg', 'Avg. Sales Price', 'money')] %}
+  <div class="card">
+    <h3>Your business KPIs by quarter &middot; {{ year }}</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th></th>{% for q in quarters %}<th class="n">Q{{ q.q }} {{ year }}</th>{% endfor %}<th class="n">Total in {{ year }}</th></tr>
+      {% for key, label, kind in metrics %}
+        <tr><td>{{ label }}</td>{% for q in quarters %}<td class="n">{{ cell(q[key], kind) }}</td>{% endfor %}
+            <td class="n"><b>{{ cell(total[key], kind) }}</b></td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h3>Your business KPIs by month &middot; {{ year }}</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      {% for q in quarters %}
+        <tr><th>Quarter {{ q.q }}</th>{% for mo in q.months %}<th class="n">{{ month_names[mo.month - 1] }}</th>{% endfor %}</tr>
+        {% for key, label, kind in metrics %}
+          <tr><td>{{ label }}</td>{% for mo in q.months %}<td class="n">{{ cell(mo[key], kind) }}</td>{% endfor %}</tr>
+        {% endfor %}
+      {% endfor %}
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h3>Year-over-year analysis &middot; All Deals by month</h3>
+    <div class="chart-box"><canvas id="c-yoy"></canvas></div>
+  </div>
+
+  <div class="card-head"><h2 style="margin:0">Your Top Performers</h2>
+    <div class="seg">
+      <a class="{{ 'on' if top_days == 30 }}" href="{{ qs(top=None) }}">Last 30 Days</a>
+      <a class="{{ 'on' if top_days == 365 }}" href="{{ qs(top=365) }}">Last 365 Days</a>
+    </div>
+  </div>
+  {% set period = 'Last ' ~ top_days ~ ' days' %}
+  <div class="grid3">
+    {{ m.board('Top Volume $', period, top.volume|map('board_item', 'vol')|list, money) }}
+    {{ m.board('Top Deals', period, top.deals|map('board_item', 'n')|list) }}
+    {{ m.board('Top Avg Sale $', period, top.avg|map('board_item', 'avg')|list, money) }}
+  </div>
+  <div class="note">All Deals = deals that went pending or closed in the month. Accepted Deals = deals created in the month. Volume uses each deal's price in Follow Up Boss.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if ready %}
+  {% include "_chart.html" %}
+  <script>
+    (function () {
+      const yoy = {{ yoy|tojson }};
+      const series = {};
+      Object.keys(yoy).sort().reverse().forEach(y => series[y] = yoy[y]);
+      yoyChart('c-yoy', series);
+    })();
+  </script>
+{% endif %}{% endblock %}

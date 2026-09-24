@@ -1,0 +1,74 @@
+{# Shared page pieces. Import with: {% import "_macros.html" as m %} #}
+
+{# Date presets + custom dates + optional agent / source / extra selects.
+   Keeps every other query arg (tab, view, ...) when filtering. #}
+{% macro filter_bar(rng, agents=None, sources=None, extra=None) %}
+<div class="filters">
+  {% if rng %}
+  <div class="presets">
+    {% for key, label in presets %}
+      <a class="{{ 'on' if rng.key == key }}" href="{{ qs(period=key, **{'from': None, 'to': None, 'page': None}) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="get">
+    {% set own = ['from', 'to', 'period', 'page', 'agent', 'source'] + (extra|map(attribute='name')|list if extra else []) %}
+    {% for k, v in request.args.items() if k not in own %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    {% if rng %}
+      <input type="hidden" name="period" value="{{ rng.key if rng.key != 'custom' else '' }}">
+      <div class="field"><label for="f-from">From</label>
+        <input id="f-from" type="date" name="from" value="{{ rng.from }}" oninput="this.form.period.value=''"></div>
+      <div class="field"><label for="f-to">To</label>
+        <input id="f-to" type="date" name="to" value="{{ rng.to }}" oninput="this.form.period.value=''"></div>
+    {% endif %}
+    {% if agents is not none %}
+      <div class="field"><label for="f-agent">Agent</label>
+        <select id="f-agent" name="agent">
+          <option value="">All agents</option>
+          {% for id, name in agents %}<option value="{{ id }}" {{ 'selected' if request.args.get('agent') == id|string }}>{{ name }}</option>{% endfor %}
+        </select></div>
+    {% endif %}
+    {% if sources is not none %}
+      <div class="field"><label for="f-source">Lead source</label>
+        <select id="f-source" name="source">
+          <option value="">All sources</option>
+          {% for s in sources %}<option {{ 'selected' if request.args.get('source') == s }}>{{ s }}</option>{% endfor %}
+        </select></div>
+    {% endif %}
+    {% for x in extra or [] %}
+      <div class="field"><label for="f-{{ x.name }}">{{ x.label }}</label>
+        <select id="f-{{ x.name }}" name="{{ x.name }}">
+          {% for value, label in x.options %}<option value="{{ value }}" {{ 'selected' if (request.args.get(x.name) or x.default or '') == value|string }}>{{ label }}</option>{% endfor %}
+        </select></div>
+    {% endfor %}
+    <button class="btn" type="submit">Apply</button>
+    <a class="btn ghost" href="{{ request.path }}{{ '?tab=' ~ request.args.tab if request.args.tab }}">Clear</a>
+  </form>
+</div>
+{% endmacro %}
+
+{# "+12% vs prev. period" badge #}
+{% macro chg(v, label='vs prev. period') %}
+  {% if v is none %}<span class="chg flat">-- {{ label }}</span>
+  {% elif v == 'new' %}<span class="chg up">new {{ label }}</span>
+  {% elif v >= 0 %}<span class="chg up">&#8599; +{{ v }}% {{ label }}</span>
+  {% else %}<span class="chg down">&#8600; {{ v }}% {{ label }}</span>{% endif %}
+{% endmacro %}
+
+{# Top-5 list card #}
+{% macro board(title, period, items, fmt=None) %}
+<div class="card board">
+  <h3>{{ title }}</h3>
+  <div class="eyebrow" style="margin:-8px 0 8px">{{ period }}</div>
+  <ol>
+    {% for it in items %}<li><span>{{ it.name }}</span><b>{{ fmt(it.value) if fmt else it.value|num }}</b></li>
+    {% else %}<li class="none">No activity yet</li>{% endfor %}
+  </ol>
+</div>
+{% endmacro %}
+
+{% macro empty(msg='Waiting for the first sync from Follow Up Boss.') %}
+<div class="card empty">{{ msg }}<br><span class="muted">This fills in after the cron job runs with the updated pull script.</span></div>
+{% endmacro %}

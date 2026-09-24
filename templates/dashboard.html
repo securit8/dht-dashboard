@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Dashboard{% endblock %}
+{% block eyebrow %}Dashboard{% endblock %}
+{% block heading %}Monitor your company's top line performance{% endblock %}
+{% block style %}
+  .pipe { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; align-items: center; margin-top: 18px; }
+  .pipe table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .pipe td { padding: 9px 0; }
+  .pipe td.num { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 700; width: 60px; }
+  .pipe td.pct { text-align: right; color: var(--soft); font-family: 'IBM Plex Mono', monospace; width: 70px; }
+  .pie { width: 260px; height: 260px; border-radius: 50%; margin: 0 auto; }
+  .callout-row { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; }
+  .callout-row .callout { flex: 1; min-width: 260px; }
+  .legend { display: grid; gap: 10px; font-size: 14px; }
+  .legend div { display: flex; justify-content: space-between; }
+  .legend b { font-family: 'IBM Plex Mono', monospace; }
+  .src { padding: 14px 0; border-top: 1px solid var(--bg); }
+  .src-head { display: flex; justify-content: space-between; font-size: 14px; gap: 12px; }
+  .src-head span { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; }
+  .key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--soft); margin-top: 12px; }
+  .metric-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 10px 0 16px; }
+  .metric-val { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; }
+  @media (max-width: 800px) { .pipe { grid-template-columns: 1fr; } .pie { width: 220px; height: 220px; } }
+{% endblock %}
+
+{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
+
+{% block content %}
+  <div class="tabs">
+    <a class="{{ 'on' if tab == 'pipeline' }}" href="{{ qs(tab='pipeline') }}">Sales Pipeline Health</a>
+    <a class="{{ 'on' if tab == 'response' }}" href="{{ qs(tab='response') }}">Lead Response Metrics</a>
+    <a class="{{ 'on' if tab == 'source' }}" href="{{ qs(tab='source') }}">Best Lead Source</a>
+  </div>
+
+  {% if not ready %}
+    {{ m.empty('Waiting for the first stage/source sync from Follow Up Boss.') }}
+
+  {% elif tab == 'pipeline' %}
+    <h2>Sales Pipeline Health</h2>
+    <div class="callout-row">
+      {% if pipeline.stale_new_pct <= 10 %}
+        <div class="callout">Nice work. Only {{ pipeline.stale_new_pct }}% of new leads in these dates are still sitting in the "New" stage after 48 hours.</div>
+        <span class="pill">{{ pipeline.stale_new_pct }}% New, Non-Staged After 48 Hours</span>
+      {% else %}
+        <div class="callout warn">{{ pipeline.stale_new_pct }}% of new leads in these dates are still in the "New" stage after 48 hours. Get them contacted and moved to the right stage.</div>
+        <span class="pill warn">{{ pipeline.stale_new_pct }}% New, Non-Staged After 48 Hours</span>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3 style="font-size:20px;margin:0">{{ pipeline.total|num }} New Leads</h3>
+      <span class="muted">{{ rng.label }}</span>
+      <div class="pipe">
+        <table>
+          {% for r in pipeline.rows %}
+          <tr>
+            <td><span class="dot" style="background: {{ r.color }}"></span>{{ r.label }}</td>
+            <td class="num">{{ r.count|num }}</td>
+            <td class="pct">{{ r.pct|round|int }}%</td>
+          </tr>
+          {% endfor %}
+        </table>
+        <div class="pie" style="background: {{ pipeline.pie }}" role="img" aria-label="Share of new leads by stage"></div>
+      </div>
+      {% if pipeline.unmapped %}
+        <div class="note">Stages not mapped to a bucket yet: {{ pipeline.unmapped|join(', ') }}</div>
+      {% endif %}
+    </div>
+
+  {% elif tab == 'response' %}
+    <h2>Lead Response Metrics</h2>
+    <p style="font-weight:600; margin: 0 0 16px;">How effective is your lead follow-up and nurture?</p>
+    <div class="grid2">
+      {% for r in response %}
+      <div class="card">
+        <h3 style="font-size:17px;margin:0">{{ r.label }}</h3>
+        <div class="metric-lbl">{{ r.window }}</div>
+        <div class="eyebrow">Your team</div>
+        <div class="metric-val">{{ r.hit|num }} out of {{ r.total|num }} ({{ r.pct }}%)</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="note">Leads counted by the stage they are in today. "Contacted" means an outbound call, text or email logged in Follow Up Boss, within 3 or 30 days before {{ rng.to }}.</div>
+
+  {% else %}
+    <h2>Best Lead Source</h2>
+    {% if sources %}
+      {% set best = sources[0] %}
+      <p style="font-family:'Fraunces',serif; font-size:24px; font-weight:600; margin: 0 0 6px;">{{ best.name }} is the best!</p>
+      <p style="font-weight:600; margin: 0 0 16px;">Which lead source is providing the best leads?</p>
+      <div class="callout" style="margin-bottom:20px">{{ best.won_pct|round|int }}% of {{ best.name }} leads created {{ rng.label }} are now Active or Closed ({{ best.total|num }} leads).</div>
+      <div class="card">
+        <div class="eyebrow">Lead source</div>
+        <h3 style="font-size:20px;margin:6px 0 0">{{ best.name }}</h3>
+        <div class="bar">
+          {% for s in best.segs if s.count %}<div style="width: {{ s.pct }}%; background: {{ s.color }}" title="{{ s.label }}: {{ s.count }}"></div>{% endfor %}
+        </div>
+        <div class="legend">
+          {% for s in best.segs %}
+          <div><span><span class="dot" style="background: {{ s.color }}"></span>{{ s.label }}</span><b>{{ s.pct|round|int }}%</b></div>
+          {% endfor %}
+        </div>
+
+        {% if sources|length > 1 %}
+        <div style="margin-top:28px">
+          <div class="eyebrow">All sources &middot; ranked by % Active or Closed</div>
+          <div class="key">
+            {% for s in best.segs %}<span><span class="dot" style="background: {{ s.color }}"></span>{{ s.label }}</span>{% endfor %}
+          </div>
+          {% for src in sources %}
+          <div class="src">
+            <div class="src-head"><strong>{{ src.name }}</strong><span>{{ src.total|num }} leads &middot; {{ src.won_pct|round|int }}% active/closed</span></div>
+            <div class="bar sm">
+              {% for s in src.segs if s.count %}<div style="width: {{ s.pct }}%; background: {{ s.color }}" title="{{ s.label }}: {{ s.count }} ({{ s.pct|round|int }}%)"></div>{% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="note">Leads created {{ rng.label }}, shown by the stage they are in today. Sources with fewer than 5 leads are ranked last.</div>
+    {% else %}
+      <div class="card empty">No new leads in these dates.</div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

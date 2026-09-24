@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Lead Source Report{% endblock %}
+{% block eyebrow %}Lead Source Report{% endblock %}
+{% block heading %}See how your lead sources stack up{% endblock %}
+{% block style %}
+  .ov .kpi-val { font-size: 24px; }
+  .split { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+  .split div { font-size: 12px; color: var(--muted); }
+  .split b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 18px; color: var(--ink); }
+  .chart-box { position: relative; height: 260px; }
+  .stage-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
+  .stage-row b { font-family: 'IBM Plex Mono', monospace; }
+{% endblock %}
+
+{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty() }}
+{% else %}
+  <div class="card ov">
+    <div class="band-label">Time period <b>{{ rng.label }}</b></div>
+    <div class="kpis">
+      <div><div class="kpi-lbl">Leads</div><div class="kpi-val">{{ ov.leads|num }}</div>
+        <div class="kpi-sub">new leads created</div>{{ m.chg(ov.chg.leads) }}</div>
+      <div><div class="kpi-lbl">Outbound Communication</div>
+        <div class="split">
+          <div><b>{{ ov.calls|num }}</b>Calls {{ ov.calls_share }}%</div>
+          <div><b>{{ ov.texts|num }}</b>Texts {{ ov.texts_share }}%</div>
+          <div><b>{{ ov.emails|num }}</b>Emails {{ ov.emails_share }}%</div>
+        </div>{{ m.chg(ov.chg.outbound) }}</div>
+      <div><div class="kpi-lbl">Appointments</div>
+        <div class="split">
+          <div><b>{{ ov.appts|num }}</b>Overall</div>
+          <div><b>{{ ov.held|num }}</b>Held</div>
+          <div><b>{{ ov.held_pct }}%</b>Held %</div>
+        </div>{{ m.chg(ov.chg.appts) }}</div>
+      <div><div class="kpi-lbl">Deals</div>
+        <div class="split">
+          <div><b>{{ ov.written|num }}</b>Written</div>
+          <div><b>{{ ov.pending|num }}</b>Pending</div>
+          <div><b>{{ ov.closed|num }}</b>Closed</div>
+        </div>{{ m.chg(ov.chg.deals) }}</div>
+      <div><div class="kpi-lbl">Conversion</div>
+        <div class="split">
+          <div><b>{{ ov.closed_pct }}%</b>Closed %</div>
+          <div><b>{{ ov.closed_pending_pct }}%</b>Closed and Pending %</div>
+        </div>{{ m.chg(ov.chg.conversion) }}</div>
+    </div>
+  </div>
+
+  <h2>Breakdowns</h2>
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="card board">
+      <h3>Top Agents</h3>
+      <div class="eyebrow" style="margin:-8px 0 8px">Closed deals &middot; {{ rng.label }}</div>
+      <ol>
+        {% for a in top_agents %}<li><span>{{ a.name }}</span><b>{{ a.deals }} &nbsp;|&nbsp; {{ a.volume|money }}</b></li>
+        {% else %}<li class="none">No closed deals in these dates</li>{% endfor %}
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Leads by Stage</h3>
+      <div class="eyebrow" style="margin:-8px 0 8px">{{ rng.label }}</div>
+      {% for s in stages %}
+        <div class="stage-row"><span><span class="dot" style="background:{{ s.color }}"></span>{{ s.label }}</span>
+          <span><b>{{ s.count|num }}</b> <span class="muted">&nbsp;{{ s.pct }}%</span></span></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Leads by Month</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Year</th><th>Month</th><th class="n">Total leads</th><th class="n">Handed Out Rate %</th>
+            <th class="n">Contacted %</th><th class="n">Leads Closed</th><th class="n">Closed %</th></tr>
+        {% for r in months %}
+        <tr><td>{{ r.month.year }}</td><td>{{ r.month.strftime('%B') }}</td><td class="n">{{ r.total|num }}</td>
+            <td class="n">{{ (r.handed_out / r.total * 100)|round(2) if r.total else 0 }}%</td>
+            <td class="n">{{ (r.contacted / r.total * 100)|round(2) if r.total else 0 }}%</td>
+            <td class="n">{{ r.closed|num }}</td>
+            <td class="n">{{ (r.closed / r.total * 100)|round(2) if r.total else 0 }}%</td></tr>
+        {% else %}
+        <tr><td colspan="7" class="muted">No leads in these dates.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <h2>Historical Trends</h2>
+  <div class="grid2">
+    <div class="card"><h3>Leads by Month</h3><div class="chart-box"><canvas id="c-leads"></canvas></div></div>
+    <div class="card"><h3>Closed / Pending by Month</h3><div class="chart-box"><canvas id="c-deals"></canvas></div></div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if ready %}
+  {% include "_chart.html" %}
+  <script>
+    yoyChart('c-leads', {{ {trend.year|string: trend.leads[0], (trend.year - 1)|string: trend.leads[1]}|tojson }});
+    yoyChart('c-deals', {{ {trend.year|string: trend.deals[0], (trend.year - 1)|string: trend.deals[1]}|tojson }});
+  </script>
+{% endif %}{% endblock %}

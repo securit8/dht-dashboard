@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Agent Snapshot{% endblock %}
+{% block eyebrow %}Agent Snapshot{% endblock %}
+{% block heading %}{{ info.name if info else 'Agent Snapshot' }}{% endblock %}
+{% block style %}
+  .who { display: flex; gap: 28px; flex-wrap: wrap; margin: -8px 0 18px; font-size: 14px; }
+  .who { align-items: center; }
+  .who .photo { width: 56px; height: 56px; border-radius: 999px; object-fit: cover; }
+  .who span { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; display: block; }
+  .funnel { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; }
+  .funnel > div { text-align: center; padding: 0 8px; border-left: 1px solid var(--bg); }
+  .funnel > div:first-child { border-left: 0; }
+  .funnel .kpi-val { font-size: 32px; }
+  .fbar-wrap { height: 150px; display: flex; align-items: flex-end; margin-top: 16px; }
+  .fbar { width: 100%; background: var(--accent); border-radius: 8px 8px 0 0; color: #fff; font-weight: 700; font-size: 13px; padding-top: 8px; min-height: 28px; }
+  .stack3 { display: flex; height: 18px; border-radius: 999px; overflow: hidden; background: var(--bg); margin: 10px 0 6px; }
+  .st-completed { background: #2FA867; } .st-at_risk { background: #F2B84B; } .st-past_due { background: #E0685A; }
+  .legend3 { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+  .chart-box { position: relative; height: 260px; }
+  .big { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; }
+  .goal { display: grid; grid-template-columns: 1fr 120px; gap: 6px 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--bg); }
+  .goal .track { grid-column: 1 / -1; height: 8px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+  .goal .fill { height: 100%; border-radius: 999px; }
+  .g-meeting { background: #2FA867; } .g-approaching { background: #F2B84B; } .g-below { background: #E0685A; } .g-none { background: #C6CBD4; }
+  .goal-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .note-item { padding: 14px 0; border-bottom: 1px solid var(--bg); }
+  .note-item p { margin: 6px 0 0; white-space: pre-wrap; line-height: 1.5; }
+  textarea { width: 100%; min-height: 100px; resize: vertical; }
+  @media (max-width: 900px) { .funnel { grid-template-columns: repeat(2, 1fr); } .funnel > div { border-left: 0; padding: 10px 0; } }
+{% endblock %}
+
+{% block filters %}{% if ready %}
+  {% set agent_select = [{'name': 'agent', 'label': 'Agent', 'default': uid|string, 'options': agent_options}] %}
+  {% if tab in ('funnel', 'goals') %}
+    {{ m.filter_bar(rng, none, source_options, agent_select) }}
+  {% elif tab == 'financial' %}
+    {{ m.filter_bar(none, none, source_options, agent_select) }}
+  {% else %}
+    {{ m.filter_bar(none, none, none, agent_select) }}
+  {% endif %}
+{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty() }}
+{% elif not info %}
+  <div class="card empty">No agents with activity yet.</div>
+{% else %}
+  <div class="who">
+    {% if info.picture_url %}<img class="photo" src="{{ info.picture_url }}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}
+    {% if info.email %}<div><span>Email</span>{{ info.email }}</div>{% endif %}
+    {% if info.phone %}<div><span>Phone</span>{{ info.phone }}</div>{% endif %}
+  </div>
+  <div class="tabs">
+    {% for key, label in tabs %}<a class="{{ 'on' if tab == key }}" href="{{ qs(tab=key, agent=uid) }}">{{ label }}</a>{% endfor %}
+  </div>
+
+  {% if tab == 'funnel' %}
+    <div class="card">
+      <h2>Detailed Funnel Breakdown</h2>
+      <div class="funnel">
+        {% for s in funnel %}
+        <div>
+          <div class="kpi-lbl">{{ s.label }}</div>
+          <div class="kpi-val">{{ s.count|num }}</div>
+          {{ m.chg(s.chg) }}
+          <div class="fbar-wrap"><div class="fbar" style="height: {{ [s.pct, 4]|max }}%">{{ s.pct }}%</div></div>
+          <div class="muted" style="margin-top:6px">{{ s.count|num }} Leads</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="note">New leads assigned to {{ info.name }} in {{ rng.label }}, and how many of them were contacted, got an appointment, met, and closed (at any time since).</div>
+    </div>
+
+  {% elif tab == 'opportunities' %}
+    {% set t = opp.totals %}
+    <div class="card">
+      <h2>Lead Outreach Compliance</h2>
+      <p style="margin:0 0 6px;font-size:15px">{{ info.name }} has <b>{{ (t.at_risk + t.past_due)|num }}</b> leads that need to be contacted.</p>
+      <div class="stack3">
+        {% for k in ['completed', 'at_risk', 'past_due'] if t[k] %}<div class="st-{{ k }}" style="width: {{ t[k] / t.all * 100 }}%"></div>{% endfor %}
+      </div>
+      <div class="legend3">
+        <span><span class="dot st-completed"></span>Completed {{ (t.completed / t.all * 100)|round|int if t.all else 0 }}% ({{ t.completed|num }})</span>
+        <span><span class="dot st-at_risk"></span>At Risk {{ (t.at_risk / t.all * 100)|round|int if t.all else 0 }}% ({{ t.at_risk|num }})</span>
+        <span><span class="dot st-past_due"></span>Past Due {{ (t.past_due / t.all * 100)|round|int if t.all else 0 }}% ({{ t.past_due|num }})</span>
+        <span class="muted">{{ t.all|num }} leads</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Rule Performance</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Rule</th><th class="n">Completed</th><th class="n">At Risk</th><th class="n">Past Due</th></tr>
+        {% for r in opp.rules %}
+        <tr><td>{{ r.label }}: contact every {{ r.days }} day{{ 's' if r.days != 1 }}</td>
+            <td class="n">{{ r.completed|num }}</td><td class="n">{{ r.at_risk|num }}</td><td class="n">{{ r.past_due|num }}</td></tr>
+        {% endfor %}
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Past due leads{% if opp.past_due_count > opp.past_due|length %} (top {{ opp.past_due|length }} of {{ opp.past_due_count|num }}){% endif %}</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Lead</th><th>Stage</th><th>Last contact</th><th class="n">Days overdue</th></tr>
+        {% for r in opp.past_due %}
+        <tr><td>{{ r.name }}</td><td>{{ r.stage }}</td><td>{{ r.last_contact|fmt_date if r.last_contact else 'Never' }}</td><td class="n">{{ r.days_over }}</td></tr>
+        {% else %}<tr><td colspan="4" class="muted">Nothing past due.</td></tr>{% endfor %}
+      </table></div>
+      <div class="note">At Risk = most of the follow-up window has passed without an outbound call, text or email. Past Due = the window has passed.</div>
+    </div>
+
+  {% elif tab == 'financial' %}
+    <div class="grid2" style="margin-bottom:20px">
+      <div class="card">
+        <h3>{{ info.name.split()[0] }}'s top lead source{% if fin.sources %} is {{ fin.sources[0].source }}{% endif %}</h3>
+        <div class="eyebrow" style="margin:-6px 0 10px">Closed volume by lead source &middot; last 12 months</div>
+        {% for s in fin.sources %}
+          <div class="stage-row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bg)">
+            <span>{{ s.source }}</span><span><b>{{ s.volume|money }}</b> <span class="muted">{{ s.pct|round|int }}%</span></span></div>
+        {% else %}<p class="muted">No closed deals in the last 12 months.</p>{% endfor %}
+      </div>
+      <div class="card">
+        <h3>Performance &middot; last 12 months</h3>
+        <div class="grid2">
+          <div><div class="big">{{ fin.volume|money }}</div><div class="muted">Total Volume</div></div>
+          <div><div class="big">{{ fin.deals|num }}</div><div class="muted">Total Deals</div></div>
+          <div><div class="big">{{ fin.conversion }}%</div><div class="muted">Conversion rate</div></div>
+          <div><div class="big" style="color:var(--muted)">{{ fin.team_conversion }}%</div><div class="muted">Team average</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Deal Details &middot; last 12 months</h3>
+        <div class="tbl-wrap"><table class="tbl">
+          <tr><td>Minimum</td><td class="n">{{ fin.min|money }}</td></tr>
+          <tr><td>Maximum</td><td class="n">{{ fin.max|money }}</td></tr>
+          <tr><td>Average</td><td class="n">{{ fin.avg|money }}</td></tr>
+          <tr><td>Pending</td><td class="n">{{ fin.pending|money }}</td></tr>
+          <tr><td>Accepted</td><td class="n">{{ fin.accepted|money }}</td></tr>
+          <tr><td>Closed</td><td class="n">{{ fin.closed|money }}</td></tr>
+        </table></div>
+      </div>
+      <div class="card"><h3>Closed volume, year over year</h3><div class="chart-box"><canvas id="c-fin"></canvas></div></div>
+    </div>
+
+  {% elif tab == 'goals' %}
+    <div class="card">
+      <div class="card-head"><h2>Goals &amp; Pacing</h2><span class="muted">{{ rng.label }}</span></div>
+      {% for g in goals %}
+        <div class="goal">
+          <div>{{ g.label }}{% if not g.higher %} <span class="muted">(limit, lower is better)</span>{% endif %}</div>
+          <div style="text-align:right;font-family:'IBM Plex Mono',monospace">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}</div>
+          <div class="track"><div class="fill g-{{ g.status }}" style="width: {{ g.progress if g.target else 100 }}%"></div></div>
+        </div>
+      {% endfor %}
+      <div class="legend3" style="margin-top:14px">
+        <span><span class="dot g-meeting"></span>Meeting Goal</span><span><span class="dot g-approaching"></span>Approaching Goal</span>
+        <span><span class="dot g-below"></span>Below Goal</span><span><span class="dot g-none"></span>No goal set</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Edit {{ info.name.split()[0] }}'s goals</h3>
+      <p class="muted" style="margin-top:-6px">Targets for the selected period. Leave a box empty to remove that goal.</p>
+      <form method="post" action="{{ url_for('save_goals') }}">
+        <input type="hidden" name="agent" value="{{ uid }}">
+        <div class="goal-form">
+          {% for g in goals %}
+          <div class="field"><label for="g-{{ g.key }}">{{ g.label }}</label>
+            <input id="g-{{ g.key }}" name="{{ g.key }}" type="number" step="any" min="0" value="{{ g.target|num if g.target else '' }}"></div>
+          {% endfor %}
+        </div>
+        <button class="btn" type="submit" style="margin-top:14px">Save goals</button>
+      </form>
+    </div>
+
+  {% else %}
+    <div class="card">
+      <h2>Create a Coaching Note</h2>
+      <form method="post" action="{{ url_for('add_note') }}">
+        <input type="hidden" name="agent" value="{{ uid }}">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <div class="field"><label for="n-type">Note type</label>
+            <select id="n-type" name="note_type">{% for t in note_types %}<option>{{ t }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="n-author">Your name</label><input id="n-author" name="author" maxlength="80" required></div>
+        </div>
+        <label class="field" for="n-body" style="margin-bottom:10px"><span class="eyebrow">Note</span>
+          <textarea id="n-body" name="body" placeholder="Enter your coaching note..." required></textarea></label>
+        <button class="btn" type="submit">Submit Note</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Published Notes</h2>
+        <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <input type="hidden" name="agent" value="{{ uid }}"><input type="hidden" name="tab" value="coaching">
+          <div class="field"><label for="n-fa">Author</label><select id="n-fa" name="author" onchange="this.form.submit()">
+            <option value="">All authors</option>{% for a in authors %}<option {{ 'selected' if request.args.author == a }}>{{ a }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="n-ft">Note type</label><select id="n-ft" name="note_type" onchange="this.form.submit()">
+            <option value="">All types</option>{% for t in note_types %}<option {{ 'selected' if request.args.note_type == t }}>{{ t }}</option>{% endfor %}</select></div>
+        </form>
+      </div>
+      {% for n in notes %}
+        <div class="note-item"><b>{{ n.author }}</b> <span class="chip">{{ n.note_type }}</span>
+          <span class="muted">&nbsp;{{ n.created_at|fmt_date(true) }}</span><p>{{ n.body }}</p></div>
+      {% else %}<p class="muted">No notes yet.</p>{% endfor %}
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if ready and info and tab == 'financial' %}
+  {% include "_chart.html" %}
+  <script>yoyChart('c-fin', {{ {fin.year|string: fin.this_year, (fin.year - 1)|string: fin.last_year}|tojson }}, true);</script>
+{% endif %}{% endblock %}

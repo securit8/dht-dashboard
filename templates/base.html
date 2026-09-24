@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %} — Dream Homes Team</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+  <style>
+    :root { --ink: #1F2A44; --muted: #8B93A1; --soft: #5B6472; --line: #D3D8E0; --bg: #EEF0F5;
+            --accent: #7B8FF0; --accent-ink: #4A5FD9; --up: #2FA867; --down: #C0392B; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    a { color: inherit; }
+
+    /* top menu */
+    .topbar { background: var(--ink); color: #fff; }
+    .topbar-in { max-width: 1360px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 8px; min-height: 60px; flex-wrap: wrap; }
+    .topbar .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; margin-right: 12px; }
+    .topbar .logo img { width: 34px; height: 34px; border-radius: 6px; background: #fff; }
+    .topbar .logo span { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+    .menu { position: relative; }
+    .menu > button { background: none; border: 0; color: #C9D0E0; font: 500 14px 'IBM Plex Sans', sans-serif; padding: 20px 12px; cursor: pointer; }
+    .menu > button::after { content: " ▾"; font-size: 10px; }
+    .menu.current > button { color: #fff; box-shadow: inset 0 -3px 0 var(--accent); }
+    .menu:hover > button, .menu:focus-within > button { color: #fff; }
+    .menu-list { display: none; position: absolute; top: 100%; left: 0; z-index: 20; background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(31,42,68,0.18); padding: 6px; min-width: 230px; }
+    .menu:hover .menu-list, .menu:focus-within .menu-list { display: block; }
+    .menu-list a { display: block; padding: 9px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 14px; }
+    .menu-list a:hover, .menu-list a.on { background: #EEF1FD; color: var(--accent-ink); }
+    .logout { margin-left: auto; font-size: 13px; color: #C9D0E0; text-decoration: none; }
+
+    .page { max-width: 1360px; margin: 0 auto; padding: 28px 24px 48px; }
+    .head { margin-bottom: 20px; }
+    .eyebrow { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    h1 { margin: 4px 0 0; font-family: 'Fraunces', serif; font-size: 28px; font-weight: 600; }
+    h2 { margin: 0 0 14px; font-family: 'Fraunces', serif; font-size: 20px; font-weight: 600; }
+    h3 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+
+    /* filter bar */
+    .filters { background: #fff; border-radius: 14px; padding: 14px 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .presets a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 999px; background: var(--bg); color: var(--soft); }
+    .presets a.on { background: var(--accent); color: #fff; }
+    .filters form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .field input, .field select, textarea { font: 500 13px 'IBM Plex Sans', sans-serif; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-height: 36px; }
+    .field select { min-width: 170px; }
+    .btn { font: 600 13px 'IBM Plex Sans', sans-serif; background: var(--ink); color: #fff; border: 0; border-radius: 8px; padding: 9px 18px; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn.ghost { background: #fff; color: var(--soft); border: 1px solid var(--line); }
+
+    /* building blocks */
+    .card { background: #fff; border-radius: 16px; padding: 22px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); margin-bottom: 20px; }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+    .grid2 > .card, .grid3 > .card, .grid4 > .card { margin-bottom: 0; }
+    .stack { display: grid; gap: 16px; margin-bottom: 20px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .kpis > div { padding: 4px 20px; border-left: 1px solid var(--bg); }
+    .kpis > div:first-child { border-left: 0; padding-left: 0; }
+    .kpi-lbl { font-size: 14px; color: var(--soft); }
+    .kpi-val { font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 700; margin: 6px 0 4px; }
+    .kpi-sub { font-size: 12.5px; color: var(--muted); }
+    .band-label { display: inline-flex; gap: 8px; align-items: center; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); background: #EEF1FD; border-radius: 999px; padding: 5px 12px; margin-bottom: 14px; }
+    .band-label b { color: var(--ink); letter-spacing: 0; font-weight: 600; }
+    .chg { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; margin-top: 8px; }
+    .chg.up { background: #E3F4EA; color: #1F7A48; }
+    .chg.down { background: #FBE7E4; color: #A33224; }
+    .chg.flat { background: var(--bg); color: var(--soft); }
+    .chip { display: inline-block; font-size: 12px; font-weight: 600; background: #EEF1FD; color: var(--accent-ink); border-radius: 999px; padding: 3px 10px; vertical-align: middle; margin-left: 6px; }
+    .muted { font-size: 13px; color: var(--muted); }
+    .note { font-size: 12px; color: var(--muted); margin-top: 16px; line-height: 1.5; }
+    .empty { text-align: center; padding: 44px 16px; color: var(--soft); }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; margin-right: 8px; vertical-align: middle; }
+    .bar { display: flex; height: 36px; border-radius: 6px; overflow: hidden; background: var(--bg); margin: 12px 0; }
+    .bar.sm { height: 12px; margin: 8px 0 0; }
+    .callout { background: #F2F7EE; border: 1px solid #DCE8D2; border-radius: 12px; padding: 14px 18px; font-size: 14px; line-height: 1.5; }
+    .callout.warn { background: #FDF6E9; border-color: #F1DDB5; }
+    .pill { background: #E3F0DA; color: #3F7A2A; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 999px; white-space: nowrap; }
+    .pill.warn { background: #FBEBCB; color: #8A5A0B; }
+
+    /* tabs: underline style for page sections, segmented for table views */
+    .tabs { display: flex; gap: 26px; border-bottom: 1px solid var(--line); margin-bottom: 22px; overflow-x: auto; overflow-y: hidden; }
+    .tabs a { text-decoration: none; font-size: 14px; color: var(--soft); padding: 10px 0; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+    .tabs a.on { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+    .seg a { text-decoration: none; font-size: 13px; padding: 7px 14px; color: var(--soft); border-left: 1px solid var(--line); }
+    .seg a:first-child { border-left: 0; }
+    .seg a.on { background: var(--accent); color: #fff; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .card-head h2 { margin: 0; }
+
+    /* tables */
+    .tbl-wrap { overflow-x: auto; }
+    table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .tbl th { text-align: left; font-weight: 600; background: #F3F5FB; padding: 11px 12px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+    .tbl td { padding: 10px 12px; border-bottom: 1px solid var(--bg); white-space: nowrap; }
+    .tbl td.n { text-align: right; font-family: 'IBM Plex Mono', monospace; }
+    .tbl th.n { text-align: right; }
+    .tbl tr.avg td { background: #FAFBFE; font-weight: 600; }
+    .tbl td:first-child { font-weight: 500; }
+    .pager { display: flex; gap: 6px; align-items: center; justify-content: flex-end; margin-top: 14px; font-size: 13px; }
+    .pager a { text-decoration: none; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; }
+
+    /* top-5 boards */
+    .board li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
+    .board ol { list-style: none; margin: 0; padding: 0; }
+    .board b { font-family: 'IBM Plex Mono', monospace; }
+    .board .none { color: var(--muted); }
+
+    @media (max-width: 900px) {
+      .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
+      .kpis > div { border-left: 0; padding: 10px 0; border-top: 1px solid var(--bg); }
+      .kpis > div:first-child { border-top: 0; }
+    }
+    @media (max-width: 640px) {
+      .page, .topbar-in { padding-left: 16px; padding-right: 16px; }
+      .menu > button { padding: 12px 8px; }
+      .field select { min-width: 140px; }
+    }
+    {% block style %}{% endblock %}
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="logo" href="{{ url_for('dashboard') }}">
+      <img src="{{ url_for('static', filename='dht-logo.png') }}" alt="">
+      <span>Dream Homes Team</span>
+    </a>
+    {% for menu, items in nav %}
+      {% set current = request.endpoint in items|map('first')|list %}
+      <div class="menu {{ 'current' if current }}">
+        <button type="button">{{ menu }}</button>
+        <div class="menu-list">
+          {% for endpoint, label in items %}
+            <a class="{{ 'on' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}">{{ label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+    <a class="logout" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+</header>
+
+<main class="page">
+  <div class="head">
+    <div class="eyebrow">{% block eyebrow %}{% endblock %}</div>
+    <h1>{% block heading %}{% endblock %}</h1>
+  </div>
+  {% block filters %}{% endblock %}
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

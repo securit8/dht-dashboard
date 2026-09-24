@@ -1,11 +1,17 @@
+import csv
+import io
 import os
 import secrets
+from contextlib import contextmanager
 from functools import wraps
-from datetime import datetime, timedelta, timezone
-from flask import Flask, render_template, request, session, redirect, url_for
+from datetime import date, datetime, time, timedelta
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
+from flask import Flask, Response, render_template, request, session, redirect, url_for
 
 import psycopg2
-import psycopg2.extras
+
+import reports as R
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
@@ -17,7 +23,22 @@ DASHBOARD_PASSWORD = os.environ["DASHBOARD_PASSWORD"]
 PALETTE = ['#E8A87C', '#7B8FF0', '#8FD3C8', '#F2B84B', '#C99BE0',
            '#7ECF8B', '#E88BA0', '#8FB8E0', '#D9A066', '#9AA5B1']
 
-PERIODS = {"today", "week", "month", "year"}
+TEAM_TZ_NAME = os.environ.get("TEAM_TZ", "America/Los_Angeles")
+TEAM_TZ = ZoneInfo(TEAM_TZ_NAME)
+
+# Date-filter presets shown on every page, in display order
+PRESETS = [("today", "Today"), ("week", "This Week"), ("month", "This Month"),
+           ("last30", "Last 30 Days"), ("last90", "Last 90 Days"), ("year", "This Year")]
+PRESET_KEYS = {k for k, _ in PRESETS}
+
+# Top menu, modeled on MaverickRE: (menu, [(endpoint, label)])
+NAV = [
+    ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
+                          ("call_time", "Best Call Time Report")]),
+    ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
+                       ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
+    ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
+]
 
 
 def login_required(view):
@@ -38,7 +59,7 @@ def login():
         if secrets.compare_digest(username, DASHBOARD_USERNAME) and secrets.compare_digest(password, DASHBOARD_PASSWORD):
             session["logged_in"] = True
             session.permanent = True
-            return redirect(request.args.get("next") or url_for("leaderboard"))
+            return redirect(request.args.get("next") or url_for("dashboard"))
         error = "Incorrect username or password."
     return render_template("login.html", error=error)
 
@@ -49,17 +70,138 @@ def logout():
     return redirect(url_for("login"))
 
 
-def period_start(period):
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if period == "week":
-        return today_start - timedelta(days=today_start.weekday())
-    if period == "month":
-        return today_start.replace(day=1)
-    if period == "year":
-        return today_start.replace(month=1, day=1)
-    return today_start
+@contextmanager
+def db():
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    try:
+        yield cur
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
+
+def today_start():
+    return datetime.now(TEAM_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def date_range(default):
+    """Date filter shared by every page: a preset (?period=) or a custom
+    ?from=YYYY-MM-DD&to=YYYY-MM-DD, both inclusive, in the team's timezone.
+    Returns start (inclusive) and end (exclusive) datetimes."""
+    today = today_start()
+    key = request.args.get("period") or None
+    try:
+        d_from = date.fromisoformat(request.args["from"])
+        d_to = date.fromisoformat(request.args["to"])
+    except (KeyError, ValueError):
+        d_from = d_to = None
+
+    if key not in PRESET_KEYS and d_from and d_to:
+        if d_to < d_from:
+            d_from, d_to = d_to, d_from
+        key = "custom"
+        start = datetime.combine(d_from, time(), TEAM_TZ)
+        end = datetime.combine(d_to + timedelta(days=1), time(), TEAM_TZ)
+    else:
+        if key not in PRESET_KEYS:
+            key = default
+        start = {
+            "today": today,
+            "week": today - timedelta(days=today.weekday()),
+            "month": today.replace(day=1),
+            "last30": today - timedelta(days=29),
+            "last90": today - timedelta(days=89),
+            "year": today.replace(month=1, day=1),
+        }[key]
+        end = today + timedelta(days=1)
+
+    last_day = end - timedelta(days=1)
+    return {"key": key, "start": start, "end": end,
+            "from": start.date().isoformat(), "to": last_day.date().isoformat(),
+            "label": f"{start:%m/%d/%Y} - {last_day:%m/%d/%Y}"}
+
+
+def page_filters(default_period, agent_arg="agent"):
+    """Date range + optional agent/source from the query string."""
+    rng = date_range(default_period)
+    agent = request.args.get(agent_arg, type=int)
+    source = request.args.get("source") or None
+    return rng, R.Filters(rng["start"], rng["end"], agent, source, TEAM_TZ_NAME)
+
+
+@app.template_global()
+def qs(**changes):
+    """Current query string with some keys changed; None removes a key."""
+    args = {k: v for k, v in request.args.items()}
+    for k, v in changes.items():
+        if v is None:
+            args.pop(k, None)
+        else:
+            args[k] = v
+    return "?" + urlencode(args)
+
+
+@app.template_filter("money")
+def money(v):
+    v = float(v or 0)
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M".replace(".0M", "M")
+    if v >= 1_000:
+        return f"${v / 1_000:.0f}K"
+    return f"${v:,.0f}"
+
+
+@app.template_filter("num")
+def num(v):
+    if isinstance(v, float) and not v.is_integer():
+        return f"{v:,.2f}".rstrip("0").rstrip(".")
+    return f"{int(v or 0):,}"
+
+
+@app.template_filter("fmt_date")
+def fmt_date(dt, with_time=False):
+    dt = dt.astimezone(TEAM_TZ)
+    return dt.strftime("%b %d %Y %I:%M %p" if with_time else "%b %d %Y")
+
+
+@app.template_filter("pair")
+def pair(v):
+    """x -> (x, x), for select options whose value and label match."""
+    return (v, v)
+
+
+@app.template_filter("board_item")
+def board_item(row, key):
+    """A report row -> {name, value} for the top-5 board macro."""
+    return {"name": row["name"], "value": row[key]}
+
+
+@app.context_processor
+def layout_context():
+    return {"nav": NAV, "presets": PRESETS, "money": money,
+            "month_names": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}
+
+
+def hide_future(values, year):
+    """Blank out months that haven't happened yet, so charts don't drop to 0."""
+    today = today_start()
+    if year != today.year:
+        return values
+    return [v if i < today.month else None for i, v in enumerate(values)]
+
+
+def filter_options(cur, agents=True, sources=True):
+    opts = {}
+    if agents:
+        opts["agent_options"] = R.agent_options(cur)
+    if sources:
+        opts["source_options"] = R.source_options(cur)
+    return opts
+
+
+# ---------------------------------------------------------------- Leaderboard
 
 def duration_label(minutes):
     minutes = minutes or 0
@@ -68,40 +210,52 @@ def duration_label(minutes):
     return f"{minutes // 60}h {minutes % 60}m"
 
 
-def get_agents(period):
-    start = period_start(period)
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        SELECT agent_name,
-               COUNT(*) FILTER (WHERE event_type = 'appt') AS appts,
-               COUNT(*) FILTER (WHERE event_type = 'conversation') AS conversations,
-               COALESCE(SUM(duration_min) FILTER (WHERE event_type = 'conversation'), 0) AS conversations_dur_min,
-               COUNT(*) FILTER (WHERE event_type = 'attempt') AS attempts,
-               COUNT(*) FILTER (WHERE event_type = 'text') AS texts,
-               COUNT(*) FILTER (WHERE event_type = 'zillow') AS zillow,
-               COUNT(*) FILTER (WHERE event_type = 'email') AS emails
-        FROM agent_events
-        WHERE created_at >= %s
-        GROUP BY agent_name
-    """, (start,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+LEADERBOARD_COUNTS = """
+    SELECT user_id, MAX(agent_name) AS agent_name,
+           COUNT(*) FILTER (WHERE event_type = 'appt') AS appts,
+           COUNT(*) FILTER (WHERE event_type = 'conversation') AS conversations,
+           COALESCE(SUM(duration_min) FILTER (WHERE event_type = 'conversation'), 0) AS conversations_dur_min,
+           COUNT(*) FILTER (WHERE event_type = 'attempt') AS attempts,
+           COUNT(*) FILTER (WHERE event_type = 'text') AS texts,
+           COUNT(*) FILTER (WHERE event_type = 'zillow') AS zillow,
+           COUNT(*) FILTER (WHERE event_type = 'email') AS emails
+    FROM agent_events
+    WHERE created_at >= %(start)s AND created_at < %(end)s
+    GROUP BY user_id
+"""
+
+
+def get_agents(start, end):
+    """Every active agent on the FUB roster (lenders excluded), with 0s for
+    no activity, like FUB's own leaderboard. Anyone with activity who isn't
+    on the roster still shows up."""
+    with db() as cur:
+        if R.tables_ready(cur, "agents"):
+            rows = R.fetch(cur, f"""
+                WITH c AS ({LEADERBOARD_COUNTS}),
+                     r AS (SELECT user_id, name, picture_url FROM agents
+                           WHERE LOWER(COALESCE(status, '')) IN ('', 'active')
+                             AND LOWER(COALESCE(role, '')) <> 'lender')
+                SELECT COALESCE(r.name, c.agent_name) AS agent_name, r.picture_url,
+                       c.appts, c.conversations, c.conversations_dur_min, c.attempts, c.texts, c.zillow, c.emails
+                FROM r FULL JOIN c ON c.user_id = r.user_id
+            """, {"start": start, "end": end})
+        else:
+            rows = R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end})
 
     agents = []
     for r in rows:
         appts, conversations, attempts = r["appts"] or 0, r["conversations"] or 0, r["attempts"] or 0
         texts, zillow, emails = r["texts"] or 0, r["zillow"] or 0, r["emails"] or 0
         agents.append({
-            "name": r["agent_name"],
+            "name": r["agent_name"], "picture": r.get("picture_url") or "",
             "initials": "".join(w[0] for w in r["agent_name"].split()[:2]).upper(),
             "appts": appts, "conversations": conversations,
             "conversations_dur_label": duration_label(r["conversations_dur_min"]),
             "attempts": attempts, "texts": texts, "zillow": zillow, "emails": emails,
             "score": appts * 500 + conversations * 100 + attempts * 10 + texts * 2 + emails * 1 + zillow * 5,
         })
-    agents.sort(key=lambda a: a["score"], reverse=True)
+    agents.sort(key=lambda a: (-a["score"], a["name"].lower()))
     for i, a in enumerate(agents):
         a["rank"] = i + 1
         a["avatar_bg"] = PALETTE[i % len(PALETTE)]
@@ -118,81 +272,273 @@ def get_agents(period):
     return agents, totals
 
 
-def _distinct_people(cur, event_type, start, end=None):
-    if end:
-        cur.execute("""
-            SELECT COUNT(DISTINCT person_id) FROM agent_events
-            WHERE event_type = %s AND person_id IS NOT NULL
-              AND created_at >= %s AND created_at < %s
-        """, (event_type, start, end))
-    else:
-        cur.execute("""
-            SELECT COUNT(DISTINCT person_id) FROM agent_events
-            WHERE event_type = %s AND person_id IS NOT NULL AND created_at >= %s
-        """, (event_type, start))
-    return cur.fetchone()[0] or 0
+@app.route("/")
+@login_required
+def leaderboard():
+    rng = date_range("today")
+    agents, totals = get_agents(rng["start"], rng["end"])
+    return render_template("leaderboard.html", podium=agents[:3], rest=agents[3:],
+                           totals=totals, has_data=len(agents) > 0, rng=rng)
 
 
-def _pct_change(cur_val, prev_val):
-    if prev_val == 0:
-        return None if cur_val == 0 else "new"
-    return round((cur_val - prev_val) / prev_val * 100)
+# ---------------------------------------------------------------- Dashboard
+
+DASHBOARD_TABS = {"pipeline", "response", "source"}
 
 
-def get_funnel(period):
-    start = period_start(period)
-    now = datetime.now(timezone.utc)
-    length = now - start
-    prev_start = start - length
-    prev_end = start
-
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-
-    new_leads = _distinct_people(cur, "lead", start)
-    contacted = _distinct_people(cur, "attempt", start)
-    appt_set = _distinct_people(cur, "appt", start)
-
-    new_leads_prev = _distinct_people(cur, "lead", prev_start, prev_end)
-    contacted_prev = _distinct_people(cur, "attempt", prev_start, prev_end)
-    appt_set_prev = _distinct_people(cur, "appt", prev_start, prev_end)
-
-    cur.close()
-    conn.close()
-
-    top = max(new_leads, 1)
-    stages = [
-        {"label": "New Leads", "count": new_leads, "pct_of_top": 100,
-         "change": _pct_change(new_leads, new_leads_prev), "tracked": True},
-        {"label": "Contacted", "count": contacted, "pct_of_top": round(contacted / top * 100, 1),
-         "change": _pct_change(contacted, contacted_prev), "tracked": True},
-        {"label": "Appt. Set", "count": appt_set, "pct_of_top": round(appt_set / top * 100, 1),
-         "change": _pct_change(appt_set, appt_set_prev), "tracked": True},
-        {"label": "Appt. Met", "count": 0, "pct_of_top": 0, "change": None, "tracked": False},
-        {"label": "Closed Deal", "count": 0, "pct_of_top": 0, "change": None, "tracked": False},
-    ]
-    return stages
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    tab = request.args.get("tab", "pipeline")
+    if tab not in DASHBOARD_TABS:
+        tab = "pipeline"
+    rng, f = page_filters("last30")
+    data = {}
+    with db() as cur:
+        ready = R.tables_ready(cur, "people")
+        if ready:
+            data.update(filter_options(cur))
+            if tab == "pipeline":
+                data["pipeline"] = R.pipeline_health(cur, f)
+            elif tab == "response":
+                data["response"] = R.lead_response(cur, f, min(f.end, datetime.now(TEAM_TZ)))
+            else:
+                data["sources"] = R.best_sources(cur, f)
+    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, **data)
 
 
 @app.route("/funnel")
 @login_required
 def funnel():
-    period = request.args.get("period", "month")
-    if period not in PERIODS:
-        period = "month"
-    stages = get_funnel(period)
-    return render_template("funnel.html", stages=stages, period=period)
+    return redirect(url_for("dashboard"))
 
 
-@app.route("/")
+# ---------------------------------------------------------------- Sales Manager
+
+MANAGER_VIEWS = {"funnel", "stages", "outreach"}
+
+
+@app.route("/sales-manager")
 @login_required
-def leaderboard():
-    period = request.args.get("period", "today")
-    if period not in PERIODS:
-        period = "today"
-    agents, totals = get_agents(period)
-    return render_template("leaderboard.html", podium=agents[:3], rest=agents[3:],
-                            totals=totals, has_data=len(agents) > 0, period=period)
+def sales_manager():
+    view = request.args.get("view", "funnel")
+    if view not in MANAGER_VIEWS:
+        view = "funnel"
+    rng, f = page_filters("last30")
+    today = today_start()
+    with db() as cur:
+        ready = R.tables_ready(cur, "people", "appointments")
+        data = {}
+        if ready:
+            rows = R.team_overview(cur, f)
+            data = dict(
+                kpis=R.sales_manager_kpis(cur, f, today),
+                rows=rows,
+                avg=R.team_average(rows, ["total_leads", "appts", "held", "held_pct", "accepted",
+                                          "accepted_pct", "pending", "closed", "conversion",
+                                          "calls", "conversations", "texts", "emails"]),
+                top=R.top_performers(cur, f, today),
+                **filter_options(cur))
+    return render_template("sales_manager.html", view=view, ready=ready, rng=rng,
+                           buckets=R.BUCKETS, **data)
+
+
+# ---------------------------------------------------------------- Appointments
+
+def _appt_args():
+    view_by = request.args.get("view_by", "created")
+    if view_by not in R.APPT_DATE_FIELDS:
+        view_by = "created"
+    status = request.args.get("status", "all")
+    if status not in R.APPT_STATUSES:
+        status = "all"
+    return view_by, request.args.get("type") or None, status
+
+
+@app.route("/appointments")
+@login_required
+def appointments():
+    view_by, appt_type, status = _appt_args()
+    page = max(request.args.get("page", 1, type=int), 1)
+    rng, f = page_filters("last90")
+    with db() as cur:
+        ready = R.tables_ready(cur, "appointments")
+        data = {}
+        if ready:
+            rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page)
+            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type), rows=rows, total=total,
+                        pages=max((total + 24) // 25, 1),
+                        type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
+                        **filter_options(cur))
+    return render_template("appointments.html", ready=ready, rng=rng, view_by=view_by, appt_type=appt_type,
+                           status=status, page=page, **data)
+
+
+@app.route("/appointments.csv")
+@login_required
+def appointments_csv():
+    view_by, appt_type, status = _appt_args()
+    _, f = page_filters("last90")
+    with db() as cur:
+        rows, _ = R.appointment_list(cur, f, view_by, appt_type, status, 1, per_page=100000)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time", "Type", "Outcome", "Lead Source",
+                "Current Stage", "Created By"])
+    for r in rows:
+        w.writerow([r["agent_names"], r["lead_name"],
+                    r["created_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d") if r["created_at"] else "",
+                    r["start_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d %H:%M") if r["start_at"] else "",
+                    r["type"], r["outcome"], r["source"], r["stage"], r["created_by_name"]])
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=appointments.csv"})
+
+
+# ---------------------------------------------------------------- Lead Source
+
+@app.route("/lead-source")
+@login_required
+def lead_source():
+    rng, f = page_filters("year")
+    year = (f.end - timedelta(days=1)).year
+    with db() as cur:
+        ready = R.tables_ready(cur, "people")
+        data = {}
+        if ready:
+            data = dict(
+                ov=R.lead_source_overview(cur, f), top_agents=R.top_agents_closed(cur, f),
+                stages=R.grouped_stages(R.stage_counts(cur, f)), months=R.leads_by_month(cur, f),
+                trend={"year": year,
+                       "leads": [hide_future(R.monthly_series(cur, f, year, "leads"), year),
+                                 R.monthly_series(cur, f, year - 1, "leads")],
+                       "deals": [hide_future(R.monthly_series(cur, f, year, "deals"), year),
+                                 R.monthly_series(cur, f, year - 1, "deals")]},
+                **filter_options(cur))
+    return render_template("lead_source.html", ready=ready, rng=rng, **data)
+
+
+# ---------------------------------------------------------------- Business Overview
+
+@app.route("/business-overview")
+@login_required
+def business_overview():
+    today = today_start()
+    year = request.args.get("year", today.year, type=int)
+    top_days = 365 if request.args.get("top") == "365" else 30
+    f = R.Filters(today, today, request.args.get("agent", type=int), request.args.get("source") or None,
+                  TEAM_TZ_NAME)
+    with db() as cur:
+        ready = R.tables_ready(cur, "deals")
+        data = {}
+        if ready:
+            months = R.business_months(cur, f, year)
+            quarters, total = R.business_quarters(months)
+            data = dict(quarters=quarters, total=total,
+                        yoy={y: [m["deals"] for m in R.business_months(cur, f, y)] for y in (year - 2, year - 1)}
+                        | {year: hide_future([m["deals"] for m in months], year)},
+                        top=R.business_top(cur, f, today - timedelta(days=top_days)),
+                        **filter_options(cur))
+    return render_template("business_overview.html", ready=ready, year=year, years=range(today.year, today.year - 4, -1),
+                           top_days=top_days, **data)
+
+
+# ---------------------------------------------------------------- Best Call Time
+
+@app.route("/call-time")
+@login_required
+def call_time():
+    rng, f = page_filters("last30")
+    day = request.args.get("day", "Weekly")
+    if day not in R.DAYS and day != "Weekly":
+        day = "Weekly"
+    with db() as cur:
+        ready = R.tables_ready(cur, "agent_events")
+        data = {}
+        if ready:
+            data = dict(ct=R.call_time(cur, f), **filter_options(cur))
+    return render_template("call_time.html", ready=ready, rng=rng, day=day, days=R.DAYS, **data)
+
+
+# ---------------------------------------------------------------- Agent Snapshot
+
+AGENT_TABS = [("funnel", "Sales Funnel"), ("opportunities", "Opportunities Waiting"),
+              ("financial", "Financial Insights"), ("goals", "Goals & Pacing"), ("coaching", "Coaching Notes")]
+
+
+@app.route("/agent")
+@login_required
+def agent_snapshot():
+    tab = request.args.get("tab", "funnel")
+    if tab not in dict(AGENT_TABS):
+        tab = "funnel"
+    rng, f = page_filters("month" if tab == "goals" else "last90")
+    now = datetime.now(TEAM_TZ)
+    with db() as cur:
+        ready = R.tables_ready(cur, "people", "agent_events")
+        data = {}
+        if ready:
+            options = R.agent_options(cur)
+            uid = f.agent or (options[0][0] if options else None)
+            data = dict(agent_options=options, source_options=R.source_options(cur), uid=uid,
+                        info=R.agent_info(cur, uid) if uid else None)
+            if uid:
+                f.agent = uid
+                if tab == "funnel":
+                    data["funnel"] = R.agent_funnel(cur, f)
+                elif tab == "opportunities":
+                    data["opp"] = R.opportunities(cur, uid, now)
+                elif tab == "financial":
+                    data["fin"] = R.agent_financials(cur, f, uid, now)
+                    data["fin"]["this_year"] = hide_future(data["fin"]["this_year"], now.year)
+                elif tab == "goals":
+                    R.ensure_app_tables(cur)
+                    data["goals"] = R.goals_view(cur, f, uid)
+                else:
+                    R.ensure_app_tables(cur)
+                    data["notes"] = R.coaching_notes(cur, uid, request.args.get("author") or None,
+                                                     request.args.get("note_type") or None)
+                    data["authors"] = sorted({n["author"] for n in R.coaching_notes(cur, uid)})
+    return render_template("agent.html", ready=ready, rng=rng, tab=tab, tabs=AGENT_TABS,
+                           note_types=R.NOTE_TYPES, **data)
+
+
+@app.route("/agent/goals", methods=["POST"])
+@login_required
+def save_goals():
+    uid = request.form.get("agent", type=int)
+    with db() as cur:
+        R.ensure_app_tables(cur)
+        for key, *_ in R.GOAL_METRICS:
+            raw = (request.form.get(key) or "").strip()
+            if raw == "":
+                cur.execute("DELETE FROM agent_goals WHERE user_id = %s AND metric = %s", (uid, key))
+                continue
+            try:
+                target = float(raw)
+            except ValueError:
+                continue
+            cur.execute("""
+                INSERT INTO agent_goals (user_id, metric, target) VALUES (%s, %s, %s)
+                ON CONFLICT (user_id, metric) DO UPDATE SET target = EXCLUDED.target
+            """, (uid, key, target))
+    return redirect(url_for("agent_snapshot", agent=uid, tab="goals"))
+
+
+@app.route("/agent/notes", methods=["POST"])
+@login_required
+def add_note():
+    uid = request.form.get("agent", type=int)
+    body = (request.form.get("body") or "").strip()
+    author = (request.form.get("author") or "").strip()[:80] or "Manager"
+    note_type = request.form.get("note_type")
+    if note_type not in R.NOTE_TYPES:
+        note_type = R.NOTE_TYPES[0]
+    if uid and body:
+        with db() as cur:
+            R.ensure_app_tables(cur)
+            cur.execute("INSERT INTO coaching_notes (user_id, author, note_type, body) VALUES (%s, %s, %s, %s)",
+                        (uid, author, note_type, body[:5000]))
+    return redirect(url_for("agent_snapshot", agent=uid, tab="coaching"))
 
 
 if __name__ == "__main__":

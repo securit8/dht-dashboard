@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Best Call Time Report{% endblock %}
+{% block eyebrow %}Best Call Time Report{% endblock %}
+{% block heading %}Monitor your conversation performance{% endblock %}
+{% block style %}
+  .chart-box { position: relative; height: 340px; }
+  .insights ul { margin: 0; padding-left: 18px; line-height: 1.7; font-size: 14px; }
+  .insights h3 { margin-top: 0; }
+{% endblock %}
+
+{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty() }}
+{% else %}
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Conversation Rate by {{ 'Hour' if day != 'Weekly' else 'Day' }}</h2>
+        <div class="muted">Average conversation rate of <b style="color:var(--accent-ink)">{{ ct.avg_rate }}%</b>
+          &middot; {{ ct.total_calls|num }} calls, {{ ct.total_convos|num }} conversations (2+ minutes)</div>
+      </div>
+      <div class="seg">
+        {% for d in days + ['Weekly'] %}<a class="{{ 'on' if day == d }}" href="{{ qs(day=d) }}">{{ d }}</a>{% endfor %}
+      </div>
+    </div>
+    <div class="chart-box"><canvas id="c-calls"></canvas></div>
+  </div>
+
+  <div class="grid2 insights">
+    <div class="card"><h3>What's Working</h3>
+      <ul>{% for t in ct.working %}<li>{{ t }}</li>{% else %}<li class="muted">Not enough calls yet.</li>{% endfor %}</ul></div>
+    <div class="card"><h3>Areas for Improvement</h3>
+      <ul>{% for t in ct.improve %}<li>{{ t }}</li>{% else %}<li class="muted">Not enough calls yet.</li>{% endfor %}</ul></div>
+  </div>
+  <div class="note">Times are Pacific. A call counts as a conversation when it lasts 2 minutes or more. Insights only use time slots with at least 5 calls.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if ready %}
+  {% include "_chart.html" %}
+  <script>
+    (function () {
+      const v = {{ ct.views[day]|tojson }};
+      new Chart(document.getElementById('c-calls'), {
+        data: {
+          labels: {{ ct.hours|tojson }},
+          datasets: [
+            { type: 'line', label: 'Conversation Rate', data: v.rate, yAxisID: 'rate',
+              borderColor: '#4A5FD9', backgroundColor: '#4A5FD9', tension: 0.3, borderWidth: 3, pointRadius: 3 },
+            { type: 'bar', label: 'Total Calls', data: v.calls, yAxisID: 'calls',
+              backgroundColor: '#F2B84B', borderRadius: 4, maxBarThickness: 36 },
+          ]
+        },
+        options: {
+          maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          scales: {
+            rate: { position: 'left', beginAtZero: true, ticks: { callback: x => x + '%' }, title: { display: true, text: 'Conversation Rate' } },
+            calls: { position: 'right', beginAtZero: true, grid: { display: false }, title: { display: true, text: 'Total Calls' } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    })();
+  </script>
+{% endif %}{% endblock %}

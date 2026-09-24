@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Appointments Report{% endblock %}
+{% block eyebrow %}Appointments Report{% endblock %}
+{% block heading %}See your team's appointment funnel and outcomes{% endblock %}
+{% block style %}
+  .outcome { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+  .outcome.held { background: #E3F4EA; color: #1F7A48; }
+  .outcome.not_held { background: #FBE7E4; color: #A33224; }
+  .outcome.none { background: var(--bg); color: var(--soft); }
+{% endblock %}
+
+{% block filters %}{% if ready %}
+  {{ m.filter_bar(rng, agent_options, source_options, [
+       {'name': 'view_by', 'label': 'View by date', 'default': 'created',
+        'options': [('created', 'Created'), ('start', 'Appointment time')]},
+       {'name': 'type', 'label': 'Appointment type', 'options': type_choices},
+     ]) }}
+{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty('Waiting for the first appointment sync from Follow Up Boss.') }}
+{% else %}
+  <div class="card">
+    <div class="band-label">For the time period <b>{{ rng.label }}</b></div>
+    <div class="kpis">
+      <div><div class="kpi-lbl">Appointments {{ 'Created' if view_by == 'created' else 'Scheduled' }}</div>
+        <div class="kpi-val">{{ kpis.total|num }}</div><div class="kpi-sub">{{ kpis.set_rate }}% Set rate</div>{{ m.chg(kpis.chg.total) }}</div>
+      <div><div class="kpi-lbl">Appointments Held</div>
+        <div class="kpi-val">{{ kpis.held|num }}</div><div class="kpi-sub">{{ kpis.held_rate }}% Held rate</div>{{ m.chg(kpis.chg.held) }}</div>
+      <div><div class="kpi-lbl">Appointments Not Held</div>
+        <div class="kpi-val">{{ kpis.not_held|num }}</div><div class="kpi-sub">{{ kpis.not_held_rate }}% Not Held rate</div>{{ m.chg(kpis.chg.not_held) }}</div>
+      <div><div class="kpi-lbl">Appointments with No Outcome</div>
+        <div class="kpi-val">{{ kpis.none|num }}</div><div class="kpi-sub">{{ kpis.none_rate }}% With No Outcome</div>{{ m.chg(kpis.chg.none) }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Appointment Overview</h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="seg">
+          {% for key, label in [('all', 'All Appts'), ('held', 'Held Appts'), ('not_held', 'Not Held Appts'), ('none', 'No Outcome/Needs Update')] %}
+            <a class="{{ 'on' if status == key }}" href="{{ qs(status=key, page=None) }}">{{ label }}</a>
+          {% endfor %}
+        </div>
+        <a class="btn ghost" href="{{ url_for('appointments_csv') }}{{ qs(page=None) }}">Export CSV</a>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Agent(s) On Appointment</th><th>Lead</th><th>Appt Created</th><th>Appt Time</th><th>Type</th>
+            <th>Outcome</th><th>Lead Source</th><th>Current CRM Stage</th><th>Created By</th></tr>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.agent_names or '--' }}</td>
+          <td>{{ r.lead_name or '--' }}</td>
+          <td>{{ r.created_at|fmt_date if r.created_at else '--' }}</td>
+          <td>{{ r.start_at|fmt_date(true) if r.start_at else '--' }}</td>
+          <td>{{ r.type or '--' }}</td>
+          <td><span class="outcome {{ r.status }}">{{ r.outcome or 'No outcome' }}</span></td>
+          <td>{{ r.source }}</td>
+          <td>{{ r.stage or '--' }}</td>
+          <td>{{ r.created_by_name or '--' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted">No appointments match these filters.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="pager">
+      <span class="muted">{{ total|num }} appointments &middot; page {{ page }} of {{ pages }}</span>
+      {% if page > 1 %}<a href="{{ qs(page=page - 1) }}">&larr; Prev</a>{% endif %}
+      {% if page < pages %}<a href="{{ qs(page=page + 1) }}">Next &rarr;</a>{% endif %}
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

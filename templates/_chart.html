@@ -1,0 +1,24 @@
+{# Chart.js loader + small helper shared by pages with charts. #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  Chart.defaults.font.family = "'IBM Plex Sans', system-ui, sans-serif";
+  Chart.defaults.color = '#5B6472';
+  Chart.defaults.plugins.legend.labels.boxWidth = 12;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const SERIES_COLORS = ['#7B8FF0', '#C6CBD4', '#E8A87C'];
+  // Year-over-year line chart: series = {label: [12 values]}, newest first
+  function yoyChart(id, series, money) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+      type: 'line',
+      // JSON keys arrive sorted oldest-first; show the newest year first (highlighted)
+      data: { labels: MONTHS, datasets: Object.entries(series).sort((a, b) => b[0].localeCompare(a[0])).map(([label, data], i) => ({
+        label, data, borderColor: SERIES_COLORS[i], backgroundColor: SERIES_COLORS[i],
+        borderWidth: i === 0 ? 3 : 2, cubicInterpolationMode: 'monotone', pointRadius: 3 })) },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        scales: { y: { beginAtZero: true, ticks: { callback: v => money ? '$' + (v >= 1e6 ? (v / 1e6) + 'M' : v >= 1e3 ? (v / 1e3) + 'K' : v) : v } },
+                  x: { grid: { display: false } } } }
+    });
+  }
+</script>
