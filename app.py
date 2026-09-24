@@ -245,7 +245,7 @@ def get_agents(start, end):
                      r AS (SELECT user_id, name, picture_url FROM agents
                            WHERE LOWER(COALESCE(status, '')) IN ('', 'active')
                              AND LOWER(COALESCE(role, '')) <> 'lender')
-                SELECT COALESCE(r.name, c.agent_name) AS agent_name, r.picture_url,
+                SELECT COALESCE(r.user_id, c.user_id) AS user_id, COALESCE(r.name, c.agent_name) AS agent_name, r.picture_url,
                        c.appts, c.conversations, c.conversations_dur_min, c.attempts, c.texts, c.zillow, c.emails
                 FROM r FULL JOIN c ON c.user_id = r.user_id
             """, {"start": start, "end": end})
@@ -257,7 +257,7 @@ def get_agents(start, end):
         appts, conversations, attempts = r["appts"] or 0, r["conversations"] or 0, r["attempts"] or 0
         texts, zillow, emails = r["texts"] or 0, r["zillow"] or 0, r["emails"] or 0
         agents.append({
-            "name": r["agent_name"], "picture": r.get("picture_url") or "",
+            "uid": r["user_id"], "name": r["agent_name"], "picture": r.get("picture_url") or "",
             "initials": "".join(w[0] for w in r["agent_name"].split()[:2]).upper(),
             "appts": appts, "conversations": conversations,
             "conversations_dur_label": duration_label(r["conversations_dur_min"]),
@@ -601,9 +601,21 @@ def agent_snapshot():
                 elif tab == "opportunities":
                     data["opp"] = R.opportunities(cur, uid, now)
                 elif tab == "financial":
-                    data["fin"] = R.agent_financials(cur, f, uid, now)
-                    data["fin"]["this_year"] = hide_future(data["fin"]["this_year"], now.year)
+                    fub_fin = R.agent_financials(cur, f, uid, now)
+                    data["fin"] = fub_fin
                     cte_name = CTE.name_for(cur, data["info"]["name"]) if data["info"] else None
+                    if cte_name:
+                        # Performance cards from the CTE deal log (GCI + commission %); FUB kept for comparison
+                        year_ago = today_start() - timedelta(days=365)
+                        l12m = R.Filters(year_ago, today_start() + timedelta(days=1), uid, None, TEAM_TZ_NAME)
+                        leads = R.funnel_counts(cur, l12m)["new_leads"]
+                        team_leads = R.funnel_counts(cur, R.Filters(l12m.start, l12m.end, None, None, TEAM_TZ_NAME))["new_leads"]
+                        fin = CTE.agent_financials(cur, cte_name, now)
+                        fin["conversion"] = R.pct(fin["deals"], leads, 3)
+                        fin["team_conversion"] = R.pct(CTE.closed_count_since(cur, year_ago), team_leads, 3)
+                        fin["fub"] = fub_fin
+                        data["fin"] = fin
+                    data["fin"]["this_year"] = hide_future(data["fin"]["this_year"], now.year)
                     if cte_name:
                         jan1 = today_start().replace(month=1, day=1)
                         data["cte"] = dict(

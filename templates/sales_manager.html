@@ -92,7 +92,7 @@
         <tr><th>Agent name</th><th class="n">Total Leads</th><th class="n">Appointments</th><th class="n">Appts Held</th>
             <th class="n">Appts Held %</th><th class="n">Accepted Deals{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Accepted Deals % (FUB)</th>
             <th class="n">Pending{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Closed{{ " (CTE / FUB)" if has_cte }}</th><th class="n">Conversion (FUB)</th></tr>
-        {% macro frow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.total_leads|num }}</td>
+        {% macro frow(r, cls='') %}<tr class="{{ cls }}"><td>{% if r.uid %}<a href="{{ url_for('agent_snapshot', agent=r.uid) }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td><td class="n">{{ r.total_leads|num }}</td>
             <td class="n">{{ r.appts|num }}</td><td class="n">{{ r.held|num }}</td><td class="n">{{ r.held_pct }}%</td>
             {% if has_cte %}
             <td class="n">{{ r.cte.written|num }} <span class="dual">/ {{ r.accepted|num }}</span></td><td class="n">{{ r.accepted_pct }}%</td>
@@ -109,14 +109,14 @@
             <th class="n">Leads Unresponsive</th><th class="n">Appointments Outstanding</th><th class="n">Long Nurture</th>
             <th class="n">Short Nurture</th><th class="n">Active Buyer &amp; Seller</th><th class="n">Reject/Trash</th>
             <th class="n">Closed/Under Contract</th></tr>
-        {% macro srow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.total_leads|num }}</td>
+        {% macro srow(r, cls='') %}<tr class="{{ cls }}"><td>{% if r.uid %}<a href="{{ url_for('agent_snapshot', agent=r.uid) }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td><td class="n">{{ r.total_leads|num }}</td>
             {% for k in ['new', 'attempted', 'appt', 'long', 'short', 'active', 'trash', 'closed'] %}<td class="n">{{ r.stages[k]|num }}</td>{% endfor %}</tr>{% endmacro %}
         {% if rows %}{{ srow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
         {% for r in rows %}{{ srow(r) }}{% endfor %}
       {% else %}
         <tr><th>Agent name</th><th class="n">Call Attempts</th><th class="n">Conversations</th>
             <th class="n">Text Attempts</th><th class="n">Email Attempts</th></tr>
-        {% macro orow(r, cls='') %}<tr class="{{ cls }}"><td>{{ r.name }}</td><td class="n">{{ r.calls|num }}</td>
+        {% macro orow(r, cls='') %}<tr class="{{ cls }}"><td>{% if r.uid %}<a href="{{ url_for('agent_snapshot', agent=r.uid) }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td><td class="n">{{ r.calls|num }}</td>
             <td class="n">{{ r.conversations|num }}</td><td class="n">{{ r.texts|num }}</td><td class="n">{{ r.emails|num }}</td></tr>{% endmacro %}
         {% if rows %}{{ orow(dict(avg, name='Team Average'), 'avg') }}{% endif %}
         {% for r in rows %}{{ orow(r) }}{% endfor %}

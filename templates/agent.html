@@ -113,23 +113,33 @@
     </div>
 
   {% elif tab == 'financial' %}
+    {% set is_cte = fin.source == 'CTE' %}
     <div class="grid2" style="margin-bottom:20px">
       <div class="card">
         <h3>{{ info.name.split()[0] }}'s top lead source{% if fin.sources %} is {{ fin.sources[0].source }}{% endif %}</h3>
-        <div class="eyebrow" style="margin:-6px 0 10px">Closed volume by lead source &middot; last 12 months</div>
+        <div class="eyebrow" style="margin:-6px 0 10px">{{ 'GCI' if is_cte else 'Closed volume' }} by lead source &middot; last 12 months{{ ' &middot; CTE'|safe if is_cte }}</div>
         {% for s in fin.sources %}
           <div class="stage-row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bg)">
-            <span>{{ s.source }}</span><span><b>{{ s.volume|money }}</b> <span class="muted">{{ s.pct|round|int }}%</span></span></div>
+            <span>{{ s.source }}{% if is_cte %} <span class="muted">&middot; {{ s.deals }} deal{{ 's' if s.deals != 1 }}</span>{% endif %}</span>
+            <span><b>{{ (s.gci if is_cte else s.volume)|money }}</b> <span class="muted">{{ s.pct|round|int }}%</span></span></div>
         {% else %}<p class="muted">No closed deals in the last 12 months.</p>{% endfor %}
       </div>
       <div class="card">
-        <h3>Performance &middot; last 12 months</h3>
+        <h3>Performance &middot; last 12 months{{ ' &middot; CTE'|safe if is_cte }}</h3>
         <div class="grid2">
+          {% if is_cte %}
+          <div><div class="big">{{ fin.gci|money }}</div><div class="muted">GCI</div></div>
+          <div><div class="big">{{ ((fin.avg_pct or 0) * 100)|round(2) }}%</div><div class="muted">Avg commission</div></div>
+          {% endif %}
           <div><div class="big">{{ fin.volume|money }}</div><div class="muted">Total Volume</div></div>
-          <div><div class="big">{{ fin.deals|num }}</div><div class="muted">Total Deals</div></div>
+          <div><div class="big">{{ fin.deals|num }}</div><div class="muted">Total Deals{% if is_cte %} &middot; {{ fin.gci_per_deal|money }} GCI each{% endif %}</div></div>
           <div><div class="big">{{ fin.conversion }}%</div><div class="muted">Conversion rate</div></div>
           <div><div class="big" style="color:var(--muted)">{{ fin.team_conversion }}%</div><div class="muted">Team average</div></div>
         </div>
+        {% if is_cte %}
+        <div class="note">Follow Up Boss deals for comparison: {{ fin.fub.deals|num }} closed, {{ fin.fub.volume|money }} volume.
+          Conversion = CTE closed deals / new FUB leads assigned in the last 12 months.</div>
+        {% endif %}
       </div>
     </div>
     <div class="grid2">
@@ -139,23 +149,22 @@
           <tr><td>Minimum</td><td class="n">{{ fin.min|money }}</td></tr>
           <tr><td>Maximum</td><td class="n">{{ fin.max|money }}</td></tr>
           <tr><td>Average</td><td class="n">{{ fin.avg|money }}</td></tr>
-          <tr><td>Pending</td><td class="n">{{ fin.pending|money }}</td></tr>
+          <tr><td>Pending</td><td class="n">{{ fin.pending|money }}{% if is_cte %} <span class="muted">&middot; {{ fin.pending_gci|money }} GCI</span>{% endif %}</td></tr>
           <tr><td>Accepted</td><td class="n">{{ fin.accepted|money }}</td></tr>
-          <tr><td>Closed</td><td class="n">{{ fin.closed|money }}</td></tr>
+          <tr><td>Closed</td><td class="n">{{ fin.closed|money }}{% if is_cte %} <span class="muted">&middot; {{ fin.gci|money }} GCI</span>{% endif %}</td></tr>
         </table></div>
       </div>
-      <div class="card"><h3>Closed volume, year over year</h3><div class="chart-box"><canvas id="c-fin"></canvas></div></div>
+      <div class="card"><h3>{{ 'GCI' if is_cte else 'Closed volume' }}, year over year</h3><div class="chart-box"><canvas id="c-fin"></canvas></div></div>
     </div>
 
     {% if cte %}
     <h2 style="margin-top:24px">From the CTE workbooks</h2>
     <div class="grid2" style="margin-bottom:20px">
-      {% for label, k in [('This year', cte.ytd), ('Last 12 months', cte.l12m)] %}
+      {% for label, k in [('This year', cte.ytd)] %}
       <div class="card">
         <h3>{{ label }}</h3>
         <div class="grid2">
           <div><div class="big">{{ k.gci|money }}</div><div class="muted">GCI</div></div>
-          <div><div class="big">{{ k.agent_gci|money if k.agent_gci else '--' }}</div><div class="muted">Agent commission</div></div>
           <div><div class="big">{{ k.closed_deals|num }}</div><div class="muted">Closed ({{ k.buyer_closed }} buyer / {{ k.listing_closed }} listing)</div></div>
           <div><div class="big">{{ k.volume|money }}</div><div class="muted">Volume</div></div>
           <div><div class="big">{{ k.accepted|num }}</div><div class="muted">Accepted offers</div></div>
@@ -191,7 +200,7 @@
             <td class="n">{{ d.gci|money if d.gci else '--' }}</td></tr>
         {% endfor %}
       </table></div>
-      <div class="note">Matched to CTE by name ("{{ cte.name }}"). Agent commission shows once the split columns are filled in CTE.</div>
+      <div class="note">Matched to CTE by name ("{{ cte.name }}"). % is the commission rate from CTE; GCI = sale price x commission %.</div>
     </div>
     {% endif %}
 

@@ -17,6 +17,8 @@
   .name { font-weight: 700; font-size: 14px; margin: 6px 0 4px; }
   .score { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; color: var(--accent); }
   .stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 9px; font-size: 11px; color: var(--soft); font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
+  a.pcard, a.row { text-decoration: none; color: inherit; transition: box-shadow .15s, transform .15s; }
+  a.pcard:hover, a.row:hover { box-shadow: 0 4px 14px rgba(31,42,68,0.14); transform: translateY(-1px); }
   .rows { display: flex; flex-direction: column; gap: 6px; }
   .row { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px; padding: 8px 16px; box-shadow: 0 1px 2px rgba(31,42,68,0.05); }
   .row .rank { width: 18px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; color: var(--muted); }
@@ -36,7 +38,7 @@
 
   <div class="podium">
     {% for agent in podium %}
-    <div class="pcard">
+    <a class="pcard" href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot">
       <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="badge">{{ agent.rank }}</div>
       <div class="name">{{ agent.name }}</div>
@@ -49,7 +51,7 @@
         <span>Zillow {{ agent.zillow }}</span>
         <span>Emails {{ agent.emails }}</span>
       </div>
-    </div>
+    </a>
     {% endfor %}
   </div>
 
@@ -64,7 +66,7 @@
 
   <div class="rows">
     {% for agent in rest %}
-    <div class="row {{ 'zero' if not agent.score }}">
+    <a class="row {{ 'zero' if not agent.score }}" href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot">
       <div class="rank">{{ agent.rank }}</div>
       <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="name">{{ agent.name }}</div>
@@ -77,7 +79,7 @@
         <span>Emails {{ agent.emails }}</span>
       </div>
       <div class="score">{{ "{:,}".format(agent.score) }}</div>
-    </div>
+    </a>
     {% endfor %}
   </div>
 

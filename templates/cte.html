@@ -105,18 +105,18 @@
     <div class="tbl-wrap"><table class="tbl">
       <tr><th>Agent</th><th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Accepted</th>
           <th class="n">Listings Signed</th><th class="n">Closed</th><th class="n">Volume</th><th class="n">GCI</th>
-          <th class="n">Agent Commission</th><th class="n">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
+          <th class="n">Avg Commission %</th><th class="n">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
       {% for a in agents %}
       <tr><td><a href="{{ qs(cte_agent=a.name) }}">{{ a.name }}</a></td>
           <td class="n">{{ a.written_offers|num }}</td><td class="n">{{ a.open_houses|num }}</td>
           <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.listing_agreements|num }}</td>
           <td class="n">{{ a.closed_deals|num }}</td><td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
-          <td class="n">{{ a.agent_gci|money if a.agent_gci else '--' }}</td>
+          <td class="n">{{ pctf(a.avg_pct) }}</td>
           <td class="n">{{ a.dials|num }}</td><td class="n">{{ a.contacts|num }}</td>
           <td class="n">{{ (a.listing_appts_set + a.buyer_appts_set)|num }}</td></tr>
       {% else %}<tr><td colspan="12" class="muted">Nothing in these dates.</td></tr>{% endfor %}
     </table></div>
-    <div class="note">GCI is credited to the deal's Primary Agent. "Agent Commission" is the Primary GCI column in CTE; it shows "--" until splits are filled in there.</div>
+    <div class="note">GCI and commission % come from the CTE deal log and are credited to the deal's Primary Agent.</div>
   </div>
   {% endif %}
 

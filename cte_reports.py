@@ -6,6 +6,8 @@ carried over from one year's file into the next aren't double counted.
 Team income comes from the Financial Statement (it includes referral and
 other income that isn't in the deal log); per-agent GCI comes from deals.
 """
+from datetime import timedelta
+
 from reports import fetch, one, table_exists, tables_ready
 
 ACTIVITY = ["dials", "contacts", "nurtures", "listing_appts_set", "listing_appts_held", "listings_signed",
@@ -147,6 +149,7 @@ def by_agent(cur, start, end):
                    COALESCE(SUM(d.sale_price) FILTER (WHERE cl), 0) AS volume,
                    COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci,
                    COALESCE(SUM(d.primary_gci) FILTER (WHERE cl), 0) AS agent_gci,
+                   COALESCE(AVG(d.commission_pct) FILTER (WHERE cl AND d.commission_pct > 0), 0) AS avg_pct,
                    COUNT(*) FILTER (WHERE d.deal_type = 'Listing' AND d.signed_date >= %(start)s
                                     AND d.signed_date < %(end)s
                                     AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements
@@ -157,7 +160,7 @@ def by_agent(cur, start, end):
         entry.update({k: v for k, v in r.items() if k != "name"})
     rows = []
     for a in agents.values():
-        for k in ACTIVITY + ["accepted", "closed_deals", "volume", "gci", "agent_gci", "listing_agreements"]:
+        for k in ACTIVITY + ["accepted", "closed_deals", "volume", "gci", "agent_gci", "listing_agreements", "avg_pct"]:
             a[k] = a.get(k) or 0
         if any(a[k] for k in ACTIVITY + ["accepted", "closed_deals"]):
             rows.append(a)
@@ -325,3 +328,62 @@ def top_deals(cur, since, until, kind, source=None, limit=5):
         FROM (SELECT d.*, {_deal_flags()} FROM cte_deals d WHERE {SOURCE_MATCH}) d
         WHERE {flag} AND COALESCE(TRIM(d.primary_agent), '') <> ''
         GROUP BY 1 ORDER BY 2 DESC, 3 DESC LIMIT {int(limit)}""", p)]
+
+
+# ---------------------------------------------------------------- Agent Snapshot > Financial Insights
+
+def agent_financials(cur, cte_agent, now):
+    """Last 12 months of an agent's CTE deals: volume, GCI, commission %, deal
+    sizes, by lead source, plus closed volume/GCI by month this year vs last."""
+    since = (now - timedelta(days=365)).date()
+    p = {"since": since, "cte_agent": cte_agent}
+    closed = fetch(cur, f"""
+        SELECT d.sale_price, d.gci, d.commission_pct, COALESCE(NULLIF(TRIM(d.source), ''), '<unspecified>') AS source
+        FROM cte_deals d
+        WHERE d.status = 'Closed' AND d.close_date >= %(since)s AND EXTRACT(YEAR FROM d.close_date) = d.file_year
+          AND {DEAL_AGENT_MATCH}""", p)
+    other = one(cur, f"""
+        SELECT COALESCE(SUM(d.sale_price) FILTER (WHERE d.status = 'Pending'), 0) AS pending,
+               COALESCE(SUM(d.gci) FILTER (WHERE d.status = 'Pending'), 0) AS pending_gci,
+               COALESCE(SUM(d.sale_price) FILTER (WHERE d.under_contract_date >= %(since)s
+                   AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year), 0) AS accepted
+        FROM cte_deals d WHERE {DEAL_AGENT_MATCH}
+          AND d.file_year = (SELECT MAX(file_year) FROM cte_deals)""", p)
+    prices = [_num(d["sale_price"]) for d in closed if d["sale_price"]]
+    gcis = [_num(d["gci"]) for d in closed]
+    pcts = [_num(d["commission_pct"]) for d in closed if d["commission_pct"]]
+    volume, gci = sum(prices), sum(gcis)
+    by_source = {}
+    for d in closed:
+        s = by_source.setdefault(d["source"], {"source": d["source"], "volume": 0.0, "gci": 0.0, "deals": 0})
+        s["volume"] += _num(d["sale_price"])
+        s["gci"] += _num(d["gci"])
+        s["deals"] += 1
+    sources = sorted(by_source.values(), key=lambda s: s["gci"], reverse=True)
+    for s in sources:
+        s["pct"] = round(s["gci"] / gci * 100, 1) if gci else 0
+
+    def monthly(year, col):
+        vals = [0.0] * 12
+        for r in fetch(cur, f"""
+                SELECT EXTRACT(MONTH FROM d.close_date)::int AS m, SUM(d.{col}) AS v FROM cte_deals d
+                WHERE d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = %(y)s AND d.file_year = %(y)s
+                  AND {DEAL_AGENT_MATCH} GROUP BY 1""", {"y": year, "cte_agent": cte_agent}):
+            vals[r["m"] - 1] = _num(r["v"])
+        return vals
+
+    return {"source": "CTE", "cte_name": cte_agent, "year": now.year,
+            "deals": len(closed), "volume": volume, "gci": gci,
+            "avg_pct": sum(pcts) / len(pcts) if pcts else 0,
+            "gci_per_deal": gci / len(closed) if closed else 0,
+            "min": min(prices) if prices else 0, "max": max(prices) if prices else 0,
+            "avg": volume / len(prices) if prices else 0,
+            "pending": _num(other["pending"]), "pending_gci": _num(other["pending_gci"]),
+            "accepted": _num(other["accepted"]), "closed": volume, "sources": sources,
+            "this_year": monthly(now.year, "gci"), "last_year": monthly(now.year - 1, "gci")}
+
+
+def closed_count_since(cur, since, cte_agent=None):
+    return one(cur, f"""SELECT COUNT(*) AS n FROM cte_deals d WHERE d.status = 'Closed' AND d.close_date >= %(since)s
+                        AND EXTRACT(YEAR FROM d.close_date) = d.file_year AND {DEAL_AGENT_MATCH}""",
+               {"since": since.date(), "cte_agent": cte_agent})["n"]
