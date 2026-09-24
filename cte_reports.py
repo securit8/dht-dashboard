@@ -191,3 +191,75 @@ def name_for(cur, fub_name):
         return None
     wanted = fub_name.strip().lower()
     return next((n for n in agent_options(cur) if n.lower() == wanted), None)
+
+
+# ---------------------------------------------------------------- Business Overview
+
+SOURCE_MATCH = "(%(source)s::text IS NULL OR LOWER(TRIM(COALESCE(d.source, ''))) = LOWER(TRIM(%(source)s)))"
+# (key, label, kind) rows on the Business Overview tables
+BUSINESS_METRICS = [("accepted", "Accepted (went under contract)", "n"), ("closed", "Closed Deals", "n"),
+                    ("volume", "Closed Volume", "money"), ("avg", "Avg. Sales Price", "money"),
+                    ("gci", "GCI", "money"), ("pending", "Pending (projected to close)", "n"),
+                    ("pending_volume", "Pending Volume", "money")]
+
+
+def source_options(cur):
+    rows = fetch(cur, """SELECT TRIM(source) AS s, COUNT(*) FROM cte_deals WHERE COALESCE(TRIM(source), '') <> ''
+                         GROUP BY 1 ORDER BY 2 DESC""", {})
+    return [r["s"] for r in rows]
+
+
+def years(cur):
+    return [r["y"] for r in fetch(cur, "SELECT DISTINCT file_year AS y FROM cte_deals ORDER BY 1 DESC", {})]
+
+
+def business_months(cur, year, cte_agent=None, source=None):
+    """Per-month deal KPIs for a calendar year, from that year's CTE file."""
+    p = {"y": year, "cte_agent": cte_agent, "source": source}
+    where = f"d.file_year = %(y)s AND {DEAL_AGENT_MATCH} AND {SOURCE_MATCH}"
+    months = {m: {"month": m, **{k: 0 for k, _, _ in BUSINESS_METRICS}} for m in range(1, 13)}
+    for r in fetch(cur, f"""
+            SELECT EXTRACT(MONTH FROM d.under_contract_date)::int AS m, COUNT(*) AS n FROM cte_deals d
+            WHERE EXTRACT(YEAR FROM d.under_contract_date) = %(y)s AND {where} GROUP BY 1""", p):
+        months[r["m"]]["accepted"] = r["n"]
+    for r in fetch(cur, f"""
+            SELECT EXTRACT(MONTH FROM d.close_date)::int AS m, COUNT(*) AS n,
+                   COALESCE(SUM(d.sale_price), 0) AS vol, COALESCE(SUM(d.gci), 0) AS gci FROM cte_deals d
+            WHERE d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = %(y)s AND {where} GROUP BY 1""", p):
+        months[r["m"]].update(closed=r["n"], volume=float(r["vol"]), gci=float(r["gci"]))
+    for r in fetch(cur, f"""
+            SELECT EXTRACT(MONTH FROM d.proj_close_date)::int AS m, COUNT(*) AS n,
+                   COALESCE(SUM(d.sale_price), 0) AS vol FROM cte_deals d
+            WHERE d.status = 'Pending' AND EXTRACT(YEAR FROM d.proj_close_date) = %(y)s AND {where} GROUP BY 1""", p):
+        months[r["m"]].update(pending=r["n"], pending_volume=float(r["vol"]))
+    out = list(months.values())
+    for m in out:
+        m["avg"] = m["volume"] / m["closed"] if m["closed"] else 0
+    return out
+
+
+def business_quarters(months):
+    quarters = []
+    for q in range(4):
+        ms = months[q * 3:(q + 1) * 3]
+        row = {"q": q + 1, "months": ms, **{k: sum(m[k] for m in ms) for k, _, _ in BUSINESS_METRICS if k != "avg"}}
+        row["avg"] = row["volume"] / row["closed"] if row["closed"] else 0
+        quarters.append(row)
+    total = {k: sum(q[k] for q in quarters) for k, _, _ in BUSINESS_METRICS if k != "avg"}
+    total["avg"] = total["volume"] / total["closed"] if total["closed"] else 0
+    return quarters, total
+
+
+def business_top(cur, since, source=None):
+    """Top 5 by closed volume, deal count and average price since a date (Primary Agent)."""
+    rows = fetch(cur, f"""
+        SELECT TRIM(d.primary_agent) AS name, COUNT(*) AS n, COALESCE(SUM(d.sale_price), 0) AS vol
+        FROM cte_deals d
+        WHERE d.status = 'Closed' AND d.close_date >= %(since)s AND EXTRACT(YEAR FROM d.close_date) = d.file_year
+          AND COALESCE(TRIM(d.primary_agent), '') <> '' AND {SOURCE_MATCH}
+        GROUP BY 1""", {"since": since.date(), "source": source})
+    for r in rows:
+        r["vol"] = float(r["vol"])
+        r["avg"] = r["vol"] / r["n"] if r["n"] else 0
+    top = lambda key: sorted(rows, key=lambda r: r[key], reverse=True)[:5]  # noqa: E731
+    return {"volume": top("vol"), "deals": top("n"), "avg": top("avg")}

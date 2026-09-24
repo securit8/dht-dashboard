@@ -426,21 +426,51 @@ def business_overview():
     today = today_start()
     year = request.args.get("year", today.year, type=int)
     top_days = 365 if request.args.get("top") == "365" else 30
-    f = R.Filters(today, today, request.args.get("agent", type=int), request.args.get("source") or None,
-                  TEAM_TZ_NAME)
+    source = request.args.get("source") or None
     with db() as cur:
-        ready = R.tables_ready(cur, "deals")
-        data = {}
-        if ready:
-            months = R.business_months(cur, f, year)
-            quarters, total = R.business_quarters(months)
-            data = dict(quarters=quarters, total=total,
-                        yoy={y: [m["deals"] for m in R.business_months(cur, f, y)] for y in (year - 2, year - 1)}
-                        | {year: hide_future([m["deals"] for m in months], year)},
-                        top=R.business_top(cur, f, today - timedelta(days=top_days)),
-                        **filter_options(cur))
-    return render_template("business_overview.html", ready=ready, year=year, years=range(today.year, today.year - 4, -1),
-                           top_days=top_days, **data)
+        if CTE.ready(cur):
+            # The team's deal log lives in CTE; FUB deals are barely used
+            agent = request.args.get("cte_agent") or None
+            options = CTE.agent_options(cur)
+            agent = agent if agent in options else None
+            months = CTE.business_months(cur, year, agent, source)
+            quarters, total = CTE.business_quarters(months)
+            data = dict(
+                source_name="CTE", metrics=CTE.BUSINESS_METRICS, quarters=quarters, total=total,
+                yoy={y: [m["closed"] for m in CTE.business_months(cur, y, agent, source)] for y in (year - 2, year - 1)}
+                | {year: hide_future([m["closed"] for m in months], year)},
+                top=CTE.business_top(cur, today - timedelta(days=top_days), source),
+                extra_filters=[
+                    {"name": "cte_agent", "label": "Agent", "default": "",
+                     "options": [("", "Whole team")] + [(n, n) for n in options]},
+                    {"name": "source", "label": "Lead source", "default": "",
+                     "options": [("", "All sources")] + [(s, s) for s in CTE.source_options(cur)]},
+                    {"name": "year", "label": "Year", "default": str(year),
+                     "options": [(str(y), str(y)) for y in CTE.years(cur)]}])
+            ready = True
+        else:
+            f = R.Filters(today, today, request.args.get("agent", type=int), source, TEAM_TZ_NAME)
+            ready = R.tables_ready(cur, "deals")
+            data = {}
+            if ready:
+                months = R.business_months(cur, f, year)
+                quarters, total = R.business_quarters(months)
+                opts = filter_options(cur)
+                data = dict(
+                    source_name="FUB", quarters=quarters, total=total,
+                    metrics=[("accepted", "Accepted Deals", "n"), ("deals", "All Deals", "n"),
+                             ("volume", "Volume", "money"), ("avg", "Avg. Sales Price", "money")],
+                    yoy={y: [m["deals"] for m in R.business_months(cur, f, y)] for y in (year - 2, year - 1)}
+                    | {year: hide_future([m["deals"] for m in months], year)},
+                    top=R.business_top(cur, f, today - timedelta(days=top_days)),
+                    extra_filters=[
+                        {"name": "agent", "label": "Agent", "default": "",
+                         "options": [("", "All agents")] + [(str(i), n) for i, n in opts["agent_options"]]},
+                        {"name": "source", "label": "Lead source", "default": "",
+                         "options": [("", "All sources")] + [(s, s) for s in opts["source_options"]]},
+                        {"name": "year", "label": "Year", "default": str(year),
+                         "options": [(str(y), str(y)) for y in range(today.year, today.year - 4, -1)]}])
+    return render_template("business_overview.html", ready=ready, year=year, top_days=top_days, **data)
 
 
 # ---------------------------------------------------------------- Best Call Time

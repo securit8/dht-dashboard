@@ -9,8 +9,7 @@
 {% endblock %}
 
 {% block filters %}{% if ready %}
-  {{ m.filter_bar(none, agent_options, source_options, [
-       {'name': 'year', 'label': 'Year', 'default': year|string, 'options': years|map('string')|map('pair')|list}]) }}
+  {{ m.filter_bar(none, none, none, extra_filters) }}
 {% endif %}{% endblock %}
 
 {% macro cell(v, kind) %}{% if not v %}--{% elif kind == 'money' %}{{ v|money }}{% else %}{{ v|num }}{% endif %}{% endmacro %}
@@ -19,7 +18,6 @@
 {% if not ready %}
   {{ m.empty('Waiting for the first deal sync from Follow Up Boss.') }}
 {% else %}
-  {% set metrics = [('accepted', 'Accepted Deals', 'n'), ('deals', 'All Deals', 'n'), ('volume', 'Volume', 'money'), ('avg', 'Avg. Sales Price', 'money')] %}
   <div class="card">
     <h3>Your business KPIs by quarter &middot; {{ year }}</h3>
     <div class="tbl-wrap"><table class="tbl">
@@ -44,7 +42,7 @@
   </div>
 
   <div class="card">
-    <h3>Year-over-year analysis &middot; All Deals by month</h3>
+    <h3>Year-over-year analysis &middot; {{ "Closed Deals" if source_name == "CTE" else "All Deals" }} by month</h3>
     <div class="chart-box"><canvas id="c-yoy"></canvas></div>
   </div>
 
@@ -60,7 +58,11 @@
     {{ m.board('Top Deals', period, top.deals|map('board_item', 'n')|list) }}
     {{ m.board('Top Avg Sale $', period, top.avg|map('board_item', 'avg')|list, money) }}
   </div>
+  {% if source_name == "CTE" %}
+  <div class="note">From the CTE deal log (My Business). Accepted = went under contract that month. Closed = closed that month. Pending deals are shown in the month they are projected to close. Top performers use each deal's Primary Agent.</div>
+  {% else %}
   <div class="note">All Deals = deals that went pending or closed in the month. Accepted Deals = deals created in the month. Volume uses each deal's price in Follow Up Boss.</div>
+  {% endif %}
 {% endif %}
 {% endblock %}
 
