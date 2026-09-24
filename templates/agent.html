@@ -144,6 +144,54 @@
       <div class="card"><h3>Closed volume, year over year</h3><div class="chart-box"><canvas id="c-fin"></canvas></div></div>
     </div>
 
+    {% if cte %}
+    <h2 style="margin-top:24px">From the CTE workbooks</h2>
+    <div class="grid2" style="margin-bottom:20px">
+      {% for label, k in [('This year', cte.ytd), ('Last 12 months', cte.l12m)] %}
+      <div class="card">
+        <h3>{{ label }}</h3>
+        <div class="grid2">
+          <div><div class="big">{{ k.gci|money }}</div><div class="muted">GCI</div></div>
+          <div><div class="big">{{ k.agent_gci|money if k.agent_gci else '--' }}</div><div class="muted">Agent commission</div></div>
+          <div><div class="big">{{ k.closed_deals|num }}</div><div class="muted">Closed ({{ k.buyer_closed }} buyer / {{ k.listing_closed }} listing)</div></div>
+          <div><div class="big">{{ k.volume|money }}</div><div class="muted">Volume</div></div>
+          <div><div class="big">{{ k.accepted|num }}</div><div class="muted">Accepted offers</div></div>
+          <div><div class="big">{{ ((k.avg_pct or 0) * 100)|round(2) }}%</div><div class="muted">Avg commission</div></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>Year by year</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Year</th><th class="n">Closed</th><th class="n">Volume</th><th class="n">GCI</th><th class="n">Accepted</th>
+            <th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Listings Signed</th></tr>
+        {% for y in cte.years if y.closed_deals or y.accepted or y.written_offers %}
+        <tr><td><b>{{ y.year }}</b></td><td class="n">{{ y.closed_deals|num }}</td><td class="n">{{ y.volume|money }}</td>
+            <td class="n">{{ y.gci|money }}</td><td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.written_offers|num }}</td>
+            <td class="n">{{ y.open_houses|num }}</td><td class="n">{{ y.listings_signed|num }}</td></tr>
+        {% endfor %}
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Recent deals</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Type</th><th>Status</th><th>Address</th><th>Client</th><th>Source</th><th>Under contract</th>
+            <th>Closed</th><th class="n">Price</th><th class="n">%</th><th class="n">GCI</th></tr>
+        {% for d in cte.deals %}
+        <tr><td>{{ d.deal_type }}</td><td>{{ d.status or '--' }}</td><td>{{ d.address or '--' }}</td><td>{{ d.clients or '--' }}</td>
+            <td>{{ d.source or '--' }}</td>
+            <td>{{ d.under_contract_date.strftime('%b %d %Y') if d.under_contract_date else '--' }}</td>
+            <td>{{ d.close_date.strftime('%b %d %Y') if d.close_date else '--' }}</td>
+            <td class="n">{{ d.sale_price|money if d.sale_price else '--' }}</td>
+            <td class="n">{{ ((d.commission_pct or 0) * 100)|round(2) }}%</td>
+            <td class="n">{{ d.gci|money if d.gci else '--' }}</td></tr>
+        {% endfor %}
+      </table></div>
+      <div class="note">Matched to CTE by name ("{{ cte.name }}"). Agent commission shows once the split columns are filled in CTE.</div>
+    </div>
+    {% endif %}
+
   {% elif tab == 'goals' %}
     <div class="card">
       <div class="card-head"><h2>Goals &amp; Pacing</h2><span class="muted">{{ rng.label }}</span></div>

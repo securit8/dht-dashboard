@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 import requests
 
+import cte_import
+
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
 OVERLAP_MINUTES = 15
@@ -558,6 +560,16 @@ def main():
 
     written = write_events_to_db(database_url, users, events, run_started_at)
     print(f"Wrote {written} events. Next run will pull since {run_started_at.isoformat()}.")
+
+    # CTE workbooks from OneDrive (read-only). Kept separate so a CTE problem
+    # never fails the Follow Up Boss pull above, which is already saved.
+    if cte_import.graph_configured():
+        try:
+            cte_import.import_from_onedrive(database_url)
+        except Exception as e:  # noqa: BLE001 - report and carry on
+            print(f"CTE import failed: {e}")
+    else:
+        print("CTE import skipped: MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET not set.")
 
 
 if __name__ == "__main__":

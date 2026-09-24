@@ -11,6 +11,7 @@ from flask import Flask, Response, render_template, request, session, redirect, 
 
 import psycopg2
 
+import cte_reports as CTE
 import reports as R
 
 app = Flask(__name__)
@@ -34,7 +35,7 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 # Top menu, modeled on MaverickRE: (menu, [(endpoint, label)])
 NAV = [
     ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
-                          ("call_time", "Best Call Time Report")]),
+                          ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -459,6 +460,32 @@ def call_time():
     return render_template("call_time.html", ready=ready, rng=rng, day=day, days=R.DAYS, **data)
 
 
+# ---------------------------------------------------------------- CTE workbooks
+
+@app.route("/cte")
+@login_required
+def cte():
+    rng = date_range("year")
+    agent = request.args.get("cte_agent") or None
+    year = (rng["end"] - timedelta(days=1)).year
+    with db() as cur:
+        ready = CTE.ready(cur)
+        data = {}
+        if ready:
+            options = CTE.agent_options(cur)
+            if agent and agent not in options:
+                agent = None
+            data = dict(
+                kpi=CTE.period(cur, rng["start"], rng["end"], agent),
+                years=CTE.by_year(cur, agent),
+                agents=[] if agent else CTE.by_agent(cur, rng["start"], rng["end"]),
+                trend={"year": year, "this": hide_future(CTE.monthly_gci(cur, year, agent), year),
+                       "last": CTE.monthly_gci(cur, year - 1, agent)},
+                agent_choices=[("", "Whole team")] + [(n, n) for n in options],
+                imported_at=CTE.last_import(cur))
+    return render_template("cte.html", ready=ready, rng=rng, agent=agent, **data)
+
+
 # ---------------------------------------------------------------- Agent Snapshot
 
 AGENT_TABS = [("funnel", "Sales Funnel"), ("opportunities", "Opportunities Waiting"),
@@ -490,6 +517,15 @@ def agent_snapshot():
                 elif tab == "financial":
                     data["fin"] = R.agent_financials(cur, f, uid, now)
                     data["fin"]["this_year"] = hide_future(data["fin"]["this_year"], now.year)
+                    cte_name = CTE.name_for(cur, data["info"]["name"]) if data["info"] else None
+                    if cte_name:
+                        jan1 = today_start().replace(month=1, day=1)
+                        data["cte"] = dict(
+                            name=cte_name,
+                            ytd=CTE.period(cur, jan1, today_start() + timedelta(days=1), cte_name),
+                            l12m=CTE.period(cur, today_start() - timedelta(days=365),
+                                            today_start() + timedelta(days=1), cte_name),
+                            years=CTE.by_year(cur, cte_name), deals=CTE.agent_deals(cur, cte_name))
                 elif tab == "goals":
                     R.ensure_app_tables(cur)
                     data["goals"] = R.goals_view(cur, f, uid)

@@ -1,0 +1,2 @@
+# Local secrets (DATABASE_URL for cte_import.py)
+.env

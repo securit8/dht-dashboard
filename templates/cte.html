@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}CTE Year by Year{% endblock %}
+{% block eyebrow %}CTE Year by Year{% endblock %}
+{% block heading %}{{ agent ~ "'s" if agent else "Team" }} numbers from the CTE workbooks{% endblock %}
+{% block style %}
+  .kpis.four .kpi-val { font-size: 34px; }
+  .chart-box { position: relative; height: 280px; }
+  .tbl td.y { font-weight: 700; }
+  .tbl .sep { border-left: 2px solid var(--line); }
+{% endblock %}
+
+{% block filters %}{% if ready %}
+  {{ m.filter_bar(rng, none, none, [{'name': 'cte_agent', 'label': 'Agent (as typed in CTE)', 'default': '', 'options': agent_choices}]) }}
+{% endif %}{% endblock %}
+
+{% macro pctf(v) %}{{ ((v or 0) * 100)|round(2) }}%{% endmacro %}
+
+{% block content %}
+{% if not ready %}
+  <div class="card empty">No CTE data yet.<br><span class="muted">It loads from OneDrive on the next cron run (needs the Microsoft app keys in Render).</span></div>
+{% else %}
+  <div class="card">
+    <div class="band-label">Your 4 numbers &middot; <b>{{ rng.label }}</b></div>
+    <div class="kpis four">
+      <div><div class="kpi-lbl">Offers Sent</div><div class="kpi-val">{{ kpi.written_offers|num }}</div>
+        <div class="kpi-sub">Written offers (Lead Gen)</div></div>
+      <div><div class="kpi-lbl">Open House Conv.</div><div class="kpi-val">{{ kpi.open_houses|num }}</div>
+        <div class="kpi-sub">Open houses held (Lead Gen)</div></div>
+      <div><div class="kpi-lbl">Accepted Offers</div><div class="kpi-val">{{ kpi.accepted|num }}</div>
+        <div class="kpi-sub">Went under contract &middot; {{ kpi.fell_through|num }} later fell through</div></div>
+      <div><div class="kpi-lbl">Listings Signed</div><div class="kpi-val">{{ kpi.listings_signed|num }}</div>
+        <div class="kpi-sub">Lead Gen &middot; deal log shows {{ kpi.listing_agreements|num }} listing agreements</div></div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="card">
+      <h3>Deals closed</h3>
+      <div class="kpis">
+        <div><div class="kpi-lbl">Closed</div><div class="kpi-val">{{ kpi.closed_deals|num }}</div>
+          <div class="kpi-sub">{{ kpi.buyer_closed|num }} buyer &middot; {{ kpi.listing_closed|num }} listing</div></div>
+        <div><div class="kpi-lbl">Volume</div><div class="kpi-val">{{ kpi.volume|money }}</div>
+          <div class="kpi-sub">avg {{ kpi.avg_price|money }}</div></div>
+        <div><div class="kpi-lbl">GCI (deals)</div><div class="kpi-val">{{ kpi.gci|money }}</div>
+          <div class="kpi-sub">avg commission {{ pctf(kpi.avg_pct) }}</div></div>
+        {% if not agent %}
+        <div><div class="kpi-lbl">Total Income</div><div class="kpi-val">{{ kpi.income|money }}</div>
+          <div class="kpi-sub">Financial Statement, incl. referrals</div></div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Lead gen activity</h3>
+      <div class="kpis">
+        <div><div class="kpi-lbl">Dials</div><div class="kpi-val">{{ kpi.dials|num }}</div></div>
+        <div><div class="kpi-lbl">Contacts</div><div class="kpi-val">{{ kpi.contacts|num }}</div></div>
+        <div><div class="kpi-lbl">Appts set / held</div>
+          <div class="kpi-val">{{ (kpi.listing_appts_set + kpi.buyer_appts_set)|num }} / {{ (kpi.listing_appts_held + kpi.buyer_appts_held)|num }}</div>
+          <div class="kpi-sub">listing {{ kpi.listing_appts_set|num }}/{{ kpi.listing_appts_held|num }} &middot; buyer {{ kpi.buyer_appts_set|num }}/{{ kpi.buyer_appts_held|num }}</div></div>
+        <div><div class="kpi-lbl">Showings</div><div class="kpi-val">{{ kpi.showings|num }}</div>
+          <div class="kpi-sub">{{ kpi.buyer_reps_signed|num }} buyer reps signed</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Year by year{% if agent %} &middot; {{ agent }}{% endif %}</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Year</th><th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Accepted</th>
+          <th class="n">Listings Signed</th><th class="n sep">Closed</th><th class="n">Buyer / Listing</th>
+          <th class="n">Volume</th><th class="n">Avg Price</th><th class="n">GCI (deals)</th><th class="n">Avg %</th>
+          {% if not agent %}<th class="n sep">Total Income</th><th class="n">Cost of Sales</th><th class="n">Expenses</th>
+          <th class="n">Net Profit</th><th class="n">Net After Taxes</th>{% endif %}
+          <th class="n sep">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
+      {% for y in years %}
+      <tr><td class="y">{{ y.year }}</td>
+          <td class="n">{{ y.written_offers|num }}</td><td class="n">{{ y.open_houses|num }}</td>
+          <td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.listings_signed|num }}</td>
+          <td class="n sep">{{ y.closed_deals|num }}</td><td class="n">{{ y.buyer_closed }} / {{ y.listing_closed }}</td>
+          <td class="n">{{ y.volume|money }}</td><td class="n">{{ y.avg_price|money }}</td>
+          <td class="n">{{ y.gci|money }}</td><td class="n">{{ pctf(y.avg_pct) }}</td>
+          {% if not agent %}
+          <td class="n sep">{{ y.income|money if y.income is not none else '--' }}</td>
+          <td class="n">{{ y.cost_of_sales|money if y.cost_of_sales is not none else '--' }}</td>
+          <td class="n">{{ y.expenses|money if y.expenses is not none else '--' }}</td>
+          <td class="n">{{ y.net_profit|money if y.net_profit is not none else '--' }}</td>
+          <td class="n">{{ y.net_after_taxes|money if y.net_after_taxes is not none else '--' }}</td>
+          {% endif %}
+          <td class="n sep">{{ y.dials|num }}</td><td class="n">{{ y.contacts|num }}</td>
+          <td class="n">{{ (y.listing_appts_set + y.buyer_appts_set)|num }}</td></tr>
+      {% endfor %}
+    </table></div>
+    <div class="note">Each year comes from that year's CTE file. Lead Gen activity was only logged from 2022 on.</div>
+  </div>
+
+  <div class="card">
+    <h3>{{ 'Total Income' if not agent else 'Closed GCI' }} by month, year over year</h3>
+    <div class="chart-box"><canvas id="c-gci"></canvas></div>
+  </div>
+
+  {% if not agent %}
+  <div class="card">
+    <h3>By agent &middot; {{ rng.label }}</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Agent</th><th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Accepted</th>
+          <th class="n">Listings Signed</th><th class="n">Closed</th><th class="n">Volume</th><th class="n">GCI</th>
+          <th class="n">Agent Commission</th><th class="n">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
+      {% for a in agents %}
+      <tr><td><a href="{{ qs(cte_agent=a.name) }}">{{ a.name }}</a></td>
+          <td class="n">{{ a.written_offers|num }}</td><td class="n">{{ a.open_houses|num }}</td>
+          <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.listings_signed|num }}</td>
+          <td class="n">{{ a.closed_deals|num }}</td><td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
+          <td class="n">{{ a.agent_gci|money if a.agent_gci else '--' }}</td>
+          <td class="n">{{ a.dials|num }}</td><td class="n">{{ a.contacts|num }}</td>
+          <td class="n">{{ (a.listing_appts_set + a.buyer_appts_set)|num }}</td></tr>
+      {% else %}<tr><td colspan="12" class="muted">Nothing in these dates.</td></tr>{% endfor %}
+    </table></div>
+    <div class="note">GCI is credited to the deal's Primary Agent. "Agent Commission" is the Primary GCI column in CTE; it shows "--" until splits are filled in there.</div>
+  </div>
+  {% endif %}
+
+  <div class="note">Source: CTE FILES in OneDrive, updated automatically on each cron run{% if imported_at %} (last change imported {{ imported_at|fmt_date(true) }}){% endif %}.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if ready %}
+  {% include "_chart.html" %}
+  <script>yoyChart('c-gci', {{ {trend.year|string: trend.this, (trend.year - 1)|string: trend.last}|tojson }}, true);</script>
+{% endif %}{% endblock %}
