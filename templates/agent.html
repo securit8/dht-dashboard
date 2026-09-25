@@ -210,7 +210,8 @@
       {% for g in goals %}
         <div class="goal">
           <div>{{ g.label }}{% if not g.higher %} <span class="muted">(lower is better)</span>{% endif %}{% if g.detail %} <span class="muted">&middot; {{ g.detail }}</span>{% endif %}</div>
-          <div style="text-align:right;font-family:'IBM Plex Mono',monospace">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}</div>
+          <div style="text-align:right;font-family:'IBM Plex Mono',monospace">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}
+            {% if g.target %}<span class="muted" style="font-family:'IBM Plex Sans',sans-serif;font-size:11px">{{ 'team' if g.origin == 'team' else 'own' }}</span>{% endif %}</div>
           <div class="track"><div class="fill g-{{ g.status }}" style="width: {{ g.progress if g.target else 100 }}%"></div></div>
         </div>
       {% endfor %}
@@ -218,20 +219,38 @@
         <span><span class="dot g-meeting"></span>Meeting Goal</span><span><span class="dot g-approaching"></span>Approaching Goal</span>
         <span><span class="dot g-below"></span>Below Goal</span><span><span class="dot g-none"></span>No goal set</span>
       </div>
+      <div class="note">Goals are per month. Count goals (conversations, texts, emails, appointments) scale to the dates you pick, so a monthly goal of 40 is about 10 for a week. "team" = the team default, "own" = set for this agent.</div>
     </div>
-    <div class="card">
-      <h3>Edit {{ info.name.split()[0] }}'s goals</h3>
-      <p class="muted" style="margin-top:-6px">Targets for the selected period. Leave a box empty to remove that goal.</p>
-      <form method="post" action="{{ url_for('save_goals') }}">
-        <input type="hidden" name="agent" value="{{ uid }}">
-        <div class="goal-form">
-          {% for g in goals %}
-          <div class="field"><label for="g-{{ g.key }}">{{ g.label }}</label>
-            <input id="g-{{ g.key }}" name="{{ g.key }}" type="number" step="any" min="0" value="{{ g.target|num if g.target else '' }}"></div>
-          {% endfor %}
-        </div>
-        <button class="btn" type="submit" style="margin-top:14px">Save goals</button>
-      </form>
+    <div class="grid2">
+      <div class="card">
+        <h3>{{ info.name.split()[0] }}'s own goals</h3>
+        <p class="muted" style="margin-top:-6px">Monthly. Leave a box empty to use the team default (shown in grey).</p>
+        <form method="post" action="{{ url_for('save_goals') }}">
+          <input type="hidden" name="agent" value="{{ uid }}">
+          <div class="goal-form">
+            {% for g in goals %}
+            <div class="field"><label for="g-{{ g.key }}">{{ g.label }}{{ ' (%)' if g.unit == '%' }}</label>
+              <input id="g-{{ g.key }}" name="{{ g.key }}" type="number" step="any" min="0"
+                     value="{{ g.own|num if g.own is not none else '' }}" placeholder="{{ g.team|num if g.team is not none else '' }}"></div>
+            {% endfor %}
+          </div>
+          <button class="btn" type="submit" style="margin-top:14px">Save {{ info.name.split()[0] }}'s goals</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Team default goals</h3>
+        <p class="muted" style="margin-top:-6px">Monthly, per agent. Used for every agent who doesn't have their own goal.</p>
+        <form method="post" action="{{ url_for('save_goals') }}">
+          <input type="hidden" name="agent" value="0"><input type="hidden" name="back" value="{{ uid }}">
+          <div class="goal-form">
+            {% for g in goals %}
+            <div class="field"><label for="t-{{ g.key }}">{{ g.label }}{{ ' (%)' if g.unit == '%' }}</label>
+              <input id="t-{{ g.key }}" name="{{ g.key }}" type="number" step="any" min="0" value="{{ g.team|num if g.team is not none else '' }}"></div>
+            {% endfor %}
+          </div>
+          <button class="btn ghost" type="submit" style="margin-top:14px">Save team defaults</button>
+        </form>
+      </div>
     </div>
 
   {% else %}

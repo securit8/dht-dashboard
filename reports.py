@@ -806,22 +806,51 @@ def goal_actuals(cur, f, under_contract=None):
             "trash_rate": pct(lp["trashed"], lp["leads"])}
 
 
+# Goals are monthly per agent. user_id 0 holds the team defaults that apply to
+# every agent without their own goal; these starting values are seeded once.
+TEAM_GOALS_ID = 0
+DEFAULT_GOALS = {"avg_call_min": 5, "conversations": 40, "convos_per_appt": 5, "texts": 300, "emails": 300,
+                 "appts": 8, "held": 5, "appt_to_contract": 15, "trash_rate": 20}
+# Count goals scale with the selected dates (a monthly goal of 40 is ~10 for a week);
+# averages, ratios and % don't
+SCALED_GOALS = {"conversations", "texts", "emails", "appts", "held"}
+DAYS_PER_MONTH = 30.44
+
+
+def goal_targets(cur, uid):
+    """({metric: monthly target}, {metric: "agent" | "team"}) for one agent."""
+    cur.execute("SELECT EXISTS (SELECT 1 FROM agent_goals WHERE user_id = %s)", (TEAM_GOALS_ID,))
+    if not cur.fetchone()[0]:
+        for metric, target in DEFAULT_GOALS.items():
+            cur.execute("INSERT INTO agent_goals (user_id, metric, target) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                        (TEAM_GOALS_ID, metric, target))
+    team = {r["metric"]: float(r["target"]) for r in fetch(
+        cur, "SELECT metric, target FROM agent_goals WHERE user_id = %(u)s", {"u": TEAM_GOALS_ID})}
+    own = {r["metric"]: float(r["target"]) for r in fetch(
+        cur, "SELECT metric, target FROM agent_goals WHERE user_id = %(u)s", {"u": uid})} if uid != TEAM_GOALS_ID else {}
+    targets = {**team, **own}
+    return targets, {k: ("agent" if k in own else "team") for k in targets}, team, own
+
+
 def goals_view(cur, f, uid, under_contract=None):
     actual = goal_actuals(cur, f, under_contract)
-    targets = {r["metric"]: float(r["target"]) for r in fetch(
-        cur, "SELECT metric, target FROM agent_goals WHERE user_id = %(u)s", {"u": uid})}
+    targets, origin, team, own = goal_targets(cur, uid)
+    scale = (f.end - f.start).total_seconds() / 86400 / DAYS_PER_MONTH
     out = []
     for key, label, higher, unit in GOAL_METRICS:
-        a, t = float(actual[key]), targets.get(key)
+        a, monthly = float(actual[key]), targets.get(key)
+        t = round(monthly * scale, 1) if monthly and key in SCALED_GOALS else monthly
         if not t:
             status, progress = "none", 0
         elif higher:
             progress = min(round(a / t * 100), 100)
             status = "meeting" if a >= t else "approaching" if a >= t * 0.75 else "below"
         else:  # a limit: lower is better
-            progress = min(round(a / t * 100), 100) if t else 0
+            progress = min(round(a / t * 100), 100)
             status = "meeting" if a <= t else "approaching" if a <= t * 1.25 else "below"
-        out.append({"key": key, "label": label, "actual": actual[key], "target": t, "unit": unit,
+        out.append({"key": key, "label": label, "actual": actual[key], "target": t, "monthly": monthly,
+                    "origin": origin.get(key), "team": team.get(key), "own": own.get(key),
+                    "scaled": key in SCALED_GOALS, "unit": unit,
                     "higher": higher, "progress": progress, "status": status,
                     "detail": {"convos_per_appt": f"{actual['conversations']:,} conversations / {actual['appts']:,} appointments",
                                "appt_to_contract": f"{actual['under_contract']:,} under contract / {actual['appts']:,} appointments",

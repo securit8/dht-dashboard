@@ -666,7 +666,9 @@ def save_goals():
                 INSERT INTO agent_goals (user_id, metric, target) VALUES (%s, %s, %s)
                 ON CONFLICT (user_id, metric) DO UPDATE SET target = EXCLUDED.target
             """, (uid, key, target))
-    return redirect(url_for("agent_snapshot", agent=uid, tab="goals"))
+    # uid 0 = team defaults; go back to the agent the form was opened from
+    back = request.form.get("back", type=int) if uid == R.TEAM_GOALS_ID else uid
+    return redirect(url_for("agent_snapshot", agent=back, tab="goals"))
 
 
 @app.route("/agent/notes", methods=["POST"])
