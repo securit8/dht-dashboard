@@ -6,7 +6,7 @@
 {% block style %}
   .chart-box { position: relative; height: 280px; }
   .tbl td.q { font-weight: 700; }
-  .status-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .status-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
   .stile { position: relative; display: block; background: #fff; border-radius: 16px; padding: 20px 20px 18px 24px;
            box-shadow: 0 1px 3px rgba(31,42,68,0.06); text-decoration: none; color: inherit; overflow: hidden;
            transition: box-shadow .15s, transform .15s; }
@@ -43,8 +43,8 @@
       <div class="lbl">{{ s.status }}<span class="dot"></span></div>
       <div class="count">{{ s.count|num }}</div>
       <div class="vals">
-        <div><b>{{ s.volume|money }}</b>{{ 'List volume' if s.status != 'Closed' else 'Volume' }}</div>
-        <div><b>{{ s.gci|money }}</b>{{ 'Projected GCI' if s.status != 'Closed' else 'GCI' }}</div>
+        <div><b>{{ s.volume|money }}</b>{{ s.labels[0] }}</div>
+        <div><b>{{ s.gci|money }}</b>{{ s.labels[1] }}</div>
       </div>
       <div class="split">{{ s.listing }} listing{{ 's' if s.listing != 1 }} &middot; {{ s.buyer }} buyer{{ 's' if s.buyer != 1 }}</div>
       <div class="more">{{ 'Hide deals' if status == s.status else 'View deals' }} &rarr;</div>
@@ -57,10 +57,11 @@
     <div class="card-head"><h2>{{ status }} &middot; {{ year }}</h2><a class="btn ghost" href="{{ qs(status=None) }}">Close</a></div>
     <div class="tbl-wrap"><table class="tbl">
       <tr><th>Type</th><th>Address</th><th>Client</th><th>Agent</th><th>Source</th>
-          <th>{{ 'Closed' if status == 'Closed' else 'Listed / Signed' }}</th><th class="n">{{ 'Price' if status == 'Closed' else 'List price' }}</th>
+          {% set lbl = (statuses|selectattr('status', 'equalto', status)|first).labels %}
+          <th>{{ lbl[2] }}</th><th class="n">{{ 'List price' if lbl[2] == 'Listed / Signed' else 'Price' }}</th>
           <th class="n">%</th><th class="n">GCI</th></tr>
       {% for d in status_deals %}
-      {% set when = d.close_date if status == 'Closed' else (d.list_date or d.signed_date) %}
+      {% set when = d.close_date if status == 'Closed' else (d.under_contract_date or d.signed_date) if status in ('Pending', 'Cancelled') else (d.list_date or d.signed_date) %}
       <tr><td>{{ d.deal_type }}</td><td>{{ d.address or '--' }}</td><td>{{ d.clients or '--' }}</td>
           <td>{{ d.primary_agent or '--' }}</td><td>{{ d.source or '--' }}</td>
           <td>{{ when.strftime('%b %d %Y') if when else '--' }}</td>

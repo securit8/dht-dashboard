@@ -384,7 +384,13 @@ def agent_financials(cur, cte_agent, now):
 
 
 # Status tiles on Business Overview: (status in CTE, color)
-STATUS_TILES = [("Active", "#8FD3C8"), ("Coming Soon", "#F2B84B"), ("Signed", "#7B8FF0"), ("Closed", "#2FA867")]
+# in the order a deal moves through them
+STATUS_TILES = [("Coming Soon", "#F2B84B"), ("Signed", "#7B8FF0"), ("Active", "#8FD3C8"),
+                ("Pending", "#C99BE0"), ("Closed", "#2FA867"), ("Cancelled", "#E0685A")]
+# (value label, GCI label, date column label) per tile
+STATUS_LABELS = {"Closed": ("Volume", "GCI", "Closed"), "Pending": ("Sale volume", "Projected GCI", "Under contract"),
+                 "Cancelled": ("Lost volume", "Lost GCI", "Under contract")}
+UNSOLD_LABELS = ("List volume", "Projected GCI", "Listed / Signed")
 # Not-yet-sold listings are valued at list price (as CTE does); sold/pending at sale price
 DEAL_VALUE = """(CASE WHEN d.status IN ('Active', 'Coming Soon', 'Signed', 'Pre-Signed', 'Pipeline')
                       THEN COALESCE(NULLIF(d.list_price, 0), d.sale_price)
@@ -394,7 +400,8 @@ DEAL_VALUE = """(CASE WHEN d.status IN ('Active', 'Coming Soon', 'Signed', 'Pre-
 def status_summary(cur, year, cte_agent=None, source=None):
     """{status: {count, volume, gci, buyer, listing}} for one year's CTE file."""
     p = {"y": year, "cte_agent": cte_agent, "source": source}
-    out = {s: {"status": s, "color": c, "count": 0, "volume": 0.0, "gci": 0.0, "buyer": 0, "listing": 0}
+    out = {s: {"status": s, "color": c, "count": 0, "volume": 0.0, "gci": 0.0, "buyer": 0, "listing": 0,
+               "labels": STATUS_LABELS.get(s, UNSOLD_LABELS)}
            for s, c in STATUS_TILES}
     for r in fetch(cur, f"""
             SELECT d.status, COUNT(*) AS n, COALESCE(SUM({DEAL_VALUE}), 0) AS vol, COALESCE(SUM(d.gci), 0) AS gci,
