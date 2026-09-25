@@ -35,7 +35,8 @@ STAGE_BUCKETS = {
     "nurture": "long", "long term nurture": "long", "sphere": "long", "past client": "long",
     "showing homes": "active", "active client": "active", "listing agreement": "active",
     "active listing": "active", "submitting offers": "active",
-    "under contract": "closed", "pending": "closed", "closed": "closed", "sale closed": "closed",
+    "under contract": "closed", "pending": "closed", "listing | pending": "closed", "closed": "closed",
+    "sale closed": "closed",
     "trash": "trash", "rejected": "trash", "archived": "trash", "archive": "trash", "do not contact": "trash",
 }
 CLOSED_STAGES = [s for s, b in STAGE_BUCKETS.items() if b == "closed"]
