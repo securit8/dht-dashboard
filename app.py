@@ -384,23 +384,24 @@ def _appt_args():
     status = request.args.get("status", "all")
     if status not in R.APPT_STATUSES:
         status = "all"
-    return view_by, request.args.get("type") or None, status
+    return view_by, request.args.get("type") or None, status, request.args.get("stage") or None
 
 
 @app.route("/appointments")
 @login_required
 def appointments():
-    view_by, appt_type, status = _appt_args()
+    view_by, appt_type, status, stage = _appt_args()
     page = max(request.args.get("page", 1, type=int), 1)
     rng, f = page_filters("last90")
     with db() as cur:
         ready = R.tables_ready(cur, "appointments")
         data = {}
         if ready:
-            rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page)
-            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type), rows=rows, total=total,
+            rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage)
+            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage), rows=rows, total=total,
                         pages=max((total + 24) // 25, 1),
                         type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
+                        stage_choices=[("", "All stages")] + [(s, s) for s in R.stage_options(cur)],
                         **filter_options(cur))
     return render_template("appointments.html", ready=ready, rng=rng, view_by=view_by, appt_type=appt_type,
                            status=status, page=page, **data)
@@ -409,10 +410,10 @@ def appointments():
 @app.route("/appointments.csv")
 @login_required
 def appointments_csv():
-    view_by, appt_type, status = _appt_args()
+    view_by, appt_type, status, stage = _appt_args()
     _, f = page_filters("last90")
     with db() as cur:
-        rows, _ = R.appointment_list(cur, f, view_by, appt_type, status, 1, per_page=100000)
+        rows, _ = R.appointment_list(cur, f, view_by, appt_type, status, 1, per_page=100000, stage=stage)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time", "Type", "Outcome", "Lead Source",

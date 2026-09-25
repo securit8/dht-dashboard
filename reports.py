@@ -175,6 +175,18 @@ def source_options(cur):
         SELECT {SRC} AS src, COUNT(*) FROM people p GROUP BY 1 ORDER BY 2 DESC""", {})]
 
 
+# FUB's default stage order, used to sort the stage filter (other stages go after)
+FUB_STAGE_ORDER = ["lead", "attempted contact", "spoke with customer", "appointment set", "met with customer",
+                   "showing homes", "listing agreement", "active listing", "submitting offers", "under contract",
+                   "closed", "sphere", "nurture", "unresponsive", "trash", "archive"]
+
+
+def stage_options(cur):
+    stages = {r["s"].strip() for r in fetch(cur, "SELECT DISTINCT stage AS s FROM people WHERE COALESCE(TRIM(stage), '') <> ''", {})}
+    rank = {s: i for i, s in enumerate(FUB_STAGE_ORDER)}
+    return sorted(stages, key=lambda s: (rank.get(s.lower(), len(rank)), s.lower()))
+
+
 def appt_type_options(cur):
     return [r["type"] for r in fetch(cur, """
         SELECT DISTINCT type FROM appointments WHERE COALESCE(type, '') <> '' ORDER BY 1""", {})]
@@ -377,10 +389,14 @@ def top_performers(cur, f, today):
 # ---------------------------------------------------------------- Appointments
 
 APPT_DATE_FIELDS = {"created": "a.created_at", "start": "a.start_at"}
+# Filter appointments by the lead's current FUB stage (e.g. "Submitting offers")
+APPT_STAGE_F = """
+        AND (%(stage)s::text IS NULL OR EXISTS (SELECT 1 FROM people ps WHERE ps.person_id = a.person_id
+                                                AND LOWER(TRIM(ps.stage)) = LOWER(TRIM(%(stage)s))))"""
 APPT_STATUSES = {"all", "held", "not_held", "none"}
 
 
-def appointment_kpis(cur, f, view_by, appt_type):
+def appointment_kpis(cur, f, view_by, appt_type, stage=None):
     col = APPT_DATE_FIELDS[view_by]
     sql = f"""
         SELECT COUNT(*) AS total,
@@ -389,9 +405,9 @@ def appointment_kpis(cur, f, view_by, appt_type):
                COUNT(*) FILTER (WHERE {APPT_CLASS} = 'none') AS none
         FROM appointments a
         WHERE {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
-          AND (%(type)s::text IS NULL OR a.type = %(type)s)"""
-    c = one(cur, sql, f.params(type=appt_type))
-    p = one(cur, sql, f.previous().params(type=appt_type))
+          AND (%(type)s::text IS NULL OR a.type = %(type)s){APPT_STAGE_F}"""
+    c = one(cur, sql, f.params(type=appt_type, stage=stage))
+    p = one(cur, sql, f.previous().params(type=appt_type, stage=stage))
     leads = funnel_counts(cur, f)["new_leads"]
     return {**c, "set_rate": pct(c["total"], leads, 0),
             "held_rate": pct(c["held"], c["total"], 0), "not_held_rate": pct(c["not_held"], c["total"], 0),
@@ -399,12 +415,12 @@ def appointment_kpis(cur, f, view_by, appt_type):
             "chg": {k: change(c[k], p[k]) for k in ("total", "held", "not_held", "none")}}
 
 
-def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25):
+def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stage=None):
     col = APPT_DATE_FIELDS[view_by]
     where = f"""{col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
         AND (%(type)s::text IS NULL OR a.type = %(type)s)
-        AND (%(status)s = 'all' OR {APPT_CLASS} = %(status)s)"""
-    p = f.params(type=appt_type, status=status, limit=per_page, offset=(page - 1) * per_page)
+        AND (%(status)s = 'all' OR {APPT_CLASS} = %(status)s){APPT_STAGE_F}"""
+    p = f.params(type=appt_type, status=status, stage=stage, limit=per_page, offset=(page - 1) * per_page)
     total = one(cur, f"SELECT COUNT(*) AS n FROM appointments a WHERE {where}", p)["n"]
     rows = fetch(cur, f"""
         SELECT a.agent_names, COALESCE(NULLIF(a.lead_name, ''), p.name, '') AS lead_name,
