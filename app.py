@@ -490,7 +490,11 @@ def business_overview():
                                               ("fub_deals", "Pending + Closed Deals (FUB)", "n"),
                                               ("fub_volume", "Volume (FUB)", "money")]
             quarters, total = CTE.business_quarters(months, metrics)
+            status = request.args.get("status")
+            status = status if status in dict(CTE.STATUS_TILES) else None
             data = dict(
+                statuses=CTE.status_summary(cur, year, agent, source), status=status,
+                status_deals=CTE.deals_with_status(cur, year, status, agent, source) if status else [],
                 source_name="CTE", metrics=metrics, quarters=quarters, total=total,
                 yoy={y: [m["closed"] for m in CTE.business_months(cur, y, agent, source)] for y in (year - 2, year - 1)}
                 | {year: hide_future([m["closed"] for m in months], year)},

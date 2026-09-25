@@ -383,6 +383,41 @@ def agent_financials(cur, cte_agent, now):
             "this_year": monthly(now.year, "gci"), "last_year": monthly(now.year - 1, "gci")}
 
 
+# Status tiles on Business Overview: (status in CTE, color)
+STATUS_TILES = [("Active", "#8FD3C8"), ("Coming Soon", "#F2B84B"), ("Signed", "#7B8FF0"), ("Closed", "#2FA867")]
+# Not-yet-sold listings are valued at list price (as CTE does); sold/pending at sale price
+DEAL_VALUE = """(CASE WHEN d.status IN ('Active', 'Coming Soon', 'Signed', 'Pre-Signed', 'Pipeline')
+                      THEN COALESCE(NULLIF(d.list_price, 0), d.sale_price)
+                      ELSE COALESCE(NULLIF(d.sale_price, 0), d.list_price) END)"""
+
+
+def status_summary(cur, year, cte_agent=None, source=None):
+    """{status: {count, volume, gci, buyer, listing}} for one year's CTE file."""
+    p = {"y": year, "cte_agent": cte_agent, "source": source}
+    out = {s: {"status": s, "color": c, "count": 0, "volume": 0.0, "gci": 0.0, "buyer": 0, "listing": 0}
+           for s, c in STATUS_TILES}
+    for r in fetch(cur, f"""
+            SELECT d.status, COUNT(*) AS n, COALESCE(SUM({DEAL_VALUE}), 0) AS vol, COALESCE(SUM(d.gci), 0) AS gci,
+                   COUNT(*) FILTER (WHERE d.deal_type = 'Buyer') AS buyer,
+                   COUNT(*) FILTER (WHERE d.deal_type = 'Listing') AS listing
+            FROM cte_deals d WHERE d.file_year = %(y)s AND {DEAL_AGENT_MATCH} AND {SOURCE_MATCH}
+            GROUP BY 1""", p):
+        if r["status"] in out:
+            out[r["status"]].update(count=r["n"], volume=_num(r["vol"]), gci=_num(r["gci"]),
+                                    buyer=r["buyer"], listing=r["listing"])
+    return list(out.values())
+
+
+def deals_with_status(cur, year, status, cte_agent=None, source=None):
+    return fetch(cur, f"""
+        SELECT d.deal_type, d.address, d.clients, d.source, d.primary_agent, d.signed_date, d.list_date,
+               d.under_contract_date, d.close_date, d.exp_date, {DEAL_VALUE} AS value, d.commission_pct, d.gci
+        FROM cte_deals d
+        WHERE d.file_year = %(y)s AND d.status = %(status)s AND {DEAL_AGENT_MATCH} AND {SOURCE_MATCH}
+        ORDER BY COALESCE(d.close_date, d.under_contract_date, d.list_date, d.signed_date) DESC NULLS LAST""",
+        {"y": year, "status": status, "cte_agent": cte_agent, "source": source})
+
+
 def closed_count_since(cur, since, cte_agent=None):
     return one(cur, f"""SELECT COUNT(*) AS n FROM cte_deals d WHERE d.status = 'Closed' AND d.close_date >= %(since)s
                         AND EXTRACT(YEAR FROM d.close_date) = d.file_year AND {DEAL_AGENT_MATCH}""",

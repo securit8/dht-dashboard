@@ -6,6 +6,23 @@
 {% block style %}
   .chart-box { position: relative; height: 280px; }
   .tbl td.q { font-weight: 700; }
+  .status-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .stile { position: relative; display: block; background: #fff; border-radius: 16px; padding: 20px 20px 18px 24px;
+           box-shadow: 0 1px 3px rgba(31,42,68,0.06); text-decoration: none; color: inherit; overflow: hidden;
+           transition: box-shadow .15s, transform .15s; }
+  .stile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--tile); }
+  .stile:hover { box-shadow: 0 6px 18px rgba(31,42,68,0.12); transform: translateY(-1px); }
+  .stile.on { box-shadow: 0 0 0 2px var(--tile), 0 6px 18px rgba(31,42,68,0.12); }
+  .stile .lbl { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;
+                letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
+  .stile .lbl .dot { background: var(--tile); margin: 0; }
+  .stile .count { font-family: 'IBM Plex Mono', monospace; font-size: 40px; font-weight: 700; line-height: 1.1; margin: 10px 0 6px; }
+  .stile .vals { display: flex; gap: 16px; font-size: 13px; color: var(--soft); }
+  .stile .vals b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 16px; color: var(--ink); }
+  .stile .split { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .stile .more { font-size: 12px; color: var(--accent-ink); margin-top: 10px; font-weight: 600; }
+  @media (max-width: 900px) { .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .status-tiles { grid-template-columns: 1fr; } }
 {% endblock %}
 
 {% block filters %}{% if ready %}
@@ -18,6 +35,44 @@
 {% if not ready %}
   {{ m.empty('Waiting for the first deal sync from Follow Up Boss.') }}
 {% else %}
+  {% if statuses %}
+  <div class="status-tiles">
+    {% for s in statuses %}
+    <a class="stile {{ 'on' if status == s.status }}" style="--tile: {{ s.color }}"
+       href="{{ qs(status=None if status == s.status else s.status) }}#status-deals">
+      <div class="lbl">{{ s.status }}<span class="dot"></span></div>
+      <div class="count">{{ s.count|num }}</div>
+      <div class="vals">
+        <div><b>{{ s.volume|money }}</b>{{ 'List volume' if s.status != 'Closed' else 'Volume' }}</div>
+        <div><b>{{ s.gci|money }}</b>{{ 'Projected GCI' if s.status != 'Closed' else 'GCI' }}</div>
+      </div>
+      <div class="split">{{ s.listing }} listing{{ 's' if s.listing != 1 }} &middot; {{ s.buyer }} buyer{{ 's' if s.buyer != 1 }}</div>
+      <div class="more">{{ 'Hide deals' if status == s.status else 'View deals' }} &rarr;</div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if status %}
+  <div class="card" id="status-deals">
+    <div class="card-head"><h2>{{ status }} &middot; {{ year }}</h2><a class="btn ghost" href="{{ qs(status=None) }}">Close</a></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Type</th><th>Address</th><th>Client</th><th>Agent</th><th>Source</th>
+          <th>{{ 'Closed' if status == 'Closed' else 'Listed / Signed' }}</th><th class="n">{{ 'Price' if status == 'Closed' else 'List price' }}</th>
+          <th class="n">%</th><th class="n">GCI</th></tr>
+      {% for d in status_deals %}
+      {% set when = d.close_date if status == 'Closed' else (d.list_date or d.signed_date) %}
+      <tr><td>{{ d.deal_type }}</td><td>{{ d.address or '--' }}</td><td>{{ d.clients or '--' }}</td>
+          <td>{{ d.primary_agent or '--' }}</td><td>{{ d.source or '--' }}</td>
+          <td>{{ when.strftime('%b %d %Y') if when else '--' }}</td>
+          <td class="n">{{ d.value|money if d.value else '--' }}</td>
+          <td class="n">{{ ((d.commission_pct or 0) * 100)|round(2) }}%</td>
+          <td class="n">{{ d.gci|money if d.gci else '--' }}</td></tr>
+      {% else %}<tr><td colspan="9" class="muted">No {{ status|lower }} deals.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+  {% endif %}
+
   <div class="card">
     <h3>Your business KPIs by quarter &middot; {{ year }}</h3>
     <div class="tbl-wrap"><table class="tbl">
