@@ -384,13 +384,14 @@ def agent_financials(cur, cte_agent, now):
 
 
 # Status tiles on Business Overview: (status in CTE, color)
-# in the order a deal moves through them
-STATUS_TILES = [("Coming Soon", "#F2B84B"), ("Signed", "#7B8FF0"), ("Active", "#8FD3C8"),
-                ("Pending", "#C99BE0"), ("Closed", "#2FA867"), ("Cancelled", "#E0685A")]
-# (value label, GCI label, date column label) per tile
-STATUS_LABELS = {"Closed": ("Volume", "GCI", "Closed"), "Pending": ("Sale volume", "Projected GCI", "Under contract"),
-                 "Cancelled": ("Lost volume", "Lost GCI", "Under contract")}
-UNSOLD_LABELS = ("List volume", "Projected GCI", "Listed / Signed")
+# Closed, Pending, Active first; deep enough for white text on a full-color tile
+STATUS_TILES = [("Closed", "#2E9E62"), ("Pending", "#9B63C4"), ("Active", "#2A9D8F"),
+                ("Coming Soon", "#D98A1C"), ("Signed", "#5A6FDB"), ("Cancelled", "#D2544A")]
+# (value label, GCI label, date column label, average price label) per tile
+STATUS_LABELS = {"Closed": ("Volume", "GCI", "Closed", "Avg. sales price"),
+                 "Pending": ("Sale volume", "Projected GCI", "Under contract", "Avg. sales price"),
+                 "Cancelled": ("Lost volume", "Lost GCI", "Under contract", "Avg. sales price")}
+UNSOLD_LABELS = ("List volume", "Projected GCI", "Listed / Signed", "Avg. list price")
 # Not-yet-sold listings are valued at list price (as CTE does); sold/pending at sale price
 DEAL_VALUE = """(CASE WHEN d.status IN ('Active', 'Coming Soon', 'Signed', 'Pre-Signed', 'Pipeline')
                       THEN COALESCE(NULLIF(d.list_price, 0), d.sale_price)
@@ -412,6 +413,8 @@ def status_summary(cur, year, cte_agent=None, source=None):
         if r["status"] in out:
             out[r["status"]].update(count=r["n"], volume=_num(r["vol"]), gci=_num(r["gci"]),
                                     buyer=r["buyer"], listing=r["listing"])
+    for s in out.values():  # same as the KPI table's Avg. Sales Price: volume / deals
+        s["avg"] = s["volume"] / s["count"] if s["count"] else 0
     return list(out.values())
 
 

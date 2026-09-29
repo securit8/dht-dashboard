@@ -7,20 +7,17 @@
   .chart-box { position: relative; height: 280px; }
   .tbl td.q { font-weight: 700; }
   .status-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
-  .stile { position: relative; display: block; background: #fff; border-radius: 16px; padding: 20px 20px 18px 24px;
-           box-shadow: 0 1px 3px rgba(31,42,68,0.06); text-decoration: none; color: inherit; overflow: hidden;
+  .stile { position: relative; display: block; background: var(--tile); border-radius: 16px; padding: 20px 22px 18px;
+           box-shadow: 0 1px 3px rgba(31,42,68,0.10); text-decoration: none; color: #fff; overflow: hidden;
            transition: box-shadow .15s, transform .15s; }
-  .stile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--tile); }
-  .stile:hover { box-shadow: 0 6px 18px rgba(31,42,68,0.12); transform: translateY(-1px); }
-  .stile.on { box-shadow: 0 0 0 2px var(--tile), 0 6px 18px rgba(31,42,68,0.12); }
-  .stile .lbl { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600;
-                letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
-  .stile .lbl .dot { background: var(--tile); margin: 0; }
+  .stile:hover { box-shadow: 0 8px 20px rgba(31,42,68,0.20); transform: translateY(-1px); }
+  .stile.on { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--tile), 0 8px 20px rgba(31,42,68,0.20); }
+  .stile .lbl { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.88); }
   .stile .count { font-family: 'IBM Plex Mono', monospace; font-size: 40px; font-weight: 700; line-height: 1.1; margin: 10px 0 6px; }
-  .stile .vals { display: flex; gap: 16px; font-size: 13px; color: var(--soft); }
-  .stile .vals b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 16px; color: var(--ink); }
-  .stile .split { font-size: 12px; color: var(--muted); margin-top: 10px; }
-  .stile .more { font-size: 12px; color: var(--accent-ink); margin-top: 10px; font-weight: 600; }
+  .stile .vals { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: rgba(255,255,255,.85); }
+  .stile .vals b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 16px; color: #fff; }
+  .stile .split { font-size: 12px; color: rgba(255,255,255,.80); margin-top: 10px; }
+  .stile .more { font-size: 12px; color: #fff; margin-top: 10px; font-weight: 600; }
   @media (max-width: 900px) { .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .status-tiles { grid-template-columns: 1fr; } }
 {% endblock %}
@@ -40,11 +37,12 @@
     {% for s in statuses %}
     <a class="stile {{ 'on' if status == s.status }}" style="--tile: {{ s.color }}"
        href="{{ qs(status=None if status == s.status else s.status) }}#status-deals">
-      <div class="lbl">{{ s.status }}<span class="dot"></span></div>
+      <div class="lbl">{{ s.status }}</div>
       <div class="count">{{ s.count|num }}</div>
       <div class="vals">
         <div><b>{{ s.volume|money }}</b>{{ s.labels[0] }}</div>
         <div><b>{{ s.gci|money }}</b>{{ s.labels[1] }}</div>
+        <div><b>{{ s.avg|money }}</b>{{ s.labels[3] }}</div>
       </div>
       <div class="split">{{ s.listing }} listing{{ 's' if s.listing != 1 }} &middot; {{ s.buyer }} buyer{{ 's' if s.buyer != 1 }}</div>
       <div class="more">{{ 'Hide deals' if status == s.status else 'View deals' }} &rarr;</div>
