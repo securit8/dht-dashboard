@@ -544,7 +544,7 @@ def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="
             "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
                        for k, label, c in MOVE_GROUPS],
             "pairs": sorted(({"from": a, "to": b, "n": v} for (a, b), v in pairs.items()),
-                            key=lambda x: -x["n"])[:8]}
+                            key=lambda x: -x["n"])[:12]}
 
 
 # ---------------------------------------------------------------- Lead history

@@ -13,14 +13,10 @@
   .stage-guess { color: var(--muted); font-style: italic; }
   .lead-link { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
   .lead-link:hover { text-decoration: underline; }
-  .moves { display: grid; grid-template-columns: 200px minmax(0, 1fr) 280px; gap: 24px; align-items: start; }
+  .moves { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
   .move-hero .kpi-val { color: #2E9E62; }
-  .move-main .bar { margin-top: 4px; }
-  .move-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 16px; font-size: 13px; }
-  .move-legend div { display: flex; align-items: center; gap: 6px; }
-  .move-legend b { margin-left: auto; font-family: 'IBM Plex Mono', monospace; }
-  .move-legend .muted { font-size: 12px; min-width: 28px; text-align: right; }
-  .pair-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--bg); font-size: 13px; }
+  .pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 28px; margin-top: 6px; }
+  .pair-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
   .pair-row b { font-family: 'IBM Plex Mono', monospace; }
   @media (max-width: 1000px) { .moves { grid-template-columns: 1fr; } }
 {% endblock %}
@@ -65,18 +61,14 @@
         <div class="kpi-val">{{ moves.met_pct|round|int }}%</div>
         <div class="kpi-sub">{{ moves.met|num }} of {{ moves.known|num }} leads</div>
       </div>
-      <div class="move-main">
-        <div class="bar">{% for g in moves.groups if g.n %}<div style="width: {{ g.pct }}%; background: {{ g.color }}" title="{{ g.label }}: {{ g.n }}"></div>{% endfor %}</div>
-        <div class="move-legend">
-          {% for g in moves.groups %}<div><span class="dot" style="background: {{ g.color }}"></span>{{ g.label }}<b>{{ g.pct|round|int }}%</b><span class="muted">{{ g.n|num }}</span></div>{% endfor %}
-        </div>
-      </div>
-      {% if moves.pairs %}
       <div class="move-pairs">
         <div class="kpi-lbl">Most common changes</div>
-        {% for p in moves.pairs %}<div class="pair-row"><span>{{ p.from }} <span class="muted">&rarr;</span> {{ p.to }}</span><b>{{ p.n }}</b></div>{% endfor %}
+        {% if moves.pairs %}
+        <div class="pair-grid">
+          {% for p in moves.pairs %}<div class="pair-row"><span>{{ p.from }} <span class="muted">&rarr;</span> {{ p.to }}</span><b>{{ p.n }}</b></div>{% endfor %}
+        </div>
+        {% else %}<div class="muted">No stage changes since the appointments yet.</div>{% endif %}
       </div>
-      {% endif %}
     </div>
     <div class="note">Based on {{ moves.known|num }} of {{ moves.leads|num }} leads: the ones with stage history from before their appointment (action plans, or changes recorded since Sep 29 2026). The others are left out, since their stage then is unknown.</div>
     {% else %}
