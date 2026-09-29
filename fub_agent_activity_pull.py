@@ -20,7 +20,6 @@ import psycopg2
 import requests
 
 import cte_import
-import fub_probe
 
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
@@ -253,6 +252,38 @@ def pull_deals(session):
     return deals
 
 
+def pull_action_plan_people(session, cutoff=None):
+    """Action plan starts per lead. FUB lists them newest first; stop at cutoff
+    (None = everything). If the order ever isn't newest first, read them all."""
+    names = {p["id"]: p.get("name") or "" for p in paginate(session, "actionPlans")}
+    rows, prev = [], None
+    for r in paginate(session, "actionPlansPeople"):
+        created = parse_dt(r.get("created"))
+        if cutoff and created and prev and created > prev:
+            cutoff = None  # not newest first after all
+        if cutoff and created and created < cutoff:
+            break
+        prev = created or prev
+        rows.append((r["id"], r.get("personId"), r.get("actionPlanId"), names.get(r.get("actionPlanId"), ""),
+                     r.get("automationName") or "", r.get("status") or "", created))
+    return rows
+
+
+def write_action_plan_people_to_db(database_url, rows):
+    conn = psycopg2.connect(database_url)
+    cur = conn.cursor()
+    for row in rows:
+        cur.execute("""
+            INSERT INTO action_plan_people (id, person_id, plan_id, plan_name, automation_name, status, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET plan_name = EXCLUDED.plan_name, status = EXCLUDED.status
+        """, row)
+    conn.commit()
+    cur.close()
+    conn.close()
+    return len(rows)
+
+
 def pull_message_events(session, cutoff):
     """Bounded per-person loop for texts/emails — only checks people
     updated since cutoff, not the whole lead database."""
@@ -329,6 +360,21 @@ def ensure_tables(cur):
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS people_stage_history_idx ON people_stage_history (person_id, changed_at)")
+    # Action plans started on a lead. Many start on a stage change, so they give
+    # stage history before the dashboard began recording (see reports.PLAN_STAGES).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS action_plan_people (
+            id BIGINT PRIMARY KEY,
+            person_id BIGINT,
+            plan_id BIGINT,
+            plan_name TEXT,
+            automation_name TEXT,
+            status TEXT,
+            created_at TIMESTAMPTZ
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS action_plan_people_idx ON action_plan_people (person_id, created_at)")
+    cur.execute("DROP TABLE IF EXISTS fub_probe")  # leftover from a one-time API check
     cur.execute("""
         CREATE TABLE IF NOT EXISTS agents (
             user_id BIGINT PRIMARY KEY,
@@ -577,6 +623,15 @@ def main():
     people = pull_people(session, people_cutoff)
     print(f"Wrote {write_people_to_db(database_url, users, people)} people.")
 
+    conn = psycopg2.connect(database_url)
+    cur = conn.cursor()
+    cur.execute("SELECT EXISTS (SELECT 1 FROM action_plan_people)")
+    plans_empty = not cur.fetchone()[0]
+    conn.close()
+    print("Pulling action plan starts (stage history)" + (" - all of them, first time..." if plans_empty else "..."))
+    plan_rows = pull_action_plan_people(session, None if plans_empty else cutoff - timedelta(days=1))
+    print(f"Wrote {write_action_plan_people_to_db(database_url, plan_rows)} action plan starts.")
+
     print("Pulling texts/emails (bounded to recently-updated people)...")
     message_events = pull_message_events(session, cutoff)
     print(f"Collected {len(message_events)} text/email events.")
@@ -584,12 +639,6 @@ def main():
 
     written = write_events_to_db(database_url, users, events, run_started_at)
     print(f"Wrote {written} events. Next run will pull since {run_started_at.isoformat()}.")
-
-    # One-time read-only search of the FUB API for past lead stages (see /fub-probe)
-    try:
-        fub_probe.run(session, database_url)
-    except Exception as e:  # noqa: BLE001 - never fail the pull over this
-        print(f"FUB stage-history probe failed: {e}")
 
     # CTE workbooks from OneDrive (read-only). Kept separate so a CTE problem
     # never fails the Follow Up Boss pull above, which is already saved.

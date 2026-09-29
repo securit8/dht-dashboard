@@ -182,8 +182,11 @@ FUB_STAGE_ORDER = ["lead", "attempted contact", "spoke with customer", "appointm
                    "closed", "sphere", "nurture", "unresponsive", "trash", "archive"]
 
 
-def stage_options(cur):
+def stage_options(cur, with_history=False):
     stages = {r["s"].strip() for r in fetch(cur, "SELECT DISTINCT stage AS s FROM people WHERE COALESCE(TRIM(stage), '') <> ''", {})}
+    if with_history:  # stages only seen in history (e.g. from action plans)
+        known = {s.lower() for s in stages}
+        stages |= {s for _, s in PLAN_STAGES if s.lower() not in known}
     rank = {s: i for i, s in enumerate(FUB_STAGE_ORDER)}
     return sorted(stages, key=lambda s: (rank.get(s.lower(), len(rank)), s.lower()))
 
@@ -390,14 +393,63 @@ def top_performers(cur, f, today):
 # ---------------------------------------------------------------- Appointments
 
 APPT_DATE_FIELDS = {"created": "a.created_at", "start": "a.start_at"}
-# Filter appointments by the lead's current FUB stage (e.g. "Submitting offers")
-APPT_STAGE_F = """
+APPT_STATUSES = {"all", "held", "not_held", "none"}
+STAGE_MODES = {"current", "appt"}  # the lead's stage today, or when the appointment happened
+
+# FUB's API has no stage history. Action plans that start on a stage change stand in for it
+# (mapping confirmed by the owner); stage changes the cron has seen since Sep 2026 are added.
+# (regex on the plan name, FUB stage it means)
+PLAN_STAGES = [
+    (r"status (is )?change[sd]? to .?appointment set", "Appointment set"),
+    (r"stage change to attempted contact", "Attempted contact"),
+    (r"stage change to spoke with", "Spoke with customer"),
+    (r"^\*kts buyer active", "Showing homes"),
+    (r"^\*kts seller pre-listed", "Listing agreement"),
+    (r"^\*kts seller listed", "Active listing"),
+    (r"^\*kts buyer pending", "Under contract"),
+    (r"^\*kts seller pending", "LISTING | PENDING"),
+    (r"^\*kts post closing", "Closed"),
+    (r"^\*kts nurture", "Nurture"),
+    (r"move to trash stage", "Trash"),
+]
+PLAN_STAGE_CASE = "(CASE " + " ".join(
+    f"WHEN LOWER(COALESCE(NULLIF(ap.plan_name, ''), ap.automation_name)) ~ '{rx}' THEN '{stage}'"
+    for rx, stage in PLAN_STAGES) + " END)"
+
+
+def stage_events_sql(cur):
+    """(person_id, stage, at) rows from whatever stage history exists."""
+    parts = []
+    if table_exists(cur, "people_stage_history"):
+        parts.append("SELECT person_id, stage, changed_at AS at FROM people_stage_history WHERE COALESCE(stage, '') <> ''")
+    if table_exists(cur, "action_plan_people"):
+        parts.append(f"SELECT person_id, {PLAN_STAGE_CASE} AS stage, created_at AS at FROM action_plan_people ap")
+    return " UNION ALL ".join(parts) if parts else None
+
+
+def stage_at_appt_sql(cur):
+    """SQL for the lead's stage when appointment `a` happened: the last known stage change
+    before it, else the current stage. Also returns SQL that is true when it was known."""
+    current = "(SELECT ps.stage FROM people ps WHERE ps.person_id = a.person_id)"
+    events = stage_events_sql(cur)
+    if not events:
+        return current, "false"
+    last = f"""(SELECT se.stage FROM ({events}) se WHERE se.person_id = a.person_id AND se.stage IS NOT NULL
+                AND se.at <= COALESCE(a.start_at, a.created_at) ORDER BY se.at DESC LIMIT 1)"""
+    return f"COALESCE({last}, {current})", f"({last} IS NOT NULL)"
+
+
+def appt_stage_filter(cur, stage_mode):
+    """Filter appointments by the lead's FUB stage (e.g. "Submitting offers"), today or at the time."""
+    if stage_mode == "appt":
+        expr, _ = stage_at_appt_sql(cur)
+        return f"\n        AND (%(stage)s::text IS NULL OR LOWER(TRIM({expr})) = LOWER(TRIM(%(stage)s)))"
+    return """
         AND (%(stage)s::text IS NULL OR EXISTS (SELECT 1 FROM people ps WHERE ps.person_id = a.person_id
                                                 AND LOWER(TRIM(ps.stage)) = LOWER(TRIM(%(stage)s))))"""
-APPT_STATUSES = {"all", "held", "not_held", "none"}
 
 
-def appointment_kpis(cur, f, view_by, appt_type, stage=None):
+def appointment_kpis(cur, f, view_by, appt_type, stage=None, stage_mode="current"):
     col = APPT_DATE_FIELDS[view_by]
     sql = f"""
         SELECT COUNT(*) AS total,
@@ -406,7 +458,7 @@ def appointment_kpis(cur, f, view_by, appt_type, stage=None):
                COUNT(*) FILTER (WHERE {APPT_CLASS} = 'none') AS none
         FROM appointments a
         WHERE {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
-          AND (%(type)s::text IS NULL OR a.type = %(type)s){APPT_STAGE_F}"""
+          AND (%(type)s::text IS NULL OR a.type = %(type)s){appt_stage_filter(cur, stage_mode)}"""
     c = one(cur, sql, f.params(type=appt_type, stage=stage))
     p = one(cur, sql, f.previous().params(type=appt_type, stage=stage))
     leads = funnel_counts(cur, f)["new_leads"]
@@ -416,17 +468,20 @@ def appointment_kpis(cur, f, view_by, appt_type, stage=None):
             "chg": {k: change(c[k], p[k]) for k in ("total", "held", "not_held", "none")}}
 
 
-def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stage=None):
+def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stage=None, stage_mode="current"):
     col = APPT_DATE_FIELDS[view_by]
     where = f"""{col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
         AND (%(type)s::text IS NULL OR a.type = %(type)s)
-        AND (%(status)s = 'all' OR {APPT_CLASS} = %(status)s){APPT_STAGE_F}"""
+        AND (%(status)s = 'all' OR {APPT_CLASS} = %(status)s){appt_stage_filter(cur, stage_mode)}"""
     p = f.params(type=appt_type, status=status, stage=stage, limit=per_page, offset=(page - 1) * per_page)
     total = one(cur, f"SELECT COUNT(*) AS n FROM appointments a WHERE {where}", p)["n"]
+    # stage_known = false when no history covers the appointment and the current stage stands in
+    stage_sql, known_sql = stage_at_appt_sql(cur) if stage_mode == "appt" else ("p.stage", "true")
     rows = fetch(cur, f"""
         SELECT a.agent_names, COALESCE(NULLIF(a.lead_name, ''), p.name, '') AS lead_name,
                a.created_at, a.start_at, a.type, a.outcome, {APPT_CLASS} AS status,
-               COALESCE(NULLIF(TRIM(p.source), ''), '<unspecified>') AS source, p.stage, a.created_by_name
+               COALESCE(NULLIF(TRIM(p.source), ''), '<unspecified>') AS source,
+               {stage_sql} AS stage, {known_sql} AS stage_known, a.created_by_name
         FROM appointments a LEFT JOIN people p ON p.person_id = a.person_id
         WHERE {where}
         ORDER BY {col} DESC LIMIT %(limit)s OFFSET %(offset)s""", p)

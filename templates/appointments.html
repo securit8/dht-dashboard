@@ -8,6 +8,9 @@
   .outcome.held { background: #E3F4EA; color: #1F7A48; }
   .outcome.not_held { background: #FBE7E4; color: #A33224; }
   .outcome.none { background: var(--bg); color: var(--soft); }
+  .stage-toggle { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; white-space: nowrap; }
+  .stage-toggle:hover { color: var(--accent-ink); text-decoration: underline; }
+  .stage-guess { color: var(--muted); font-style: italic; }
 {% endblock %}
 
 {% block filters %}{% if ready %}
@@ -15,7 +18,8 @@
        {'name': 'view_by', 'label': 'View by date', 'default': 'created',
         'options': [('created', 'Created'), ('start', 'Appointment time')]},
        {'name': 'type', 'label': 'Appointment type', 'options': type_choices},
-       {'name': 'stage', 'label': 'CRM stage', 'options': stage_choices},
+       {'name': 'stage', 'label': 'CRM stage at appointment' if stage_mode == 'appt' else 'Current CRM stage',
+        'options': stage_choices},
      ]) }}
 {% endif %}{% endblock %}
 
@@ -52,7 +56,9 @@
     <div class="tbl-wrap">
       <table class="tbl">
         <tr><th>Agent(s) On Appointment</th><th>Lead</th><th>Appt Created</th><th>Appt Time</th><th>Type</th>
-            <th>Outcome</th><th>Lead Source</th><th>Current CRM Stage</th><th>Created By</th></tr>
+            <th>Outcome</th><th>Lead Source</th><th><a class="stage-toggle" href="{{ qs(stage_at=None if stage_mode == 'appt' else 'appt', page=None) }}"
+                   title="Switch to the lead's stage {{ 'today' if stage_mode == 'appt' else 'when the appointment happened' }}">
+              {{ 'CRM Stage at Appt' if stage_mode == 'appt' else 'Current CRM Stage' }} &#8644;</a></th><th>Created By</th></tr>
         {% for r in rows %}
         <tr>
           <td>{{ r.agent_names or '--' }}</td>
@@ -62,7 +68,8 @@
           <td>{{ r.type or '--' }}</td>
           <td><span class="outcome {{ r.status }}">{{ r.outcome or 'No outcome' }}</span></td>
           <td>{{ r.source }}</td>
-          <td>{{ r.stage or '--' }}</td>
+          {% if r.stage_known %}<td>{{ r.stage or '--' }}</td>
+          {% else %}<td class="stage-guess" title="No stage history before this appointment; showing today's stage">{{ r.stage or '--' }}</td>{% endif %}
           <td>{{ r.created_by_name or '--' }}</td>
         </tr>
         {% else %}

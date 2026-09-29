@@ -384,40 +384,46 @@ def _appt_args():
     status = request.args.get("status", "all")
     if status not in R.APPT_STATUSES:
         status = "all"
-    return view_by, request.args.get("type") or None, status, request.args.get("stage") or None
+    stage_mode = request.args.get("stage_at", "current")
+    if stage_mode not in R.STAGE_MODES:
+        stage_mode = "current"
+    return view_by, request.args.get("type") or None, status, request.args.get("stage") or None, stage_mode
 
 
 @app.route("/appointments")
 @login_required
 def appointments():
-    view_by, appt_type, status, stage = _appt_args()
+    view_by, appt_type, status, stage, stage_mode = _appt_args()
     page = max(request.args.get("page", 1, type=int), 1)
     rng, f = page_filters("last90")
     with db() as cur:
         ready = R.tables_ready(cur, "appointments")
         data = {}
         if ready:
-            rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage)
-            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage), rows=rows, total=total,
-                        pages=max((total + 24) // 25, 1),
+            rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage,
+                                             stage_mode=stage_mode)
+            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage, stage_mode), rows=rows,
+                        total=total, pages=max((total + 24) // 25, 1),
                         type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
-                        stage_choices=[("", "All stages")] + [(s, s) for s in R.stage_options(cur)],
+                        stage_choices=[("", "All stages")] + [
+                            (s, s) for s in R.stage_options(cur, with_history=stage_mode == "appt")],
                         **filter_options(cur))
     return render_template("appointments.html", ready=ready, rng=rng, view_by=view_by, appt_type=appt_type,
-                           status=status, page=page, **data)
+                           status=status, page=page, stage_mode=stage_mode, **data)
 
 
 @app.route("/appointments.csv")
 @login_required
 def appointments_csv():
-    view_by, appt_type, status, stage = _appt_args()
+    view_by, appt_type, status, stage, stage_mode = _appt_args()
     _, f = page_filters("last90")
     with db() as cur:
-        rows, _ = R.appointment_list(cur, f, view_by, appt_type, status, 1, per_page=100000, stage=stage)
+        rows, _ = R.appointment_list(cur, f, view_by, appt_type, status, 1, per_page=100000, stage=stage,
+                                     stage_mode=stage_mode)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time", "Type", "Outcome", "Lead Source",
-                "Current Stage", "Created By"])
+                "Stage at Appointment" if stage_mode == "appt" else "Current Stage", "Created By"])
     for r in rows:
         w.writerow([r["agent_names"], r["lead_name"],
                     r["created_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d") if r["created_at"] else "",
@@ -555,19 +561,6 @@ def call_time():
 
 
 # ---------------------------------------------------------------- CTE workbooks
-
-@app.route("/fub-probe")
-@login_required
-def fub_probe():
-    """What the cron's one-time search of the FUB API found about past lead stages."""
-    with db() as cur:
-        rows = R.fetch(cur, "SELECT name, status, result, probed_at FROM fub_probe ORDER BY name", {}) \
-            if R.table_exists(cur, "fub_probe") else []
-        history = R.fetch(cur, """SELECT COUNT(*) AS n, COUNT(DISTINCT person_id) AS people, MIN(seen_at) AS since
-                                  FROM people_stage_history""", {})[0] \
-            if R.table_exists(cur, "people_stage_history") else None
-    return render_template("fub_probe.html", rows=rows, history=history)
-
 
 @app.route("/cte")
 @login_required
