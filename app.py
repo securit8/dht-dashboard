@@ -51,6 +51,36 @@ def login_required(view):
     return wrapped
 
 
+# Public pages Intuit requires for the QuickBooks app (EULA + privacy policy)
+LEGAL_EFFECTIVE = "September 29, 2026"
+
+
+@app.route("/legal/terms")
+def legal_terms():
+    return render_template("legal.html", page="terms", effective=LEGAL_EFFECTIVE,
+                           contact=os.environ.get("LEGAL_CONTACT_EMAIL", ""))
+
+
+@app.route("/legal/privacy")
+def legal_privacy():
+    return render_template("legal.html", page="privacy", effective=LEGAL_EFFECTIVE,
+                           contact=os.environ.get("LEGAL_CONTACT_EMAIL", ""))
+
+
+@app.route("/quickbooks")
+@login_required
+def quickbooks():
+    """Launch URL for the QuickBooks app. The connect flow comes next."""
+    configured = bool(os.environ.get("QBO_CLIENT_ID") and os.environ.get("QBO_CLIENT_SECRET"))
+    return render_template("quickbooks.html", configured=configured)
+
+
+@app.route("/quickbooks/disconnect")
+@login_required
+def quickbooks_disconnect():
+    return render_template("quickbooks.html", configured=False, disconnected=True)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None

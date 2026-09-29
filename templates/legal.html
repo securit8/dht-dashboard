@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ 'Privacy Policy' if page == 'privacy' else 'Terms of Use' }} — DHT Dashboard</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    :root { --ink: #1F2A44; --soft: #5B6472; --bg: #EEF0F5; }
+    body { margin: 0; font-family: 'IBM Plex Sans', system-ui, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.6; }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 16px 60px; }
+    .card { background: #fff; border-radius: 16px; padding: 32px 28px; box-shadow: 0 1px 3px rgba(31,42,68,0.08); }
+    h1 { font-family: 'Fraunces', serif; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 26px 0 6px; }
+    .sub { color: var(--soft); font-size: 13px; margin-bottom: 18px; }
+    p, li { font-size: 15px; }
+    nav { font-size: 13px; margin-top: 18px; color: var(--soft); }
+    a { color: #3B4FC4; }
+  </style>
+</head>
+<body>
+<main><div class="card">
+{% if page == 'privacy' %}
+  <h1>Privacy Policy</h1>
+  <div class="sub">DHT Dashboard &middot; Dream Homes Team &middot; Effective {{ effective }}</div>
+  <p>DHT Dashboard is an internal reporting tool used only by Dream Homes Team. It is not offered to the public or to other businesses.</p>
+
+  <h2>What we collect from QuickBooks Online</h2>
+  <p>With an administrator's authorization through Intuit's sign-in, the dashboard reads the <b>Profit and Loss report</b> of Dream Homes Team's own QuickBooks Online company and stores only <b>monthly totals</b>: income, cost of goods sold, gross profit, expenses and net income. It does not read or store customer, vendor, employee, payroll, bank or payment card information, and it never creates, changes or deletes anything in QuickBooks.</p>
+
+  <h2>How it is used</h2>
+  <p>The totals are shown on the dashboard's financial pages to Dream Homes Team's owner and authorized staff. They are not sold, shared or disclosed to any third party, and are not used for advertising, credit decisions or any purpose other than internal business reporting.</p>
+
+  <h2>How it is protected</h2>
+  <ul>
+    <li>Data is stored in a private database hosted by Render and sent only over encrypted (HTTPS/TLS) connections.</li>
+    <li>The QuickBooks access token is encrypted in the database; application keys are kept in the host's secret settings.</li>
+    <li>Financial pages require a login.</li>
+  </ul>
+
+  <h2>Disconnecting and deletion</h2>
+  <p>An administrator can disconnect at any time from the dashboard or from QuickBooks Online (Apps). On disconnect, the dashboard deletes its stored QuickBooks token and all QuickBooks data it has stored, and stops all access.</p>
+
+  <h2>Other data</h2>
+  <p>The dashboard also reports on Dream Homes Team's own Follow Up Boss CRM activity and its own deal-tracking spreadsheets, under the same internal-use and protection rules.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy: {% if contact %}<a href="mailto:{{ contact }}">{{ contact }}</a>{% else %}contact the Dream Homes Team office{% endif %}.</p>
+{% else %}
+  <h1>Terms of Use</h1>
+  <div class="sub">DHT Dashboard &middot; Dream Homes Team &middot; Effective {{ effective }}</div>
+  <p>DHT Dashboard ("the dashboard") is a private, internal reporting application owned and operated by Dream Homes Team for its own business. By connecting a QuickBooks Online company or using the dashboard, you agree to these terms.</p>
+
+  <h2>Who may use it</h2>
+  <p>Only Dream Homes Team's owner and staff it authorizes. The dashboard is not sold, licensed or offered to anyone else.</p>
+
+  <h2>What the QuickBooks connection does</h2>
+  <p>After an administrator authorizes access through Intuit, the dashboard reads the Profit and Loss report of Dream Homes Team's own QuickBooks Online company and stores monthly totals for internal reporting. It is read-only in practice: it does not create, change or delete any QuickBooks data. See the <a href="{{ url_for('legal_privacy') }}">Privacy Policy</a> for details.</p>
+
+  <h2>Disconnecting</h2>
+  <p>An administrator may disconnect QuickBooks at any time from the dashboard or from QuickBooks Online. Disconnecting deletes the stored token and QuickBooks data.</p>
+
+  <h2>No warranty</h2>
+  <p>Reports are provided for internal information only, as is, and may be incomplete or delayed. They are not accounting, tax or legal advice; the books in QuickBooks remain the source of truth.</p>
+
+  <h2>Changes</h2>
+  <p>Dream Homes Team may update these terms; the effective date above shows the latest version.</p>
+
+  <h2>Contact</h2>
+  <p>{% if contact %}<a href="mailto:{{ contact }}">{{ contact }}</a>{% else %}Contact the Dream Homes Team office.{% endif %}</p>
+{% endif %}
+  <nav><a href="{{ url_for('legal_terms') }}">Terms of Use</a> &middot; <a href="{{ url_for('legal_privacy') }}">Privacy Policy</a></nav>
+</div></main>
+</body>
+</html>

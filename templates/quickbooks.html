@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}QuickBooks{% endblock %}
+{% block eyebrow %}QuickBooks Online{% endblock %}
+{% block heading %}Connect your books{% endblock %}
+{% block content %}
+  <div class="card">
+    {% if disconnected %}
+      <p>QuickBooks is not connected. Nothing from QuickBooks is stored.</p>
+    {% elif configured %}
+      <p>The app keys are set in Render. The Connect button is being built; it will appear here.</p>
+    {% else %}
+      <p class="muted">Waiting for the QuickBooks app keys (QBO_CLIENT_ID, QBO_CLIENT_SECRET) to be added in Render.</p>
+    {% endif %}
+    <p class="muted" style="font-size:13px">The dashboard will only read the Profit &amp; Loss report and never change anything in QuickBooks.
+      <a href="{{ url_for('legal_terms') }}">Terms</a> &middot; <a href="{{ url_for('legal_privacy') }}">Privacy</a></p>
+  </div>
+{% endblock %}
