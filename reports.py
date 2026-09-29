@@ -566,12 +566,13 @@ def business_quarters(months):
     return quarters, total
 
 
-def business_top(cur, f, since):
+def business_top(cur, f, since, until=None):
     names = agent_names(cur)
     rows = fetch(cur, f"""
         SELECT unnest(d.user_ids) AS uid, COUNT(*) AS n, COALESCE(SUM(d.price), 0) AS vol FROM deals d
-        WHERE {DEAL_CLASS} IN ('closed', 'pending') AND {DEAL_DATE} >= %(since)s AND {DEALS_F}
-        GROUP BY 1""", f.params(since=since))
+        WHERE {DEAL_CLASS} IN ('closed', 'pending') AND {DEAL_DATE} >= %(since)s
+          AND (%(until)s::timestamptz IS NULL OR {DEAL_DATE} < %(until)s) AND {DEALS_F}
+        GROUP BY 1""", f.params(since=since, until=until))
     for r in rows:
         r["name"] = names.get(r["uid"], f"User {r['uid']}")
         r["avg"] = r["vol"] / r["n"] if r["n"] else 0

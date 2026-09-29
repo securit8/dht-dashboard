@@ -261,14 +261,15 @@ def business_quarters(months, metrics=BUSINESS_METRICS):
     return quarters, total
 
 
-def business_top(cur, since, source=None):
-    """Top 5 by closed volume, deal count and average price since a date (Primary Agent)."""
+def business_top(cur, since, source=None, until=None):
+    """Top 5 by closed volume, deal count and average price in [since, until) (Primary Agent)."""
     rows = fetch(cur, f"""
         SELECT TRIM(d.primary_agent) AS name, COUNT(*) AS n, COALESCE(SUM(d.sale_price), 0) AS vol
         FROM cte_deals d
-        WHERE d.status = 'Closed' AND d.close_date >= %(since)s AND EXTRACT(YEAR FROM d.close_date) = d.file_year
+        WHERE d.status = 'Closed' AND d.close_date >= %(since)s AND (%(until)s::date IS NULL OR d.close_date < %(until)s)
+          AND EXTRACT(YEAR FROM d.close_date) = d.file_year
           AND COALESCE(TRIM(d.primary_agent), '') <> '' AND {SOURCE_MATCH}
-        GROUP BY 1""", {"since": since.date(), "source": source})
+        GROUP BY 1""", {"since": since.date(), "until": until.date() if until else None, "source": source})
     for r in rows:
         r["vol"] = float(r["vol"])
         r["avg"] = r["vol"] / r["n"] if r["n"] else 0

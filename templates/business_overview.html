@@ -18,6 +18,12 @@
   .stile .vals b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 16px; color: #fff; }
   .stile .split { font-size: 12px; color: rgba(255,255,255,.80); margin-top: 10px; }
   .stile .more { font-size: 12px; color: #fff; margin-top: 10px; font-weight: 600; }
+  .qbtn { font: inherit; font-weight: 600; color: var(--accent-ink); background: none; border: 0; padding: 4px 8px;
+          margin: -4px -8px; border-radius: 8px; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .qbtn:hover { background: var(--bg); text-decoration: underline; }
+  .qbtn.on { color: var(--ink); text-decoration: none; cursor: default; background: none; }
+  .qbtn .chev { font-size: 15px; }
+  .grid3[hidden], .tbl[hidden] { display: none; }
   @media (max-width: 900px) { .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .status-tiles { grid-template-columns: 1fr; } }
 {% endblock %}
@@ -72,27 +78,38 @@
   {% endif %}
   {% endif %}
 
-  <div class="card">
-    <h3>Your business KPIs by quarter &middot; {{ year }}</h3>
-    <div class="tbl-wrap"><table class="tbl">
-      <tr><th></th>{% for q in quarters %}<th class="n">Q{{ q.q }} {{ year }}</th>{% endfor %}<th class="n">Total in {{ year }}</th></tr>
-      {% for key, label, kind in metrics %}
-        <tr><td>{{ label }}</td>{% for q in quarters %}<td class="n">{{ cell(q[key], kind) }}</td>{% endfor %}
-            <td class="n"><b>{{ cell(total[key], kind) }}</b></td></tr>
-      {% endfor %}
-    </table></div>
-  </div>
-
-  <div class="card">
-    <h3>Your business KPIs by month &middot; {{ year }}</h3>
-    <div class="tbl-wrap"><table class="tbl">
-      {% for q in quarters %}
-        <tr><th>Quarter {{ q.q }}</th>{% for mo in q.months %}<th class="n">{{ month_names[mo.month - 1] }}</th>{% endfor %}</tr>
+  {# One table per view; clicking a header switches views in the browser, no reload #}
+  <div class="card" id="kpis">
+    <div class="card-head"><h3 id="kpi-title" style="margin:0">Your business KPIs by quarter &middot; {{ year }}</h3>
+      <div class="seg qseg">
+        {% for q in quarters %}<a href="#q{{ q.q }}" data-go="q{{ q.q }}">Q{{ q.q }}</a>{% endfor %}
+        <a href="#year" data-go="year" class="on">Full year</a>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl kpi-view" data-view="year" data-title="Your business KPIs by quarter &middot; {{ year }}">
+        <tr><th></th>
+          {% for q in quarters %}<th class="n"><button type="button" class="qbtn" data-go="q{{ q.q }}" title="Show Q{{ q.q }} by month">Q{{ q.q }} {{ year }} <span class="chev">&rsaquo;</span></button></th>{% endfor %}
+          <th class="n"><button type="button" class="qbtn on" data-go="year">Total in {{ year }}</button></th></tr>
         {% for key, label, kind in metrics %}
-          <tr><td>{{ label }}</td>{% for mo in q.months %}<td class="n">{{ cell(mo[key], kind) }}</td>{% endfor %}</tr>
+          <tr><td>{{ label }}</td>{% for q in quarters %}<td class="n">{{ cell(q[key], kind) }}</td>{% endfor %}
+              <td class="n"><b>{{ cell(total[key], kind) }}</b></td></tr>
         {% endfor %}
+      </table>
+      {% for q in quarters %}
+      <table class="tbl kpi-view" data-view="q{{ q.q }}" data-title="Your business KPIs &middot; Q{{ q.q }} {{ year }} by month" hidden>
+        <tr><th></th>
+          {% for mo in q.months %}<th class="n">{{ month_names[mo.month - 1] }} {{ year }}</th>{% endfor %}
+          <th class="n"><button type="button" class="qbtn on" data-go="q{{ q.q }}">Q{{ q.q }} {{ year }}</button></th>
+          <th class="n"><button type="button" class="qbtn" data-go="year" title="Back to all quarters"><span class="chev">&lsaquo;</span> Total in {{ year }}</button></th></tr>
+        {% for key, label, kind in metrics %}
+          <tr><td>{{ label }}</td>{% for mo in q.months %}<td class="n">{{ cell(mo[key], kind) }}</td>{% endfor %}
+              <td class="n"><b>{{ cell(q[key], kind) }}</b></td>
+              <td class="n muted">{{ cell(total[key], kind) }}</td></tr>
+        {% endfor %}
+      </table>
       {% endfor %}
-    </table></div>
+    </div>
   </div>
 
   <div class="card">
@@ -101,17 +118,17 @@
   </div>
 
   <div class="card-head"><h2 style="margin:0">Your Top Performers</h2>
-    <div class="seg">
-      <a class="{{ 'on' if top_days == 30 }}" href="{{ qs(top=None) }}">Last 30 Days</a>
-      <a class="{{ 'on' if top_days == 365 }}" href="{{ qs(top=365) }}">Last 365 Days</a>
+    <div class="seg topseg">
+      {% for key, label, _ in tops %}<a href="#top-{{ key }}" data-top="{{ key }}" class="{{ 'on' if loop.first }}">{{ label }}</a>{% endfor %}
     </div>
   </div>
-  {% set period = 'Last ' ~ top_days ~ ' days' %}
-  <div class="grid3">
-    {{ m.board('Top Volume $', period, top.volume|map('board_item', 'vol')|list, money) }}
-    {{ m.board('Top Deals', period, top.deals|map('board_item', 'n')|list) }}
-    {{ m.board('Top Avg Sale $', period, top.avg|map('board_item', 'avg')|list, money) }}
+  {% for key, label, top in tops %}
+  <div class="grid3 top-view" data-top="{{ key }}" {{ 'hidden' if not loop.first }}>
+    {{ m.board('Top Volume $', label, top.volume|map('board_item', 'vol')|list, money) }}
+    {{ m.board('Top Deals', label, top.deals|map('board_item', 'n')|list) }}
+    {{ m.board('Top Avg Sale $', label, top.avg|map('board_item', 'avg')|list, money) }}
   </div>
+  {% endfor %}
   {% if source_name == "CTE" %}
   <div class="note">From the CTE deal log (My Business). Accepted = went under contract that month. Closed = closed that month. Pending deals are shown in the month they are projected to close. Top performers use each deal's Primary Agent. Rows marked (FUB) come from Follow Up Boss deals, for comparison.</div>
   {% else %}
@@ -128,6 +145,30 @@
       const series = {};
       Object.keys(yoy).sort().reverse().forEach(y => series[y] = yoy[y]);
       yoyChart('c-yoy', series);
+    })();
+
+    // Quarter / full-year KPI views and Top Performers periods switch in place (all data is already on the page)
+    (function () {
+      const views = document.querySelectorAll('.kpi-view'), title = document.getElementById('kpi-title');
+      function showKpis(view) {
+        if (![...views].some(t => t.dataset.view === view)) view = 'year';
+        views.forEach(t => { t.hidden = t.dataset.view !== view; if (!t.hidden) title.innerHTML = t.dataset.title; });
+        document.querySelectorAll('.qseg a').forEach(a => a.classList.toggle('on', a.dataset.go === view));
+      }
+      function showTop(key) {
+        document.querySelectorAll('.top-view').forEach(g => g.hidden = g.dataset.top !== key);
+        document.querySelectorAll('.topseg a').forEach(a => a.classList.toggle('on', a.dataset.top === key));
+      }
+      document.getElementById('kpis').addEventListener('click', e => {
+        const b = e.target.closest('[data-go]');
+        if (b) { e.preventDefault(); showKpis(b.dataset.go); }
+      });
+      document.querySelector('.topseg').addEventListener('click', e => {
+        const a = e.target.closest('[data-top]');
+        if (a) { e.preventDefault(); showTop(a.dataset.top); }
+      });
+      const hash = location.hash.slice(1);
+      if (/^q[1-4]$/.test(hash)) showKpis(hash);
     })();
   </script>
 {% endif %}{% endblock %}

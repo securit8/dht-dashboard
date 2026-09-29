@@ -468,7 +468,12 @@ def lead_source():
 def business_overview():
     today = today_start()
     year = request.args.get("year", today.year, type=int)
-    top_days = 365 if request.args.get("top") == "365" else 30
+    # Top Performers periods, all rendered at once and switched in the browser: (key, label, since, until)
+    q_start = today.replace(month=(today.month - 1) // 3 * 3 + 1, day=1)
+    lq_start = q_start.replace(year=q_start.year - 1, month=10) if q_start.month == 1 else q_start.replace(month=q_start.month - 3)
+    top_periods = [("30", "Last 30 Days", today - timedelta(days=30), None),
+                   ("quarter", f"Last Quarter (Q{(lq_start.month - 1) // 3 + 1} {lq_start.year})", lq_start, q_start),
+                   ("ytd", f"YTD {today.year}", today.replace(month=1, day=1), None)]
     source = request.args.get("source") or None
     with db() as cur:
         if CTE.ready(cur):
@@ -498,7 +503,7 @@ def business_overview():
                 source_name="CTE", metrics=metrics, quarters=quarters, total=total,
                 yoy={y: [m["closed"] for m in CTE.business_months(cur, y, agent, source)] for y in (year - 2, year - 1)}
                 | {year: hide_future([m["closed"] for m in months], year)},
-                top=CTE.business_top(cur, today - timedelta(days=top_days), source),
+                tops=[(k, label, CTE.business_top(cur, since, source, until)) for k, label, since, until in top_periods],
                 extra_filters=[
                     {"name": "cte_agent", "label": "Agent", "default": "",
                      "options": [("", "Whole team")] + [(n, n) for n in options]},
@@ -521,7 +526,7 @@ def business_overview():
                              ("volume", "Volume", "money"), ("avg", "Avg. Sales Price", "money")],
                     yoy={y: [m["deals"] for m in R.business_months(cur, f, y)] for y in (year - 2, year - 1)}
                     | {year: hide_future([m["deals"] for m in months], year)},
-                    top=R.business_top(cur, f, today - timedelta(days=top_days)),
+                    tops=[(k, label, R.business_top(cur, f, since, until)) for k, label, since, until in top_periods],
                     extra_filters=[
                         {"name": "agent", "label": "Agent", "default": "",
                          "options": [("", "All agents")] + [(str(i), n) for i, n in opts["agent_options"]]},
@@ -529,7 +534,7 @@ def business_overview():
                          "options": [("", "All sources")] + [(s, s) for s in opts["source_options"]]},
                         {"name": "year", "label": "Year", "default": str(year),
                          "options": [(str(y), str(y)) for y in range(today.year, today.year - 4, -1)]}])
-    return render_template("business_overview.html", ready=ready, year=year, top_days=top_days, **data)
+    return render_template("business_overview.html", ready=ready, year=year, **data)
 
 
 # ---------------------------------------------------------------- Best Call Time
