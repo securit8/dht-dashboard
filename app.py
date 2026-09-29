@@ -12,6 +12,7 @@ from flask import Flask, Response, render_template, request, session, redirect, 
 import psycopg2
 
 import cte_reports as CTE
+import qbo
 import reports as R
 
 app = Flask(__name__)
@@ -35,7 +36,8 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 # Top menu, modeled on MaverickRE: (menu, [(endpoint, label)])
 NAV = [
     ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
-                          ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year")]),
+                          ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
+                          ("quickbooks", "QuickBooks P&L")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -67,18 +69,77 @@ def legal_privacy():
                            contact=os.environ.get("LEGAL_CONTACT_EMAIL", ""))
 
 
+# ---------------------------------------------------------------- QuickBooks
+
+def _qbo_redirect_uri():
+    # Render terminates HTTPS in front of the app, so build the https URL explicitly
+    return os.environ.get("QBO_REDIRECT_URI") or f"https://{request.host}/quickbooks/callback"
+
+
 @app.route("/quickbooks")
 @login_required
 def quickbooks():
-    """Launch URL for the QuickBooks app. The connect flow comes next."""
-    configured = bool(os.environ.get("QBO_CLIENT_ID") and os.environ.get("QBO_CLIENT_SECRET"))
-    return render_template("quickbooks.html", configured=configured)
+    """Launch / connect URL for the QuickBooks app: status, Connect, and the P&L pulled so far."""
+    with db() as cur:
+        conn = qbo.status(cur)
+        rows = qbo.pnl_rows(cur) if conn else []
+    return render_template("quickbooks.html", configured=qbo.configured(), env=qbo.env(), conn=conn, rows=rows,
+                           message=request.args.get("msg"), error=request.args.get("err"))
 
 
-@app.route("/quickbooks/disconnect")
+@app.route("/quickbooks/connect", methods=["POST"])
+@login_required
+def quickbooks_connect():
+    if not qbo.configured():
+        return redirect(url_for("quickbooks", err="QuickBooks keys are not set in Render yet."))
+    session["qbo_state"] = secrets.token_urlsafe(24)  # checked on the way back (CSRF)
+    return redirect(qbo.authorize_url(_qbo_redirect_uri(), session["qbo_state"]))
+
+
+@app.route("/quickbooks/callback")
+@login_required
+def quickbooks_callback():
+    expected = session.pop("qbo_state", None)
+    if not expected or not secrets.compare_digest(request.args.get("state", ""), expected):
+        return redirect(url_for("quickbooks", err="Connection check failed (state mismatch). Please try again."))
+    if request.args.get("error"):
+        return redirect(url_for("quickbooks", err=f"QuickBooks did not connect: {request.args.get('error')}"))
+    code, realm = request.args.get("code"), request.args.get("realmId")
+    if not code or not realm:
+        return redirect(url_for("quickbooks", err="QuickBooks did not return a company. Please try again."))
+    try:
+        qbo.connect(DATABASE_URL, code, realm, _qbo_redirect_uri())
+        months = qbo.pull_pnl(DATABASE_URL)
+    except qbo.NeedsReconnect as e:
+        return redirect(url_for("quickbooks", err=str(e)))
+    except Exception as e:  # noqa: BLE001 - show it instead of a 500
+        return redirect(url_for("quickbooks", err=f"Connected, but the first pull failed: {e}"))
+    return redirect(url_for("quickbooks", msg=f"Connected. Pulled {months} months of Profit & Loss."))
+
+
+@app.route("/quickbooks/refresh", methods=["POST"])
+@login_required
+def quickbooks_refresh():
+    try:
+        months = qbo.pull_pnl(DATABASE_URL)
+    except qbo.NeedsReconnect as e:
+        return redirect(url_for("quickbooks", err=str(e)))
+    except Exception as e:  # noqa: BLE001
+        return redirect(url_for("quickbooks", err=f"Pull failed: {e}"))
+    return redirect(url_for("quickbooks", msg=f"Updated {months} months."))
+
+
+@app.route("/quickbooks/disconnect", methods=["GET", "POST"])
 @login_required
 def quickbooks_disconnect():
-    return render_template("quickbooks.html", configured=False, disconnected=True)
+    """Intuit sends people here after disconnecting in QuickBooks; the POST deletes everything."""
+    if request.method == "POST":
+        qbo.disconnect(DATABASE_URL)
+        return redirect(url_for("quickbooks", msg="Disconnected. All QuickBooks data was deleted from the dashboard."))
+    with db() as cur:
+        conn = qbo.status(cur)
+    return render_template("quickbooks.html", configured=qbo.configured(), env=qbo.env(), conn=conn, rows=[],
+                           confirm_disconnect=True, message=None, error=None)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -191,6 +252,13 @@ def money(v):
     if v >= 1_000:
         return f"${v / 1_000:.0f}K"
     return f"${v:,.0f}"
+
+
+@app.template_filter("dollars")
+def dollars(v):
+    """Exact whole dollars for accounting numbers: $12,345 / -$1,200."""
+    v = float(v or 0)
+    return f"{'-' if v < 0 else ''}${abs(v):,.0f}"
 
 
 @app.template_filter("num")

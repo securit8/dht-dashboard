@@ -1,17 +1,90 @@
 {% extends "base.html" %}
 {% block title %}QuickBooks{% endblock %}
 {% block eyebrow %}QuickBooks Online{% endblock %}
-{% block heading %}Connect your books{% endblock %}
+{% block heading %}Profit &amp; Loss from your books{% endblock %}
+{% block style %}
+  .qb-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+  .qb-status form { margin: 0; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+  .pill.ok { background: #E3F4EA; color: #1F7A48; }
+  .pill.warn { background: #FFF3DC; color: #8A5A00; }
+  .pill.off { background: var(--bg); color: var(--soft); }
+  .flash { border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .flash.ok { background: #E3F4EA; color: #1F7A48; }
+  .flash.err { background: #FBE7E4; color: #A33224; }
+  .btn.danger { background: #D2544A; color: #fff; border: 0; }
+  .tbl td.neg { color: #A33224; }
+{% endblock %}
 {% block content %}
+  {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
   <div class="card">
-    {% if disconnected %}
-      <p>QuickBooks is not connected. Nothing from QuickBooks is stored.</p>
-    {% elif configured %}
-      <p>The app keys are set in Render. The Connect button is being built; it will appear here.</p>
-    {% else %}
-      <p class="muted">Waiting for the QuickBooks app keys (QBO_CLIENT_ID, QBO_CLIENT_SECRET) to be added in Render.</p>
-    {% endif %}
-    <p class="muted" style="font-size:13px">The dashboard will only read the Profit &amp; Loss report and never change anything in QuickBooks.
-      <a href="{{ url_for('legal_terms') }}">Terms</a> &middot; <a href="{{ url_for('legal_privacy') }}">Privacy</a></p>
+    <div class="qb-status">
+      <div>
+        {% if not configured %}
+          <span class="pill off">Not set up</span>
+          <p class="muted">Waiting for the QuickBooks app keys (QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_TOKEN_KEY) in Render.</p>
+        {% elif conn and not conn.needs_reconnect %}
+          <span class="pill ok">Connected</span>
+          {% if conn.env == 'sandbox' %}<span class="pill warn">Sandbox (test company)</span>{% endif %}
+          <p><b>{{ conn.company_name or 'QuickBooks company' }}</b>
+            <span class="muted">&middot; connected {{ conn.connected_at|fmt_date }}
+            {% if conn.last_pull_at %}&middot; last updated {{ conn.last_pull_at|fmt_date(true) }}{% endif %}</span></p>
+          {% if conn.last_error %}<p class="muted">Last problem: {{ conn.last_error }}</p>{% endif %}
+        {% elif conn %}
+          <span class="pill warn">Needs reconnecting</span>
+          <p class="muted">{{ conn.last_error or 'QuickBooks authorization expired or was revoked.' }}</p>
+        {% else %}
+          <span class="pill off">Not connected</span>
+          {% if env == 'sandbox' %}<span class="pill warn">Sandbox mode</span>{% endif %}
+          <p class="muted">Connect to read the Profit &amp; Loss report. You sign in on Intuit's own page; the dashboard never sees your password.</p>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        {% if configured and (not conn or conn.needs_reconnect) %}
+          <form method="post" action="{{ url_for('quickbooks_connect') }}"><button class="btn" type="submit">{{ 'Reconnect' if conn else 'Connect' }} QuickBooks</button></form>
+        {% endif %}
+        {% if conn and not conn.needs_reconnect %}
+          <form method="post" action="{{ url_for('quickbooks_refresh') }}"><button class="btn ghost" type="submit">Update now</button></form>
+        {% endif %}
+        {% if conn and not confirm_disconnect %}
+          <a class="btn ghost" href="{{ url_for('quickbooks_disconnect') }}">Disconnect</a>
+        {% endif %}
+      </div>
+    </div>
   </div>
+
+  {% if confirm_disconnect %}
+  <div class="card">
+    {% if conn %}
+      <h3>Disconnect QuickBooks?</h3>
+      <p>This revokes the dashboard's access at Intuit and deletes every QuickBooks number stored in the dashboard.</p>
+      <form method="post" action="{{ url_for('quickbooks_disconnect') }}"><button class="btn danger" type="submit">Disconnect and delete data</button>
+        <a class="btn ghost" href="{{ url_for('quickbooks') }}">Cancel</a></form>
+    {% else %}
+      <p>QuickBooks is not connected. Nothing from QuickBooks is stored in the dashboard.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if rows %}
+  <div class="card">
+    <h3>Profit &amp; Loss by month</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Month</th><th class="n">Income</th><th class="n">Cost of sales</th><th class="n">Gross profit</th>
+          <th class="n">Expenses</th><th class="n">Net operating income</th><th class="n">Other income</th>
+          <th class="n">Other expenses</th><th class="n">Net income</th></tr>
+      {% for r in rows %}
+      <tr><td>{{ r.month.strftime('%b %Y') }}</td>
+        {% for k in ['income', 'cogs', 'gross_profit', 'expenses', 'net_operating_income', 'other_income', 'other_expenses', 'net_income'] %}
+          <td class="n {{ 'neg' if r[k] and r[k] < 0 }}">{{ r[k]|dollars if r[k] else '--' }}</td>
+        {% endfor %}</tr>
+      {% endfor %}
+    </table></div>
+    <div class="note">Accrual basis, from the QuickBooks Profit and Loss report. Read-only: the dashboard never changes anything in QuickBooks.</div>
+  </div>
+  {% endif %}
+
+  <p class="muted" style="font-size:13px"><a href="{{ url_for('legal_terms') }}">Terms</a> &middot; <a href="{{ url_for('legal_privacy') }}">Privacy</a></p>
 {% endblock %}

@@ -20,6 +20,7 @@ import psycopg2
 import requests
 
 import cte_import
+import qbo
 
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
@@ -649,6 +650,9 @@ def main():
             print(f"CTE import failed: {e}")
     else:
         print("CTE import skipped: MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET not set.")
+
+    # QuickBooks Profit & Loss (read-only). Also keeps the refresh token in use so it doesn't expire.
+    qbo.cron_pull(database_url)
 
 
 if __name__ == "__main__":
