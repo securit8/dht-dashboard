@@ -41,7 +41,7 @@
       <div><span class="kpi-lbl">Lead source</span><b>{{ person.source or '--' if person else '--' }}</b></div>
       <div><span class="kpi-lbl">Created</span><b>{{ person.created_at|fmt_date if person and person.created_at else '--' }}</b></div>
       <div><span class="kpi-lbl">Last updated</span><b>{{ person.updated_at|fmt_date if person and person.updated_at else '--' }}</b></div>
-      <div><span class="kpi-lbl">In Follow Up Boss</span><b><a href="https://app.followupboss.com/2/people/view/{{ person_id }}" target="_blank" rel="noopener">Open lead &nearr;</a></b></div>
+      <div><span class="kpi-lbl">In Follow Up Boss</span><b><a href="{{ fub_lead_url(person_id) }}" target="_blank" rel="noopener">Open lead &nearr;</a></b></div>
     </div>
   </div>
 

@@ -13,6 +13,8 @@
   .stage-guess { color: var(--muted); font-style: italic; }
   .lead-link { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
   .lead-link:hover { text-decoration: underline; }
+  .hist-link { color: var(--muted); text-decoration: none; margin-left: 4px; font-size: 14px; }
+  .hist-link:hover { color: var(--accent-ink); }
   .moves { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
   .move-hero .kpi-val { color: #2E9E62; }
   .pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 28px; margin-top: 6px; }
@@ -98,7 +100,8 @@
         {% for r in rows %}
         <tr>
           <td>{{ r.agent_names or '--' }}</td>
-          <td>{% if r.person_id %}<a class="lead-link" href="{{ url_for('lead', person_id=r.person_id, back=request.full_path) }}">{{ r.lead_name or 'Lead #' ~ r.person_id }}</a>{% else %}{{ r.lead_name or '--' }}{% endif %}</td>
+          <td style="white-space:nowrap">{% if r.person_id %}<a class="lead-link" href="{{ fub_lead_url(r.person_id) }}" target="_blank" rel="noopener" title="Open in Follow Up Boss">{{ r.lead_name or 'Lead #' ~ r.person_id }}</a>
+              <a class="hist-link" href="{{ url_for('lead', person_id=r.person_id, back=request.full_path) }}" title="Lead history">&#9719;</a>{% else %}{{ r.lead_name or '--' }}{% endif %}</td>
           <td>{{ r.created_at|fmt_date if r.created_at else '--' }}</td>
           <td>{{ r.start_at|fmt_date(true) if r.start_at else '--' }}</td>
           {% if r.stage_known %}<td>{{ r.stage or '--' }}</td>

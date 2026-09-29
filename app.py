@@ -132,6 +132,15 @@ def page_filters(default_period, agent_arg="agent"):
     return rng, R.Filters(rng["start"], rng["end"], agent, source, TEAM_TZ_NAME)
 
 
+FUB_APP_URL = os.environ.get("FUB_APP_URL", "https://app.followupboss.com").rstrip("/")
+
+
+@app.template_global()
+def fub_lead_url(person_id):
+    """The lead's page in Follow Up Boss (set FUB_APP_URL if the account has its own address)."""
+    return f"{FUB_APP_URL}/2/people/view/{person_id}"
+
+
 @app.template_global()
 def qs(**changes):
     """Current query string with some keys changed; None removes a key."""
