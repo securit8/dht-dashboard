@@ -164,9 +164,13 @@ def _token_call(data):
                  auth=(os.environ["QBO_CLIENT_ID"], os.environ["QBO_CLIENT_SECRET"]),
                  headers={"Accept": "application/json"})
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    tid = r.headers.get("intuit_tid", "")
     if r.status_code == 400 and body.get("error") == "invalid_grant":
-        raise NeedsReconnect("QuickBooks authorization expired or was revoked (invalid_grant)")
-    r.raise_for_status()
+        raise NeedsReconnect(f"QuickBooks authorization expired or was revoked (invalid_grant, intuit_tid {tid})")
+    if r.status_code >= 400:
+        msg = f"QuickBooks token error HTTP {r.status_code} (intuit_tid {tid}): {body.get('error', r.text[:200])}"
+        print(msg)
+        raise QboError(msg)
     return body
 
 
@@ -242,11 +246,33 @@ def api_get(database_url, path, params=None):
         if r.status_code == 401 and attempt == 0:
             realm_id, token = _access_token(database_url, force_refresh=True)
             continue
+        # intuit_tid identifies the request for Intuit support; keep it with every error
+        tid = r.headers.get("intuit_tid", "")
         if r.status_code in (401, 403):
-            _mark_error(database_url, f"QuickBooks refused access (HTTP {r.status_code})", reconnect=True)
-            raise NeedsReconnect(f"QuickBooks refused access (HTTP {r.status_code})")
-        r.raise_for_status()
+            msg = f"QuickBooks refused access (HTTP {r.status_code}, intuit_tid {tid})"
+            _mark_error(database_url, msg, reconnect=True)
+            print(msg)
+            raise NeedsReconnect(msg)
+        if r.status_code >= 400:
+            detail = _error_detail(r)
+            msg = f"QuickBooks API error HTTP {r.status_code} on {path} (intuit_tid {tid}): {detail}"
+            _mark_error(database_url, msg)
+            print(msg)
+            raise QboError(msg)
         return r.json()
+
+
+class QboError(Exception):
+    """A QuickBooks API error (validation, syntax, server); the message includes intuit_tid."""
+
+
+def _error_detail(r):
+    """The Fault message from an API error response, or the start of the body."""
+    try:
+        errors = r.json().get("Fault", {}).get("Error", [])
+        return "; ".join(f"{e.get('Message', '')} {e.get('Detail', '')}".strip() for e in errors) or r.text[:300]
+    except ValueError:
+        return r.text[:300]
 
 
 def disconnect(database_url):
