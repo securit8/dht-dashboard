@@ -135,7 +135,11 @@ def pnl_rows(cur, months=24):
                           other_expenses, net_income
                    FROM qbo_pnl ORDER BY month DESC LIMIT %s""", (months,))
     cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    # Newest first; drop the empty months before the books start
+    while rows and not any(rows[-1][k] for k in cols if k != "month"):
+        rows.pop()
+    return rows
 
 
 def _mark_error(database_url, message, reconnect=False):
