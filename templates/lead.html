@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Lead History{% endblock %}
+{% block eyebrow %}Lead History{% endblock %}
+{% block heading %}{% if missing %}Lead not found{% else %}{{ person.name if person and person.name else 'Lead #' ~ person_id }}{% endif %}{% endblock %}
+{% block style %}
+  .lead-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px 24px; }
+  .lead-facts b { display: block; font-size: 15px; margin-top: 2px; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .path .chip { background: var(--bg); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 600; }
+  .path .chip small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+  .path .chip.now { background: #E3F4EA; color: #1F7A48; }
+  .path .arrow { color: var(--muted); }
+  .kinds { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .kinds button { font: inherit; font-size: 13px; border: 1px solid var(--line, #E3E7EE); background: #fff; border-radius: 999px;
+                  padding: 4px 12px; cursor: pointer; }
+  .kinds button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .tl { list-style: none; margin: 0; padding: 0; }
+  .tl li { display: grid; grid-template-columns: 150px 12px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--bg); }
+  .tl li[hidden] { display: none; }
+  .tl .when { font-size: 13px; color: var(--soft); }
+  .tl .mark { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; background: var(--k); }
+  .tl .what b { font-size: 14px; }
+  .tl .what div { font-size: 13px; color: var(--soft); }
+  @media (max-width: 600px) { .tl li { grid-template-columns: 1fr; } .tl .mark { display: none; } }
+{% endblock %}
+
+{% set kind_info = {
+  'stage': ('Stage changes', '#5A6FDB'), 'appt': ('Appointments', '#2E9E62'), 'conversation': ('Conversations', '#2A9D8F'),
+  'attempt': ('Calls', '#8FB8E0'), 'text': ('Texts', '#D98A1C'), 'email': ('Emails', '#C99BE0'),
+  'plan': ('Action plans', '#9AA5B1'), 'deal': ('Deals', '#D2544A'), 'lead': ('Lead created', '#1F2A44')} %}
+
+{% block content %}
+  <p><a href="{{ back if not missing else url_for('appointments') }}">&larr; Back</a></p>
+{% if missing %}
+  <div class="card"><p class="muted">No lead with id {{ person_id }} in the dashboard yet.</p></div>
+{% else %}
+  <div class="card">
+    <div class="lead-facts">
+      <div><span class="kpi-lbl">Current stage</span><b>{{ person.stage or '--' if person else '--' }}</b></div>
+      <div><span class="kpi-lbl">Assigned agent</span><b>{{ person.agent or '--' if person else '--' }}</b></div>
+      <div><span class="kpi-lbl">Lead source</span><b>{{ person.source or '--' if person else '--' }}</b></div>
+      <div><span class="kpi-lbl">Created</span><b>{{ person.created_at|fmt_date if person and person.created_at else '--' }}</b></div>
+      <div><span class="kpi-lbl">Last updated</span><b>{{ person.updated_at|fmt_date if person and person.updated_at else '--' }}</b></div>
+      <div><span class="kpi-lbl">In Follow Up Boss</span><b><a href="https://app.followupboss.com/2/people/view/{{ person_id }}" target="_blank" rel="noopener">Open lead &nearr;</a></b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Stage path</h3>
+    {% if path %}
+    <div class="path">
+      {% for s in path %}
+        <span class="chip">{{ s.stage }}<small>{{ s.at|fmt_date }}</small></span><span class="arrow">&rarr;</span>
+      {% endfor %}
+      <span class="chip now">{{ person.stage or '--' if person else '--' }}<small>today</small></span>
+    </div>
+    {% else %}
+    <p class="muted">No stage history yet for this lead. Today's stage: <b>{{ person.stage or '--' if person else '--' }}</b>.</p>
+    {% endif %}
+    <div class="note">From action plans that start on a stage change, and stage changes the dashboard has recorded since Sep 29 2026.</div>
+  </div>
+
+  <div class="card">
+    <h3>History</h3>
+    <div class="kinds">
+      <button type="button" class="on" data-kind="">All {{ items|length }}</button>
+      {% for k, (label, color) in kind_info.items() if counts.get(k) %}
+        <button type="button" data-kind="{{ k }}">{{ label }} {{ counts[k] }}</button>
+      {% endfor %}
+    </div>
+    <ul class="tl">
+      {% for i in items %}
+      <li data-kind="{{ i.kind }}" style="--k: {{ kind_info.get(i.kind, ('', '#9AA5B1'))[1] }}">
+        <span class="when">{{ i.at|fmt_date(true) }}</span>
+        <span class="mark"></span>
+        <span class="what"><b>{{ i.title }}</b>{% if i.price %} &middot; {{ i.price|money }}{% endif %}
+          {% if i.detail %}<div>{{ i.detail }}</div>{% endif %}</span>
+      </li>
+      {% else %}
+      <li><span class="muted">Nothing recorded for this lead yet.</span></li>
+      {% endfor %}
+    </ul>
+    <div class="note">Calls, texts and emails come from the Follow Up Boss sync (texts and emails only for leads updated since the dashboard started syncing).</div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.kinds button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.kinds button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.tl li[data-kind]').forEach(li => li.hidden = !!b.dataset.kind && li.dataset.kind !== b.dataset.kind);
+  }));
+</script>
+{% endblock %}

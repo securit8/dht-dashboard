@@ -403,6 +403,7 @@ def appointments():
             rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage,
                                              stage_mode=stage_mode)
             data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage, stage_mode), rows=rows,
+                        moves=R.appointment_stage_moves(cur, f, view_by, appt_type, stage, stage_mode),
                         total=total, pages=max((total + 24) // 25, 1),
                         type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
                         stage_choices=[("", "All stages")] + [
@@ -410,6 +411,19 @@ def appointments():
                         **filter_options(cur))
     return render_template("appointments.html", ready=ready, rng=rng, view_by=view_by, appt_type=appt_type,
                            status=status, page=page, stage_mode=stage_mode, **data)
+
+
+@app.route("/lead/<int:person_id>")
+@login_required
+def lead(person_id):
+    with db() as cur:
+        data = R.lead_detail(cur, person_id)
+    if not data["person"] and not data["items"]:
+        return render_template("lead.html", missing=True, person_id=person_id), 404
+    back = request.args.get("back") or ""
+    if not back.startswith("/") or back.startswith("//"):  # only links back into the dashboard
+        back = url_for("appointments")
+    return render_template("lead.html", missing=False, person_id=person_id, back=back, **data)
 
 
 @app.route("/appointments.csv")
@@ -422,13 +436,14 @@ def appointments_csv():
                                      stage_mode=stage_mode)
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time", "Type", "Outcome", "Lead Source",
-                "Stage at Appointment" if stage_mode == "appt" else "Current Stage", "Created By"])
+    w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time",
+                "Stage at Appointment" if stage_mode == "appt" else "Current Stage", "Created By",
+                "Type", "Outcome", "Lead Source"])
     for r in rows:
         w.writerow([r["agent_names"], r["lead_name"],
                     r["created_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d") if r["created_at"] else "",
                     r["start_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d %H:%M") if r["start_at"] else "",
-                    r["type"], r["outcome"], r["source"], r["stage"], r["created_by_name"]])
+                    r["stage"], r["created_by_name"], r["type"], r["outcome"], r["source"]])
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=appointments.csv"})
 

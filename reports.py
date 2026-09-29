@@ -478,7 +478,7 @@ def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stag
     # stage_known = false when no history covers the appointment and the current stage stands in
     stage_sql, known_sql = stage_at_appt_sql(cur) if stage_mode == "appt" else ("p.stage", "true")
     rows = fetch(cur, f"""
-        SELECT a.agent_names, COALESCE(NULLIF(a.lead_name, ''), p.name, '') AS lead_name,
+        SELECT a.agent_names, a.person_id, COALESCE(NULLIF(a.lead_name, ''), p.name, '') AS lead_name,
                a.created_at, a.start_at, a.type, a.outcome, {APPT_CLASS} AS status,
                COALESCE(NULLIF(TRIM(p.source), ''), '<unspecified>') AS source,
                {stage_sql} AS stage, {known_sql} AS stage_known, a.created_by_name
@@ -486,6 +486,129 @@ def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stag
         WHERE {where}
         ORDER BY {col} DESC LIMIT %(limit)s OFFSET %(offset)s""", p)
     return rows, total
+
+
+# Pipeline order for "did the lead move forward since the appointment"; side stages are grouped
+PIPELINE_RANK = {"lead": 0, "new lead": 0, "attempted contact": 1, "spoke with customer": 2, "appointment set": 3,
+                 "met with customer": 4, "showing homes": 5, "listing agreement": 5, "active client": 5,
+                 "active listing": 6, "submitting offers": 6, "under contract": 7, "pending": 7,
+                 "listing | pending": 7, "closed": 8, "sale closed": 8}
+MET_RANK = PIPELINE_RANK["met with customer"]
+NURTURE_STAGES = {"nurture", "long term nurture", "short term nurture", "sphere", "past client", "unresponsive"}
+TRASH_GROUP = {"trash", "archive", "archived", "rejected", "do not contact"}
+MOVE_GROUPS = [("advanced", "Moved forward", "#2E9E62"), ("stayed", "Stayed at the same stage", "#9AA5B1"),
+               ("nurture", "Moved to nurture", "#E88BA0"), ("back", "Moved back", "#F2B84B"),
+               ("trash", "Moved to trash", "#D2544A")]
+
+
+def _move(at, now):
+    at, now = (at or "").strip().lower(), (now or "").strip().lower()
+    if at == now:
+        return "stayed"
+    if now in TRASH_GROUP:
+        return "trash"
+    if now in NURTURE_STAGES:
+        return "nurture"
+    if now in PIPELINE_RANK and PIPELINE_RANK[now] > PIPELINE_RANK.get(at, -1):
+        return "advanced"
+    return "back"
+
+
+def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="current"):
+    """Each lead's stage at their first appointment in the period vs. today. Only leads with
+    stage history before the appointment count (otherwise both stages are today's)."""
+    col = APPT_DATE_FIELDS[view_by]
+    stage_sql, known_sql = stage_at_appt_sql(cur)
+    rows = fetch(cur, f"""
+        SELECT DISTINCT ON (a.person_id) a.person_id, {stage_sql} AS at_stage, {known_sql} AS known, p.stage AS now_stage
+        FROM appointments a LEFT JOIN people p ON p.person_id = a.person_id
+        WHERE a.person_id IS NOT NULL AND {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
+          AND (%(type)s::text IS NULL OR a.type = %(type)s){appt_stage_filter(cur, stage_mode)}
+        ORDER BY a.person_id, COALESCE(a.start_at, a.created_at)""", f.params(type=appt_type, stage=stage))
+    known = [r for r in rows if r["known"]]
+    counts = {k: 0 for k, _, _ in MOVE_GROUPS}
+    pairs = {}
+    met = 0
+    for r in known:
+        m = _move(r["at_stage"], r["now_stage"])
+        counts[m] += 1
+        if m != "stayed":
+            key = (r["at_stage"] or "(none)", r["now_stage"] or "(none)")
+            pairs[key] = pairs.get(key, 0) + 1
+        at_rank = PIPELINE_RANK.get((r["at_stage"] or "").strip().lower(), -1)
+        now_rank = PIPELINE_RANK.get((r["now_stage"] or "").strip().lower(), -1)
+        if at_rank < MET_RANK <= now_rank:
+            met += 1
+    n = len(known)
+    return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0),
+            "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
+                       for k, label, c in MOVE_GROUPS],
+            "pairs": sorted(({"from": a, "to": b, "n": v} for (a, b), v in pairs.items()),
+                            key=lambda x: -x["n"])[:8]}
+
+
+# ---------------------------------------------------------------- Lead history
+
+def lead_detail(cur, person_id):
+    """One lead: their record, stage path and everything that happened, newest first."""
+    person = one(cur, """SELECT p.*, COALESCE(p.agent_name, ag.name) AS agent FROM people p
+                         LEFT JOIN agents ag ON ag.user_id = p.assigned_user_id
+                         WHERE p.person_id = %(pid)s""", {"pid": person_id})
+    names = agent_names(cur)
+    items = []  # (when, kind, title, detail)
+    if table_exists(cur, "people_stage_history"):
+        for r in fetch(cur, """SELECT from_stage, stage, changed_at FROM people_stage_history
+                               WHERE person_id = %(pid)s""", {"pid": person_id}):
+            items.append({"at": r["changed_at"], "kind": "stage", "title": f"Stage: {r['stage'] or '(none)'}",
+                          "detail": f"from {r['from_stage']}" if r["from_stage"] else "", "stage": r["stage"]})
+    if table_exists(cur, "action_plan_people"):
+        for r in fetch(cur, f"""SELECT COALESCE(NULLIF(ap.plan_name, ''), ap.automation_name) AS name, ap.status,
+                                       ap.created_at, {PLAN_STAGE_CASE} AS stage
+                                FROM action_plan_people ap WHERE ap.person_id = %(pid)s""", {"pid": person_id}):
+            if r["stage"]:
+                items.append({"at": r["created_at"], "kind": "stage", "title": f"Stage: {r['stage']}",
+                              "detail": f"action plan “{r['name']}” started", "stage": r["stage"]})
+            else:
+                items.append({"at": r["created_at"], "kind": "plan", "title": f"Action plan: {r['name']}",
+                              "detail": r["status"] or ""})
+    for r in fetch(cur, f"""SELECT a.start_at, a.created_at, a.type, a.outcome, a.agent_names, a.created_by_name,
+                                   {APPT_CLASS} AS status
+                            FROM appointments a WHERE a.person_id = %(pid)s""", {"pid": person_id}):
+        items.append({"at": r["start_at"] or r["created_at"], "kind": "appt",
+                      "title": f"Appointment{': ' + r['type'] if r['type'] else ''}",
+                      "detail": " · ".join(x for x in [r["outcome"] or "No outcome", r["agent_names"],
+                                                              f"set by {r['created_by_name']}" if r["created_by_name"] else ""] if x),
+                      "status": r["status"]})
+    events = fetch(cur, """SELECT fub_id, event_type, user_id, created_at, duration_min FROM agent_events
+                           WHERE person_id = %(pid)s AND event_type <> 'appt'""", {"pid": person_id})
+    talked = {e["fub_id"] for e in events if e["event_type"] == "conversation"}
+    labels = {"attempt": "Call", "conversation": "Conversation", "text": "Text sent", "email": "Email sent",
+              "lead": "Lead created"}
+    for e in events:
+        if e["event_type"] == "attempt" and e["fub_id"] in talked:
+            continue  # the conversation row covers this call
+        detail = names.get(e["user_id"], "")
+        if e["event_type"] == "conversation":
+            detail += f" · {e['duration_min']} min"
+        items.append({"at": e["created_at"], "kind": e["event_type"], "title": labels.get(e["event_type"], e["event_type"]),
+                      "detail": detail})
+    if table_exists(cur, "deals"):
+        for d in fetch(cur, """SELECT name, stage_name, pipeline_name, price, created_at, entered_stage_at, user_names
+                               FROM deals WHERE %(pid)s = ANY(person_ids)""", {"pid": person_id}):
+            items.append({"at": d["entered_stage_at"] or d["created_at"], "kind": "deal",
+                          "title": f"Deal: {d['stage_name'] or d['name']}",
+                          "detail": " · ".join(x for x in [d["pipeline_name"], d["user_names"]] if x),
+                          "price": d["price"]})
+    items = [i for i in items if i["at"]]
+    items.sort(key=lambda i: i["at"], reverse=True)
+    path = []  # stages in order, repeats collapsed
+    for i in sorted((i for i in items if i["kind"] == "stage"), key=lambda i: i["at"]):
+        if not path or path[-1]["stage"].lower() != (i["stage"] or "").lower():
+            path.append({"stage": i["stage"] or "(none)", "at": i["at"]})
+    counts = {}
+    for i in items:
+        counts[i["kind"]] = counts.get(i["kind"], 0) + 1
+    return {"person": person, "items": items, "path": path, "counts": counts}
 
 
 # ---------------------------------------------------------------- Lead Source
