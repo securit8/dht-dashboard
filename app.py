@@ -556,6 +556,19 @@ def call_time():
 
 # ---------------------------------------------------------------- CTE workbooks
 
+@app.route("/fub-probe")
+@login_required
+def fub_probe():
+    """What the cron's one-time search of the FUB API found about past lead stages."""
+    with db() as cur:
+        rows = R.fetch(cur, "SELECT name, status, result, probed_at FROM fub_probe ORDER BY name", {}) \
+            if R.table_exists(cur, "fub_probe") else []
+        history = R.fetch(cur, """SELECT COUNT(*) AS n, COUNT(DISTINCT person_id) AS people, MIN(seen_at) AS since
+                                  FROM people_stage_history""", {})[0] \
+            if R.table_exists(cur, "people_stage_history") else None
+    return render_template("fub_probe.html", rows=rows, history=history)
+
+
 @app.route("/cte")
 @login_required
 def cte():

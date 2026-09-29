@@ -20,6 +20,7 @@ import psycopg2
 import requests
 
 import cte_import
+import fub_probe
 
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
@@ -315,6 +316,19 @@ def ensure_tables(cur):
         )
     """)
     cur.execute("ALTER TABLE people ADD COLUMN IF NOT EXISTS name TEXT")
+    # FUB keeps no stage history in its API, so each run records stage changes it sees.
+    # changed_at is the person's FUB "updated" time (the closest the API gives).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS people_stage_history (
+            id SERIAL PRIMARY KEY,
+            person_id BIGINT NOT NULL,
+            from_stage TEXT,
+            stage TEXT,
+            changed_at TIMESTAMPTZ,
+            seen_at TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS people_stage_history_idx ON people_stage_history (person_id, changed_at)")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS agents (
             user_id BIGINT PRIMARY KEY,
@@ -410,7 +424,16 @@ def write_people_to_db(database_url, users, people):
     conn = psycopg2.connect(database_url)
     cur = conn.cursor()
     ensure_tables(cur)
+    cur.execute("SELECT EXISTS (SELECT 1 FROM people)")
+    had_people = cur.fetchone()[0]
     for p in people:
+        cur.execute("SELECT stage FROM people WHERE person_id = %s", (p["person_id"],))
+        old = cur.fetchone()
+        old_stage = old[0] if old else None
+        if had_people and (old_stage or "") != (p["stage"] or ""):
+            cur.execute("""INSERT INTO people_stage_history (person_id, from_stage, stage, changed_at)
+                           VALUES (%s, %s, %s, %s)""",
+                        (p["person_id"], old_stage, p["stage"], p["updated_at"] if old else p["created_at"]))
         cur.execute("""
             INSERT INTO people (person_id, name, created_at, updated_at, stage, source, assigned_user_id, agent_name)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -561,6 +584,12 @@ def main():
 
     written = write_events_to_db(database_url, users, events, run_started_at)
     print(f"Wrote {written} events. Next run will pull since {run_started_at.isoformat()}.")
+
+    # One-time read-only search of the FUB API for past lead stages (see /fub-probe)
+    try:
+        fub_probe.run(session, database_url)
+    except Exception as e:  # noqa: BLE001 - never fail the pull over this
+        print(f"FUB stage-history probe failed: {e}")
 
     # CTE workbooks from OneDrive (read-only). Kept separate so a CTE problem
     # never fails the Follow Up Boss pull above, which is already saved.
