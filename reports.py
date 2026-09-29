@@ -416,6 +416,38 @@ def appointment_kpis(cur, f, view_by, appt_type, stage=None):
             "chg": {k: change(c[k], p[k]) for k in ("total", "held", "not_held", "none")}}
 
 
+def appointment_breakdown(cur, f, view_by, appt_type, stage=None):
+    """Leads by current CRM stage (appointments in the period) and appointment counts per type,
+    for the period and all time (agent / source / stage filters still apply)."""
+    col = APPT_DATE_FIELDS[view_by]
+    p = f.params(type=appt_type, stage=stage)
+    stages = fetch(cur, f"""
+        SELECT COALESCE(NULLIF(TRIM(p.stage), ''), '(no stage)') AS stage, COUNT(DISTINCT a.person_id) AS leads,
+               COUNT(*) AS appts
+        FROM appointments a LEFT JOIN people p ON p.person_id = a.person_id
+        WHERE {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
+          AND (%(type)s::text IS NULL OR a.type = %(type)s){APPT_STAGE_F}
+        GROUP BY 1""", p)
+    rank = {s: i for i, s in enumerate(FUB_STAGE_ORDER)}
+    stages.sort(key=lambda r: (rank.get(r["stage"].lower(), len(rank)), -r["leads"]))
+    types = fetch(cur, f"""
+        SELECT COALESCE(NULLIF(TRIM(a.type), ''), '(no type)') AS type,
+               COUNT(*) FILTER (WHERE {col} >= %(start)s AND {col} < %(end)s) AS period,
+               COUNT(*) FILTER (WHERE {col} >= %(start)s AND {col} < %(end)s AND {APPT_CLASS} = 'held') AS period_held,
+               COUNT(*) FILTER (WHERE a.start_at <= now()) AS ever,
+               COUNT(*) FILTER (WHERE {APPT_CLASS} = 'held') AS ever_held
+        FROM appointments a
+        WHERE {APPTS_F}{APPT_STAGE_F}
+        GROUP BY 1 ORDER BY ever DESC, period DESC""", p)
+    total_leads = sum(r["leads"] for r in stages)
+    colors = {k: c for k, _, c in BUCKETS}
+    for r in stages:
+        r["pct"] = pct(r["leads"], total_leads, 0)
+        r["color"] = colors[bucket_for(r["stage"])]
+    return {"stages": stages, "types": types, "leads": total_leads,
+            "type_total": {k: sum(r[k] for r in types) for k in ("period", "period_held", "ever", "ever_held")}}
+
+
 def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stage=None):
     col = APPT_DATE_FIELDS[view_by]
     where = f"""{col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}

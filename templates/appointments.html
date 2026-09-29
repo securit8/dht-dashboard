@@ -8,6 +8,13 @@
   .outcome.held { background: #E3F4EA; color: #1F7A48; }
   .outcome.not_held { background: #FBE7E4; color: #A33224; }
   .outcome.none { background: var(--bg); color: var(--soft); }
+  .mix-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 44px; gap: 10px; align-items: center;
+             padding: 7px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
+  .mix-row .track { height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+  .mix-row .track div { height: 100%; }
+  .mix-row b { font-family: 'IBM Plex Mono', monospace; text-align: right; }
+  .mix-row .dot { margin-right: 6px; }
+  .grid2.mix { margin-bottom: 20px; }
 {% endblock %}
 
 {% block filters %}{% if ready %}
@@ -34,6 +41,34 @@
         <div class="kpi-val">{{ kpis.not_held|num }}</div><div class="kpi-sub">{{ kpis.not_held_rate }}% Not Held rate</div>{{ m.chg(kpis.chg.not_held) }}</div>
       <div><div class="kpi-lbl">Appointments with No Outcome</div>
         <div class="kpi-val">{{ kpis.none|num }}</div><div class="kpi-sub">{{ kpis.none_rate }}% With No Outcome</div>{{ m.chg(kpis.chg.none) }}</div>
+    </div>
+  </div>
+
+  <div class="grid2 mix">
+    <div class="card">
+      <h3>Current status of these leads</h3>
+      <div class="muted" style="font-size:13px;margin-bottom:6px">{{ mix.leads|num }} leads with appointments in {{ rng.label }}, by their stage in Follow Up Boss today</div>
+      {% for r in mix.stages %}
+      <a class="mix-row" href="{{ qs(stage=None if r.stage == '(no stage)' else r.stage, page=None) }}" style="color:inherit;text-decoration:none" title="Show only {{ r.stage }}">
+        <span><span class="dot" style="background:{{ r.color }}"></span>{{ r.stage }}</span>
+        <span class="track"><div style="width:{{ r.pct }}%;background:{{ r.color }}"></div></span>
+        <b>{{ r.leads|num }}</b>
+      </a>
+      {% else %}<div class="muted">No appointments in this period.</div>{% endfor %}
+    </div>
+    <div class="card">
+      <h3>Appointments by type</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Type</th><th class="n" title="{{ rng.label }}">This period</th><th class="n">Held</th><th class="n">All time</th><th class="n">Held</th></tr>
+        {% for r in mix.types %}
+        <tr><td>{% if r.type == '(no type)' %}{{ r.type }}{% else %}<a href="{{ qs(type=r.type, page=None) }}">{{ r.type }}</a>{% endif %}</td>
+            <td class="n">{{ r.period|num }}</td><td class="n muted">{{ r.period_held|num }}</td>
+            <td class="n"><b>{{ r.ever|num }}</b></td><td class="n muted">{{ r.ever_held|num }}</td></tr>
+        {% else %}<tr><td colspan="5" class="muted">No appointments yet.</td></tr>{% endfor %}
+        <tr><td><b>Total</b></td><td class="n"><b>{{ mix.type_total.period|num }}</b></td><td class="n"><b>{{ mix.type_total.period_held|num }}</b></td>
+            <td class="n"><b>{{ mix.type_total.ever|num }}</b></td><td class="n"><b>{{ mix.type_total.ever_held|num }}</b></td></tr>
+      </table></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">All time = every appointment that has already happened (agent, source and stage filters still apply).</div>
     </div>
   </div>
 
