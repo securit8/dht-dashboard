@@ -36,10 +36,9 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 
 # Top menu, modeled on MaverickRE: (menu, [(endpoint, label)])
 NAV = [
-    ("Business Reports", [("goals_page", "Goals: Oct–Mar Plan"), ("dashboard", "Dashboard"),
-                          ("business_overview", "Business Overview"),
+    ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
-                          ("quickbooks", "QuickBooks P&L")]),
+                          ("quickbooks", "QuickBooks P&L"), ("goals_page", "Goals: Oct–Mar Plan")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -613,7 +612,12 @@ def _year_totals(cur, year, today):
                 "pace_target": goal * pace, "pace_diff": actual - goal * pace}
 
     net = books["net_income"] if books else None
+    margin = None
+    if net is not None:  # net as a share of gross: of total GCI (CTE) and of the company's booked income (QuickBooks)
+        margin = {"of_gci": net / income["gross"] * 100 if income["gross"] else None,
+                  "of_income": net / books["income"] * 100 if books["income"] else None}
     return {"year": year, "gross": income["gross"], "pending": income["pending"], "books": books, "net": net,
+            "margin": margin,
             "goals": goals, "gross_vs": vs_goal(income["gross"], goals["gross"]), "net_vs": vs_goal(net, goals["net"]),
             "pace_pct": pace * 100}
 

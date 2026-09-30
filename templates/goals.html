@@ -24,6 +24,13 @@
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--soft); margin-top: 10px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
   .pos { color: #1F7A48; } .neg { color: #A33224; }
+  .gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 12px; margin-top: 8px; }
+  .gauge { text-align: center; }
+  .gauge svg { display: block; margin: 0 auto; }
+  .g-val { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 700; fill: var(--ink); }
+  .g-of { font-size: 10px; fill: var(--soft); }
+  .g-lbl { font-size: 13px; font-weight: 600; margin-top: 4px; }
+  .g-sub { font-size: 12px; color: var(--soft); }
   select.grp { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line, #E3E6EC); font: inherit; font-size: 13px; }
   @media (max-width: 900px) { .main-goal { grid-template-columns: 1fr; } }
 {% endblock %}
@@ -34,7 +41,45 @@
     <small>/ {{ c.target|dollars if money else c.target|num }}</small></td>
 {% endmacro %}
 
+{% macro gauge(g) %}
+  {% set C = 301.59 %}
+  {% set pct = g.pct if g.pct is not none else 0 %}
+  {% set color = {'ok': '#2E9E62', 'running': '#D98A1C', 'behind': '#D2544A'}.get(g.status, '#C7CDD8') %}
+  <div class="gauge" title="{{ g.label }}: {{ g.actual if g.actual is not none else '--' }} of {{ g.target }}">
+    <svg viewBox="0 0 120 120" width="132" height="132">
+      <circle cx="60" cy="60" r="48" fill="none" stroke="var(--bg)" stroke-width="10"/>
+      {% for t in range(12) %}
+        <line x1="60" y1="4" x2="60" y2="{{ 9 if t % 3 else 11 }}" stroke="#B8C0CC" stroke-width="{{ 1.2 if t % 3 else 2 }}"
+              transform="rotate({{ t * 30 }} 60 60)"/>
+      {% endfor %}
+      {% if g.pct %}
+        <circle cx="60" cy="60" r="48" fill="none" stroke="{{ color }}" stroke-width="10" stroke-linecap="round"
+                stroke-dasharray="{{ ([pct, 100]|min) / 100 * C }} {{ C }}" transform="rotate(-90 60 60)"/>
+        {% if pct > 100 %}<circle cx="60" cy="60" r="48" fill="none" stroke="{{ color }}" stroke-opacity=".35" stroke-width="10"
+                stroke-dasharray="{{ ([pct - 100, 100]|min) / 100 * C }} {{ C }}" transform="rotate(-90 60 60)"/>{% endif %}
+      {% endif %}
+      {% if g.pace is not none and g.pct is not none %}
+        <g transform="rotate({{ g.pace * 3.6 }} 60 60)">
+          <line x1="60" y1="26" x2="60" y2="3" stroke="var(--ink)" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="60" cy="3" r="2.5" fill="var(--ink)"/>
+        </g>
+      {% endif %}
+      <text x="60" y="62" text-anchor="middle" class="g-val">{% if g.actual is none %}--{% elif g.money %}{{ g.actual|money }}{% else %}{{ g.actual|num }}{% endif %}</text>
+      <text x="60" y="78" text-anchor="middle" class="g-of">of {{ g.target|money if g.money else g.target|num }}</text>
+    </svg>
+    <div class="g-lbl">{{ g.label }}</div>
+    <div class="g-sub">{% if g.pct is not none %}<b style="color: {{ color }}">{{ g.pct|round|int }}%</b> &middot; {% endif %}{{ g.sub }}</div>
+  </div>
+{% endmacro %}
+
 {% block content %}
+  {# ---------------- at a glance ---------------- #}
+  <div class="card">
+    <div class="card-head"><h3 style="margin:0">At a glance</h3>
+      <span class="muted" style="font-size:13px">Ring = share of target done &middot; black pointer = where you should be by now</span></div>
+    <div class="gauges">{% for g in gauges %}{{ gauge(g) }}{% endfor %}</div>
+  </div>
+
   {# ---------------- main goal ---------------- #}
   <div class="card">
     <div class="main-goal">

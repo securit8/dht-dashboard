@@ -403,6 +403,55 @@ def main_goal(cur):
             "last3": [r["month"] for r in last3]}
 
 
+def glance(tz, mon, week, main):
+    """Round gauges for the top of the page: actual vs target now, with a pace hand
+    at the share of the month / week already gone."""
+    now = datetime.now(tz)
+    col_i = next((i for i, c in enumerate(mon["cols"]) if c["state"] == "current"), None)
+    started = col_i is not None or any(c["state"] == "done" for c in mon["cols"])
+    i = col_i if col_i is not None else 0
+    col = mon["cols"][i]
+    month_pace = min(max((now - col["start"]) / (col["end"] - col["start"]), 0), 1) * 100 if col_i is not None else None
+    wk = week["cols"][-1]
+    week_pace = min((now.weekday() * 24 + now.hour + 1) / (7 * 24), 1) * 100
+    row = {r["key"]: r["cells"][i] for r in mon["rows"]}
+    wrow = {r["label"]: r["cells"][-1] for r in week["rows"]}
+    gauges = []
+
+    def add(label, actual, target, sub, pace=None, lower_better=False, money=False, unit=""):
+        if actual is None or not target:
+            gauges.append({"label": label, "actual": actual, "target": target, "sub": sub, "pct": None,
+                           "money": money, "unit": unit})
+            return
+        p = actual / target * 100
+        if lower_better:
+            status = "ok" if p <= (pace or 100) else "behind"
+        elif pace is None:
+            status = "ok" if p >= 100 else "running"  # no clock to judge against: amber until reached
+        else:
+            status = "ok" if p >= pace else "behind"
+        gauges.append({"label": label, "actual": actual, "target": target, "sub": sub, "pct": p, "pace": pace,
+                       "status": status, "money": money, "unit": unit})
+
+    if main.get("live") and main.get("annualized") is not None:
+        add("Net, annualized", main["annualized"], main["goal"], "vs $1M goal", money=True)
+    mlabel = col["label"] if started else f"{col['label']} (starts Oct 1)"
+    add("Closings", row["closings"]["actual"] if started else None, row["closings"]["target"], mlabel, month_pace)
+    add("Contracts this week", wk["contracts"], wrow["Contracts written (team)"]["target"], "team, week of " + wk["label"],
+        week_pace)
+    add("Pending", week["pending_now"], week["pending_target"], "now, target " + str(week["pending_target"]) + "+")
+    held_t = sum(r["cells"][-1]["target"] for r in week["rows"] if r["label"].startswith("Appointments held"))
+    held_a = (wk["held_established"] or 0) + (wk["held_ramping"] or 0)
+    add("Appointments held", held_a, held_t, "this week, whole team", week_pace)
+    add("Recruit conversations", wk["recruit_convos"], wrow["Recruit conversations (Joe)"]["target"], "Joe, this week",
+        week_pace)
+    add("Contacted ≤ 5 min", wk["fast"], wk["leads"], f"{wk['fast']} of {wk['leads']} new leads this week")
+    if started and row["expenses"]["actual"] is not None:
+        add("Expenses", row["expenses"]["actual"], row["expenses"]["target"], f"{col['label']} vs cap", month_pace,
+            lower_better=True, money=True)
+    return gauges
+
+
 def page(cur, tz):
     people = roster(cur)
     mon = monthly(cur, tz, people)
@@ -411,6 +460,8 @@ def page(cur, tz):
     today = datetime.now(tz)
     four_weeks_ago = datetime.combine(week_start(today.date()) - timedelta(weeks=3), datetime.min.time(), tz)
     channels = lead_flow(cur, four_weeks_ago, today + timedelta(days=1), by_channel=True)
+    main = main_goal(cur)
     return {"people": people, "monthly": mon, "weekly": week, "spend": spend, "channels": channels,
-            "gates": gates(cur, tz, people, mon, week, spend), "main": main_goal(cur), "groups": GROUPS,
+            "gauges": glance(tz, mon, week, main),
+            "gates": gates(cur, tz, people, mon, week, spend), "main": main, "groups": GROUPS,
             "ppc_budget": PPC_BUDGET, "ppc_re": PPC_SOURCE_RE}
