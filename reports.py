@@ -68,26 +68,6 @@ DEAL_CLASS = """(CASE
 # When a closed/pending deal "happened": the day it entered that stage
 DEAL_DATE = "COALESCE(d.entered_stage_at, d.projected_close, d.created_at)"
 
-# Held / Not Held is judged by what happened to the lead, not the outcome field (agents rarely fill it in):
-#   Held      = the lead is now at Met with customer or further (or Past client), or got a deal after the appointment
-#   Not Held  = the lead is below Appointment set now (moved back, nurture, trash), or the appointment was
-#               marked cancelled / no show and a later appointment replaced it
-#   No outcome = the appointment hasn't happened yet, or the lead is still sitting at Appointment set
-APPT_FORWARD_STAGES = ("met with customer", "showing homes", "listing agreement", "active client", "active listing",
-                       "submitting offers", "under contract", "pending", "listing | pending", "closed", "sale closed",
-                       "past client")
-_APPT_LEAD_STAGE = "(SELECT LOWER(TRIM(COALESCE(pc.stage, ''))) FROM people pc WHERE pc.person_id = a.person_id)"
-APPT_CLASS = f"""(CASE
-    WHEN a.outcome ~* '(no.?show|cancel|resched)' AND EXISTS (SELECT 1 FROM appointments ax
-         WHERE ax.person_id = a.person_id AND ax.start_at > a.start_at) THEN 'not_held'
-    WHEN a.start_at > now() THEN 'none'
-    WHEN {_APPT_LEAD_STAGE} IN ({", ".join(f"'{s}'" for s in APPT_FORWARD_STAGES)})
-         OR EXISTS (SELECT 1 FROM deals dc WHERE a.person_id = ANY(dc.person_ids) AND dc.created_at >= a.start_at)
-         THEN 'held'
-    WHEN {_APPT_LEAD_STAGE} = 'appointment set' THEN 'none'
-    WHEN a.person_id IS NULL THEN 'none'
-    ELSE 'not_held' END)"""
-
 # Real leads only: not agents/vendors, and no bulk imports unless that source is picked
 REAL_LEADS = f"""LOWER(TRIM(COALESCE(p.stage, ''))) <> ALL(%(not_lead_stages)s)
     AND (%(source)s::text IS NOT NULL OR COALESCE(p.source, '') !~* '{IMPORT_SOURCES}')"""
@@ -429,6 +409,36 @@ PLAN_STAGES = [
 PLAN_STAGE_CASE = "(CASE " + " ".join(
     f"WHEN LOWER(COALESCE(NULLIF(ap.plan_name, ''), ap.automation_name)) ~ '{rx}' THEN '{stage}'"
     for rx, stage in PLAN_STAGES) + " END)"
+
+# Held / Not Held is judged by what happened to the lead, not the outcome field (agents rarely fill it in):
+#   Held      = the outcome says an agreement was signed / listing obtained (agents often take the lead out of
+#               the pipeline after that), or after the appointment the lead reached Met with customer or further
+#               at any point (stage history), is there now (or Past client), or got a deal
+#   Not Held  = the lead is below Appointment set now and never got past it, or the appointment was
+#               marked cancelled / no show and a later appointment replaced it
+#   No outcome = the appointment hasn't happened yet, or the lead is still sitting at Appointment set
+APPT_FORWARD_STAGES = ("met with customer", "showing homes", "listing agreement", "active client", "active listing",
+                       "submitting offers", "under contract", "pending", "listing | pending", "closed", "sale closed",
+                       "past client")
+_FWD = ", ".join(f"'{s}'" for s in APPT_FORWARD_STAGES)
+_APPT_LEAD_STAGE = "(SELECT LOWER(TRIM(COALESCE(pc.stage, ''))) FROM people pc WHERE pc.person_id = a.person_id)"
+_APPT_REACHED = f"""(EXISTS (SELECT 1 FROM people_stage_history hc WHERE hc.person_id = a.person_id
+                        AND hc.changed_at >= a.start_at AND LOWER(TRIM(hc.stage)) IN ({_FWD}))
+    OR EXISTS (SELECT 1 FROM action_plan_people ap WHERE ap.person_id = a.person_id
+                  AND ap.created_at >= a.start_at AND LOWER({PLAN_STAGE_CASE}) IN ({_FWD})))"""
+APPT_CLASS = f"""(CASE
+    WHEN a.outcome ~* '(agreement signed|listing obtained|closed)' AND a.outcome !~* 'not' THEN 'held'
+    WHEN a.outcome ~* '(no.?show|cancel|resched)' AND EXISTS (SELECT 1 FROM appointments ax
+         WHERE ax.person_id = a.person_id AND ax.start_at > a.start_at) THEN 'not_held'
+    WHEN a.start_at > now() THEN 'none'
+    WHEN {_APPT_LEAD_STAGE} IN ({_FWD})
+         OR EXISTS (SELECT 1 FROM deals dc WHERE a.person_id = ANY(dc.person_ids) AND dc.created_at >= a.start_at)
+         OR {_APPT_REACHED}
+         THEN 'held'
+    WHEN {_APPT_LEAD_STAGE} = 'appointment set' THEN 'none'
+    WHEN a.person_id IS NULL THEN 'none'
+    ELSE 'not_held' END)"""
+
 
 
 def stage_events_sql(cur):

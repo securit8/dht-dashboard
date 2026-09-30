@@ -48,8 +48,9 @@
       <div><div class="kpi-lbl">Appointments with No Outcome Yet</div>
         <div class="kpi-val">{{ kpis.none|num }}</div><div class="kpi-sub">{{ kpis.none_rate }}% Not happened yet or still at Appointment set</div>{{ m.chg(kpis.chg.none) }}</div>
     </div>
-    <div class="note">Held = the lead is now at Met with customer or further, or got a deal after the appointment.
-      Not Held = the lead is now below Appointment set (moved back, nurture, trash), or the appointment was cancelled / no show and rescheduled.
+    <div class="note">Held = the outcome says the agreement was signed or the listing obtained, or after the appointment the lead reached
+      Met with customer or further at any point (even if moved back later), or got a deal.
+      Not Held = the lead is now below Appointment set and never got past it, or the appointment was cancelled / no show and rescheduled.
       No Outcome Yet = the appointment is still ahead, or the lead is still at Appointment set. The outcome typed in Follow Up Boss is shown under each row.</div>
   </div>
 
