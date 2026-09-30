@@ -522,6 +522,14 @@ PIPELINE_RANK = {"lead": 0, "new lead": 0, "attempted contact": 1, "spoke with c
                  "listing | pending": 7, "closed": 8, "sale closed": 8}
 MET_RANK = PIPELINE_RANK["met with customer"]
 NURTURE_STAGES = {"nurture", "long term nurture", "short term nurture", "sphere", "past client", "unresponsive"}
+# Stages on the Appointments Report flow chart, in the owner's order: (label, FUB stage names)
+FLOW_STAGES = [("Nurture", {"nurture", "long term nurture", "short term nurture"}),
+               ("Spoke with customer", {"spoke with customer"}),
+               ("Appointment set", {"appointment set"}),
+               ("Showing homes", {"showing homes", "active client"}),
+               ("Met with customer", {"met with customer"}),
+               ("Submitting offers", {"submitting offers"}),
+               ("Closed", {"closed", "sale closed"})]
 TRASH_GROUP = {"trash", "archive", "archived", "rejected", "do not contact"}
 MOVE_GROUPS = [("advanced", "Moved forward", "#2E9E62"), ("stayed", "Stayed at the same stage", "#9AA5B1"),
                ("nurture", "Moved to nurture", "#E88BA0"), ("back", "Moved back", "#F2B84B"),
@@ -567,7 +575,18 @@ def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="
         if at_rank < MET_RANK <= now_rank:
             met += 1
     n = len(known)
-    return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0),
+    # Stage-by-stage: how many leads sat in each stage at their first appointment vs. today
+    flow = []
+    for label, names in FLOW_STAGES:
+        flow.append({"stage": label, "at": sum(1 for r in known if (r["at_stage"] or "").strip().lower() in names),
+                     "now": sum(1 for r in known if (r["now_stage"] or "").strip().lower() in names)})
+    listed = set().union(*(names for _, names in FLOW_STAGES))
+    other_at = [r["at_stage"] or "(none)" for r in known if (r["at_stage"] or "").strip().lower() not in listed]
+    other_now = [r["now_stage"] or "(none)" for r in known if (r["now_stage"] or "").strip().lower() not in listed]
+    flow.append({"stage": "Other", "at": len(other_at), "now": len(other_now), "other": True,
+                 "detail": ", ".join(sorted({s for s in other_at + other_now}))})
+    return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0), "flow": flow,
+            "flow_max": max([f["at"] for f in flow] + [f["now"] for f in flow] + [1]),
             "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
                        for k, label, c in MOVE_GROUPS],
             "pairs": sorted(({"from": a, "to": b, "n": v} for (a, b), v in pairs.items()),
