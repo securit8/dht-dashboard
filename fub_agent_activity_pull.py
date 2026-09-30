@@ -100,17 +100,19 @@ def fetch_users(session, database_url=None):
         name = u.get("name") or f"{u.get('firstName', '')} {u.get('lastName', '')}".strip()
         users[u["id"]] = name or f"User {u['id']}"
         rows.append((u["id"], users[u["id"]], u.get("email") or "", u.get("phone") or "",
-                     u.get("role") or "", u.get("status") or "", best_picture(u.get("picture"))))
+                     u.get("role") or "", u.get("status") or "", best_picture(u.get("picture")),
+                     parse_dt(u.get("created"))))
     if database_url:
         conn = psycopg2.connect(database_url)
         cur = conn.cursor()
+        cur.execute("ALTER TABLE agents ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ")  # FUB user added = start date
         for row in rows:
             cur.execute("""
-                INSERT INTO agents (user_id, name, email, phone, role, status, picture_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO agents (user_id, name, email, phone, role, status, picture_url, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email,
                     phone = EXCLUDED.phone, role = EXCLUDED.role, status = EXCLUDED.status,
-                    picture_url = EXCLUDED.picture_url
+                    picture_url = EXCLUDED.picture_url, created_at = EXCLUDED.created_at
             """, row)
         conn.commit()
         cur.close()

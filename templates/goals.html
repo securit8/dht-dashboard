@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Goals{% endblock %}
+{% block eyebrow %}Goals &middot; Oct 2026 &ndash; Mar 2027{% endblock %}
+{% block heading %}Actual vs target, every row of the plan{% endblock %}
+{% block style %}
+  .main-goal { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 24px; align-items: center; }
+  .big { font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 700; }
+  .gbar { position: relative; height: 10px; border-radius: 5px; background: var(--bg); margin: 10px 0 6px; }
+  .gbar div { height: 100%; border-radius: 5px; background: #2E9E62; }
+  .gbar span { position: absolute; top: -4px; height: 18px; border-left: 2px dashed var(--soft); }
+  .tbl td.c { text-align: center; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .tbl td.c small { color: var(--muted); font-family: 'IBM Plex Sans', sans-serif; }
+  .tbl td.ok { background: #E3F4EA; color: #1F7A48; }
+  .tbl td.behind { background: #FBE7E4; color: #A33224; }
+  .tbl td.running { background: #FFF3DC; color: #8A5A00; }
+  .tbl td.none { color: var(--muted); }
+  .tbl th.cur, .tbl td.cur { box-shadow: inset 0 2px 0 var(--accent-ink); }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .pill.ok { background: #E3F4EA; color: #1F7A48; } .pill.watch { background: #FFF3DC; color: #8A5A00; }
+  .pill.trigger { background: #FBE7E4; color: #A33224; } .pill.none { background: var(--bg); color: var(--soft); }
+  .gate { display: flex; gap: 14px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--bg); }
+  .gate b { display: block; font-size: 14px; } .gate div div { font-size: 13px; color: var(--soft); }
+  .mini { width: 80px; padding: 5px 7px; border: 1px solid var(--line, #E3E6EC); border-radius: 6px; font: inherit; font-size: 13px; text-align: right; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--soft); margin-top: 10px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .pos { color: #1F7A48; } .neg { color: #A33224; }
+  select.grp { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line, #E3E6EC); font: inherit; font-size: 13px; }
+  @media (max-width: 900px) { .main-goal { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% macro cell(c, money=False) %}
+  <td class="c {{ c.status }} {{ 'cur' if c.state == 'current' or c.current }}">
+    {% if c.actual is none %}--{% else %}{{ c.actual|dollars if money else c.actual|num }}{% endif %}
+    <small>/ {{ c.target|dollars if money else c.target|num }}</small></td>
+{% endmacro %}
+
+{% block content %}
+  {# ---------------- main goal ---------------- #}
+  <div class="card">
+    <div class="main-goal">
+      <div>
+        <div class="kpi-lbl">Main goal</div>
+        <div class="big">{{ main.goal|dollars }} net / year</div>
+        <div class="muted" style="font-size:13px">The plan as modeled reaches about {{ main.modeled[0]|money }}&ndash;{{ main.modeled[1]|money }} annualized by end of Q1 2027.</div>
+      </div>
+      {% if main.live %}
+      <div>
+        <div class="kpi-lbl">Annualized net now</div>
+        <div class="big">{{ main.annualized|dollars if main.annualized is not none else '--' }}</div>
+        {% if main.pct is not none %}
+        <div class="gbar"><div style="width: {{ [[main.pct, 0]|max, 100]|min }}%"></div>
+          <span style="left: {{ main.modeled[0] / main.goal * 100 }}%" title="Plan by end of Q1 2027"></span></div>
+        <div class="muted" style="font-size:12px">{{ main.pct|round|int }}% of goal &middot; last 3 full months &times; 4 (QuickBooks). Dashed line = plan by Mar 2027.</div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="kpi-lbl">Net, last 12 months</div>
+        <div class="big">{{ main.ttm|dollars if main.ttm is not none else '--' }}</div>
+        <div class="muted" style="font-size:12px">QuickBooks net income</div>
+      </div>
+      {% else %}
+      <div style="grid-column: span 2" class="muted">Net income comes from QuickBooks. <a href="{{ url_for('quickbooks') }}">Connect it to your real books</a> to track this goal.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------------- monthly targets ---------------- #}
+  <div class="card">
+    <h3>Monthly targets</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Month</th>{% for c in monthly.cols %}<th class="n {{ 'cur' if c.state == 'current' }}" style="text-align:center">{{ c.label }}</th>{% endfor %}</tr>
+      {% for r in monthly.rows %}
+      <tr><td>{{ r.label }}</td>{% for c in r.cells %}{{ cell(c, r.money) }}{% endfor %}</tr>
+      {% endfor %}
+    </table></div>
+    <div class="legend"><span><i style="background:#E3F4EA"></i>on target</span><span><i style="background:#FFF3DC"></i>month in progress, not there yet</span>
+      <span><i style="background:#FBE7E4"></i>missed</span><span>Each cell: actual / target</span></div>
+    <div class="note">Closings: CTE deal log by close date and Primary Agent; groups are set under <a href="#settings">Agent groups</a>.
+      Recruits: agents added to Follow Up Boss that month. Headcount: active agents now (earlier months count agents added by then who are still active).
+      Expense cap: QuickBooks operating expenses{% if not monthly.books_live %} (connect QuickBooks to fill){% endif %}.</div>
+  </div>
+
+  {# ---------------- weekly scorecard ---------------- #}
+  <div class="card">
+    <div class="card-head"><h3 style="margin:0">Weekly scorecard (Friday review)</h3>
+      <span class="muted" style="font-size:13px">Weeks start Monday &middot; Q4 targets until Dec 31, Q1 after</span></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Week of</th>{% for c in weekly.cols %}<th class="{{ 'cur' if c.current }}" style="text-align:center">{{ c.label }}{% if c.current %}<br><small>this week</small>{% endif %}</th>{% endfor %}</tr>
+      {% for r in weekly.rows %}
+      <tr><td>{{ r.label }}{% if r.note %}<br><small class="muted">{{ r.note }}</small>{% endif %}{% if r.manual %}<br><small class="muted">typed in below</small>{% endif %}</td>
+        {% for c in r.cells %}{{ cell(c) }}{% endfor %}</tr>
+      {% if r.per %}<tr><td class="muted" style="padding-left:24px;font-size:12px">per agent</td>{% for p in r.per %}<td class="c none">{{ p if p is not none else '--' }}</td>{% endfor %}</tr>{% endif %}
+      {% endfor %}
+      <tr><td>Pending count (now)</td><td class="c {{ 'ok' if weekly.pending_now is not none and weekly.pending_now >= weekly.pending_target else 'behind' }}" colspan="{{ weekly.cols|length }}">
+        {{ weekly.pending_now if weekly.pending_now is not none else '--' }} <small>/ {{ weekly.pending_target }}+ target</small></td></tr>
+      <tr><th colspan="{{ weekly.cols|length + 1 }}">Also track</th></tr>
+      {% for r in weekly.track %}
+      <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="c none" style="color:var(--ink)">{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h3>By channel &middot; last 4 weeks</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Lead source</th><th class="n">Leads</th><th class="n">Contacted within 5 min</th><th class="n">Appointments set</th></tr>
+      {% for ch in channels.channels[:15] %}
+      <tr><td>{{ ch.source }}</td><td class="n">{{ ch.leads|num }}</td><td class="n">{{ ch.fast|num }} <span class="muted">({{ ch.fast_pct|round|int }}%)</span></td><td class="n">{{ ch.appts|num }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No leads in the last 4 weeks.</td></tr>{% endfor %}
+      <tr><td><b>Total</b></td><td class="n"><b>{{ channels.leads|num }}</b></td><td class="n"><b>{{ channels.fast|num }}</b> <span class="muted">({{ channels.fast_pct|round|int }}%)</span></td><td class="n"><b>{{ channels.appts_set|num }}</b></td></tr>
+    </table></div>
+    <div class="note">Leads exclude bulk imports and contacts that are other agents or vendors. "Contacted" = first call, text or email logged in Follow Up Boss.</div>
+  </div>
+
+  {# ---------------- lead spend ---------------- #}
+  <div class="card" id="spend">
+    <h3>Lead spend (PPC)</h3>
+    <form method="post" action="{{ url_for('goals_inputs') }}"><input type="hidden" name="anchor" value="#spend">
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Month</th><th class="n">Google <small class="muted">~$1,100</small></th><th class="n">Meta <small class="muted">~$700</small></th><th class="n">YouTube <small class="muted">$0</small></th>
+          <th class="n">Total <small class="muted">/ ~$1,800</small></th><th class="n">PPC leads</th><th class="n">Closings from those leads</th><th class="n">Cost per closing</th></tr>
+      {% for mo in spend.months %}
+      <tr><td>{{ mo.label }}</td>
+        {% if mo.future %}<td colspan="7" class="muted">&mdash;</td>
+        {% else %}
+          {% for ch in ['google', 'meta', 'youtube'] %}
+          <td class="n"><input class="mini" name="ppc_{{ ch }}|{{ mo.period }}" value="{{ mo.spend[ch]|int if mo.spend[ch] is not none }}" placeholder="$"></td>
+          {% endfor %}
+          <td class="n {{ 'neg' if mo.total and mo.total > mo.budget }}">{{ mo.total|dollars if mo.total is not none else '--' }}</td>
+          <td class="n">{{ mo.leads|num }}</td><td class="n">{{ mo.closings|num }}</td>
+          <td class="n">{% if mo.cost_per_closing is not none %}<b class="{{ 'pos' if mo.cost_per_closing <= 2500 else 'neg' }}">{{ mo.cost_per_closing|dollars }}</b>{% else %}--{% endif %}</td>
+        {% endif %}</tr>
+      {% endfor %}
+    </table></div>
+    <button class="btn" type="submit" style="margin-top:10px">Save ad spend</button>
+    </form>
+    <div class="note">Ad spend isn't in any connected system yet, so it's typed in here. Closings are Follow Up Boss deals marked closed whose lead came from a paid source,
+      counted in the month the lead was created. Paid sources matched: {{ spend.sources|join(', ') or 'none yet' }}.</div>
+  </div>
+
+  {# ---------------- gates ---------------- #}
+  <div class="card">
+    <h3>Gates</h3>
+    {% for g in gates %}
+    <div class="gate"><span class="pill {{ g.status }}">{{ {'ok': 'OK', 'watch': 'Watch', 'trigger': 'Act now', 'none': 'No data'}[g.status] }}</span>
+      <div><b>{{ g.name }}</b><div>{{ g.detail }}</div></div></div>
+    {% endfor %}
+  </div>
+
+  {# ---------------- settings ---------------- #}
+  <div class="card" id="settings">
+    <h3>Open houses (typed in)</h3>
+    <form method="post" action="{{ url_for('goals_inputs') }}" style="display:flex;flex-wrap:wrap;gap:14px;align-items:end">
+      <input type="hidden" name="anchor" value="#settings">
+      {% for c in weekly.cols %}
+      <label style="font-size:12px;color:var(--soft)">Week of {{ c.label }}<br>
+        <input class="mini" name="open_houses|{{ c.monday }}" value="{{ c.open_houses|int if c.open_houses is not none }}"></label>
+      {% endfor %}
+      <button class="btn" type="submit">Save</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Agent groups</h3>
+    <p class="muted" style="font-size:13px;margin-top:0">Who counts as Joe, Established or Ramping in the targets. Suggested from the CTE log: agents who closed a deal in an earlier year are Established.</p>
+    <form method="post" action="{{ url_for('goals_groups') }}">
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Agent</th><th>Added to FUB</th><th>Name in CTE</th><th>Group</th></tr>
+      {% for p in people %}
+      <tr><td>{{ p.name }}</td><td>{{ p.created_at|fmt_date if p.created_at else '--' }}</td><td>{{ p.cte_name or '--' }}</td>
+        <td><select class="grp" name="grp_{{ p.user_id }}">{% for g, label in groups %}<option value="{{ g }}" {{ 'selected' if p.group == g }}>{{ label }}{{ ' (suggested)' if g == p.suggested and not p.grp }}</option>{% endfor %}</select></td></tr>
+      {% endfor %}
+    </table></div>
+    <button class="btn" type="submit" style="margin-top:10px">Save groups</button>
+    </form>
+    <div class="note">{{ people|selectattr('group', 'equalto', 'established')|list|length }} established &middot;
+      {{ people|selectattr('group', 'equalto', 'ramping')|list|length }} ramping &middot; the plan assumes 11 and 6.</div>
+  </div>
+{% endblock %}

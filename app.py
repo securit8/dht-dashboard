@@ -12,6 +12,7 @@ from flask import Flask, Response, render_template, request, session, redirect, 
 import psycopg2
 
 import cte_reports as CTE
+import goals as G
 import qbo
 import reports as R
 
@@ -35,7 +36,8 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 
 # Top menu, modeled on MaverickRE: (menu, [(endpoint, label)])
 NAV = [
-    ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
+    ("Business Reports", [("goals_page", "Goals: Oct–Mar Plan"), ("dashboard", "Dashboard"),
+                          ("business_overview", "Business Overview"),
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
                           ("quickbooks", "QuickBooks P&L")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
@@ -614,6 +616,42 @@ def _year_totals(cur, year, today):
     return {"year": year, "gross": income["gross"], "pending": income["pending"], "books": books, "net": net,
             "goals": goals, "gross_vs": vs_goal(income["gross"], goals["gross"]), "net_vs": vs_goal(net, goals["net"]),
             "pace_pct": pace * 100}
+
+
+@app.route("/goals")
+@login_required
+def goals_page():
+    with db() as cur:
+        data = G.page(cur, TEAM_TZ)
+    return render_template("goals.html", months=G.PLAN_MONTHS, **data)
+
+
+@app.route("/goals/groups", methods=["POST"])
+@login_required
+def goals_groups():
+    valid = {g for g, _ in G.GROUPS}
+    groups = {int(k[4:]): v for k, v in request.form.items() if k.startswith("grp_") and k[4:].isdigit() and v in valid}
+    with db() as cur:
+        G.save_groups(cur, groups)
+    return redirect(url_for("goals_page") + "#settings")
+
+
+@app.route("/goals/inputs", methods=["POST"])
+@login_required
+def goals_inputs():
+    """Numbers no connected system records: open houses per week, ad spend per month."""
+    with db() as cur:
+        for k, v in request.form.items():
+            parts = k.split("|")  # "<key>|<YYYY-MM-DD>"
+            if len(parts) != 2 or parts[0] not in ("open_houses", "ppc_google", "ppc_meta", "ppc_youtube"):
+                continue
+            try:
+                period = date.fromisoformat(parts[1])
+                value = float(v.replace("$", "").replace(",", "")) if v.strip() else None
+            except ValueError:
+                continue
+            G.save_input(cur, parts[0], period, value)
+    return redirect(url_for("goals_page") + (request.form.get("anchor") or ""))
 
 
 @app.route("/business-overview/goals", methods=["POST"])
