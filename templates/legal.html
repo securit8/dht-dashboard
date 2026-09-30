@@ -28,18 +28,24 @@
   <h2>What we collect from QuickBooks Online</h2>
   <p>With an administrator's authorization through Intuit's sign-in, the dashboard reads the <b>Profit and Loss report</b> of Dream Homes Team's own QuickBooks Online company and stores only <b>monthly totals</b>: income, cost of goods sold, gross profit, expenses and net income. It does not read or store customer, vendor, employee, payroll, bank or payment card information, and it never creates, changes or deletes anything in QuickBooks.</p>
 
+  <h2>What we collect from Gmail</h2>
+  <p>With the mailbox owner's authorization through Google's sign-in, the dashboard uses read-only Gmail access to open <b>only the Compass agent remittance emails</b> (sender DoNotReply@compass.com, subject "Upcoming Payment Compass Agent Remittance") and their PDF statements. From them it stores the payment date, payment number, line descriptions and amounts, and the statement text. It does not read, store or search any other email, and it never sends, changes or deletes anything in Gmail. The PDF files themselves are not stored.</p>
+  <p>The dashboard's use of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.</p>
+
   <h2>How it is used</h2>
   <p>The totals are shown on the dashboard's financial pages to Dream Homes Team's owner and authorized staff. They are not sold, shared or disclosed to any third party, and are not used for advertising, credit decisions or any purpose other than internal business reporting.</p>
 
   <h2>How it is protected</h2>
   <ul>
     <li>Data is stored in a private database hosted by Render and sent only over encrypted (HTTPS/TLS) connections.</li>
-    <li>The QuickBooks access token is encrypted in the database; application keys are kept in the host's secret settings.</li>
+    <li>The QuickBooks and Gmail access tokens are encrypted in the database; application keys are kept in the host's secret settings.</li>
     <li>Financial pages require a login.</li>
   </ul>
 
   <h2>Disconnecting and deletion</h2>
   <p>An administrator can disconnect at any time from the dashboard or from QuickBooks Online (Apps). On disconnect, the dashboard deletes its stored QuickBooks token and all QuickBooks data it has stored, and stops all access.</p>
+
+  <p>Gmail can be disconnected at any time from the dashboard or from the Google account (Security &rsaquo; Third-party access). On disconnect, the dashboard revokes its token and deletes the token and everything it imported from that mailbox.</p>
 
   <h2>Other data</h2>
   <p>The dashboard also reports on Dream Homes Team's own Follow Up Boss CRM activity and its own deal-tracking spreadsheets, under the same internal-use and protection rules.</p>

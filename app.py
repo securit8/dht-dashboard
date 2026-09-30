@@ -7,13 +7,14 @@ from functools import wraps
 from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
-from flask import Flask, Response, render_template, request, session, redirect, url_for
+from flask import Flask, Response, abort, render_template, request, session, redirect, url_for
 
 import psycopg2
 
 import cte_reports as CTE
 import goals as G
 import qbo
+import gmail_import
 import reports as R
 
 app = Flask(__name__)
@@ -38,7 +39,7 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 NAV = [
     ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
-                          ("quickbooks", "QuickBooks P&L"), ("goals_page", "Goals: Oct–Mar Plan")]),
+                          ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("goals_page", "Goals: Oct–Mar Plan")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -141,6 +142,99 @@ def quickbooks_disconnect():
         conn = qbo.status(cur)
     return render_template("quickbooks.html", configured=qbo.configured(), env=qbo.env(), conn=conn, rows=[],
                            confirm_disconnect=True, message=None, error=None)
+
+
+# ---------------------------------------------------------------- Gmail: Compass remittances
+
+def _gmail_redirect_uri():
+    return os.environ.get("GMAIL_REDIRECT_URI") or f"https://{request.host}/gmail/callback"
+
+
+@app.route("/compass-invoices")
+@login_required
+def compass_invoices():
+    """Connected mailboxes and every imported Compass remittance, with Assist Contr split out."""
+    with db() as cur:
+        accounts = gmail_import.accounts(cur)
+        payments = gmail_import.payments(cur)
+    years = {}
+    for p in payments:
+        y = years.setdefault(p["paid_on"].year if p["paid_on"] else 0,
+                             {"emails": 0, "invoices": 0, "invoice_total": 0.0, "assist_total": 0.0, "missing": 0})
+        y["emails"] += 1
+        for it in p["items"]:
+            amt = float(it["amount"]) if it["amount"] is not None else None
+            if it["is_assist"]:
+                y["assist_total"] += amt or 0
+            else:
+                y["invoices"] += 1
+                if amt is None:
+                    y["missing"] += 1
+                else:
+                    y["invoice_total"] += amt
+    return render_template("compass_invoices.html", configured=gmail_import.configured(), accounts=accounts,
+                           payments=payments, years=sorted(years.items(), reverse=True),
+                           query=gmail_import.REMITTANCE_QUERY, show=request.args.get("show"),
+                           message=request.args.get("msg"), error=request.args.get("err"))
+
+
+@app.route("/compass-invoices/text/<message_id>")
+@login_required
+def compass_invoice_text(message_id):
+    with db() as cur:
+        doc = gmail_import.payment_text(cur, message_id)
+    if not doc:
+        abort(404)
+    body = "\n".join([doc["subject"] or "", doc["pdf_name"] or "(no PDF)", "", doc["pdf_text"] or ""])
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/gmail/connect", methods=["POST"])
+@login_required
+def gmail_connect():
+    if not gmail_import.configured():
+        return redirect(url_for("compass_invoices", err="Google keys are not set in Render yet."))
+    session["gmail_state"] = secrets.token_urlsafe(24)
+    return redirect(gmail_import.authorize_url(_gmail_redirect_uri(), session["gmail_state"]))
+
+
+@app.route("/gmail/callback")
+@login_required
+def gmail_callback():
+    expected = session.pop("gmail_state", None)
+    if not expected or not secrets.compare_digest(request.args.get("state", ""), expected):
+        return redirect(url_for("compass_invoices", err="Connection check failed (state mismatch). Please try again."))
+    if request.args.get("error") or not request.args.get("code"):
+        return redirect(url_for("compass_invoices", err=f"Gmail did not connect: {request.args.get('error', 'no code')}"))
+    try:
+        email = gmail_import.connect(DATABASE_URL, request.args["code"], _gmail_redirect_uri())
+        new, total = gmail_import.pull(DATABASE_URL, email)
+    except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
+        return redirect(url_for("compass_invoices", err=str(e)))
+    except Exception as e:  # noqa: BLE001 - show it instead of a 500
+        return redirect(url_for("compass_invoices", err=f"Connected, but the first import failed: {e}"))
+    return redirect(url_for("compass_invoices", msg=f"Connected {email}. Imported {new} of {total} remittance emails."))
+
+
+@app.route("/gmail/refresh", methods=["POST"])
+@login_required
+def gmail_refresh():
+    email, reimport = request.form.get("email", ""), request.form.get("reimport") == "1"
+    try:
+        new, total = gmail_import.pull(DATABASE_URL, email, reimport=reimport)
+    except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
+        return redirect(url_for("compass_invoices", err=str(e)))
+    except Exception as e:  # noqa: BLE001
+        return redirect(url_for("compass_invoices", err=f"Import failed: {e}"))
+    return redirect(url_for("compass_invoices", msg=f"{email}: imported {new} of {total} remittance emails."))
+
+
+@app.route("/gmail/disconnect", methods=["POST"])
+@login_required
+def gmail_disconnect():
+    email = request.form.get("email", "")
+    gmail_import.disconnect(DATABASE_URL, email)
+    return redirect(url_for("compass_invoices", msg=f"Disconnected {email}. Everything imported from it was deleted."))
 
 
 @app.route("/login", methods=["GET", "POST"])

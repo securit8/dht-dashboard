@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Compass Invoices{% endblock %}
+{% block eyebrow %}Compass remittances from Gmail{% endblock %}
+{% block heading %}Every Compass payment, invoices vs Assist Contr{% endblock %}
+{% block style %}
+  .qb-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+  .qb-status form { margin: 0; display: inline; }
+  .acct { padding: 12px 0; border-bottom: 1px solid var(--bg); }
+  .acct:last-child { border-bottom: 0; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+  .pill.ok { background: #E3F4EA; color: #1F7A48; }
+  .pill.warn { background: #FFF3DC; color: #8A5A00; }
+  .pill.off { background: var(--bg); color: var(--soft); }
+  .flash { border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .flash.ok { background: #E3F4EA; color: #1F7A48; }
+  .flash.err { background: #FBE7E4; color: #A33224; }
+  .btn.danger { background: #D2544A; color: #fff; border: 0; }
+  .assist td { color: var(--muted); }
+  .tag { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--bg); color: var(--soft); }
+  .tag.inv { background: #E3F4EA; color: #1F7A48; }
+  .tag.miss { background: #FFF3DC; color: #8A5A00; }
+{% endblock %}
+{% block content %}
+  {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+  <div class="card">
+    <div class="qb-status">
+      <div>
+        {% if not configured %}
+          <span class="pill off">Not set up</span>
+          <p class="muted">Waiting for the Google app keys (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) in Render.</p>
+        {% elif not accounts %}
+          <span class="pill off">No mailbox connected</span>
+          <p class="muted">Connect the Gmail that receives the Compass remittance emails. Read-only: the dashboard only opens emails matching
+            <code>{{ query }}</code>, and never sends, changes or deletes anything.</p>
+        {% else %}
+          <p class="muted">Only emails matching <code>{{ query }}</code> are opened. Updated every night.</p>
+        {% endif %}
+      </div>
+      {% if configured %}
+        <form method="post" action="{{ url_for('gmail_connect') }}"><button class="btn" type="submit">{{ 'Connect another Gmail' if accounts else 'Connect Gmail' }}</button></form>
+      {% endif %}
+    </div>
+    {% for a in accounts %}
+      <div class="acct qb-status">
+        <div>
+          {% if a.needs_reconnect %}<span class="pill warn">Needs reconnecting</span>{% else %}<span class="pill ok">Connected</span>{% endif %}
+          <b>{{ a.email }}</b>
+          <span class="muted">&middot; {{ a.payments }} remittance emails imported
+            {% if a.last_pull_at %}&middot; last updated {{ a.last_pull_at|fmt_date(true) }}{% endif %}</span>
+          {% if a.last_error %}<div class="muted">Last problem: {{ a.last_error }}</div>{% endif %}
+        </div>
+        <div>
+          {% if not a.needs_reconnect %}
+          <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
+            <button class="btn ghost" type="submit">Update now</button></form>
+          <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
+            <input type="hidden" name="reimport" value="1"><button class="btn ghost" type="submit">Re-read all</button></form>
+          {% endif %}
+          <form method="post" action="{{ url_for('gmail_disconnect') }}" onsubmit="return confirm('Disconnect {{ a.email }} and delete everything imported from it?')">
+            <input type="hidden" name="email" value="{{ a.email }}"><button class="btn danger" type="submit">Disconnect</button></form>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if years %}
+  <div class="card">
+    <h3>By year</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Year</th><th class="n">Emails</th><th class="n">Invoices</th><th class="n">Invoice total</th>
+            <th class="n">Invoices without amount</th><th class="n">Assist Contr (excluded)</th></tr>
+        {% for y, v in years %}
+        <tr><td>{{ y or '--' }}</td><td class="n">{{ v.emails }}</td><td class="n">{{ v.invoices }}</td>
+            <td class="n"><b>{{ '${:,.2f}'.format(v.invoice_total|float) }}</b></td><td class="n">{{ v.missing or '' }}</td>
+            <td class="n">{{ '${:,.2f}'.format(v.assist_total|float) }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Payments</h2>
+      <div class="seg">
+        <a class="{{ 'on' if show != 'all' }}" href="{{ url_for('compass_invoices') }}">Invoices only</a>
+        <a class="{{ 'on' if show == 'all' }}" href="{{ url_for('compass_invoices', show='all') }}">Include Assist Contr</a>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Paid</th><th>Payment #</th><th>Bill #</th><th>Description</th><th class="n">Amount</th><th>Type</th><th>Statement</th></tr>
+        {% for p in payments %}
+          {% set rows = p['items'] if show == 'all' else p['items']|rejectattr('is_assist')|list %}
+          {% for it in rows %}
+          <tr class="{{ 'assist' if it.is_assist }}">
+            <td>{{ p.paid_on.strftime('%m/%d/%Y') if p.paid_on else '--' }}</td><td>{{ p.payment_no or '--' }}</td>
+            <td>{{ it.bill_no or '--' }}</td><td>{{ it.description }}</td>
+            <td class="n">{{ '${:,.2f}'.format(it.amount|float) if it.amount is not none else '--' }}</td>
+            <td>{% if it.is_assist %}<span class="tag">Assist Contr</span>{% elif it.amount is none %}<span class="tag miss">No amount</span>{% else %}<span class="tag inv">Invoice</span>{% endif %}</td>
+            <td><a href="{{ url_for('compass_invoice_text', message_id=p.message_id) }}" target="_blank" rel="noopener">text</a></td>
+          </tr>
+          {% endfor %}
+          {% if not p['items'] %}
+          <tr><td>{{ p.paid_on.strftime('%m/%d/%Y') if p.paid_on else '--' }}</td><td>{{ p.payment_no or '--' }}</td><td>--</td>
+            <td class="muted">{{ p.parse_note or 'No line items' }}</td><td class="n">{{ '${:,.2f}'.format(p.total|float) if p.total is not none else '--' }}</td>
+            <td><span class="tag miss">Check</span></td>
+            <td><a href="{{ url_for('compass_invoice_text', message_id=p.message_id) }}" target="_blank" rel="noopener">text</a></td></tr>
+          {% endif %}
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  {% endif %}
+{% endblock %}

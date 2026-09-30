@@ -21,6 +21,7 @@ import requests
 
 import cte_import
 import qbo
+import gmail_import
 
 API_BASE = "https://api.followupboss.com/v1"
 PAGE_SIZE = 100
@@ -655,6 +656,9 @@ def main():
 
     # QuickBooks Profit & Loss (read-only). Also keeps the refresh token in use so it doesn't expire.
     qbo.cron_pull(database_url)
+
+    # Compass remittance emails from connected Gmail accounts (read-only)
+    gmail_import.cron_pull(database_url)
 
 
 if __name__ == "__main__":
