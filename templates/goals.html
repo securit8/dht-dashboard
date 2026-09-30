@@ -162,12 +162,13 @@
 
   <div class="card">
     <h3>Agent groups</h3>
-    <p class="muted" style="font-size:13px;margin-top:0">Who counts as Joe, Established or Ramping in the targets. Suggested from the CTE log: agents who closed a deal in an earlier year are Established.</p>
+    <p class="muted" style="font-size:13px;margin-top:0">Who counts as Joe, Established or Ramping in the targets. Suggested from the CTE log: 2+ closings in the last 12 months, or closings more than a year ago, means Established. Change any of them and Save.</p>
     <form method="post" action="{{ url_for('goals_groups') }}">
     <div class="tbl-wrap"><table class="tbl">
-      <tr><th>Agent</th><th>Added to FUB</th><th>Name in CTE</th><th>Group</th></tr>
+      <tr><th>Agent</th><th>Added to FUB</th><th>Name in CTE</th><th class="n">Closings, last 12 mo</th><th>Group</th></tr>
       {% for p in people %}
       <tr><td>{{ p.name }}</td><td>{{ p.created_at|fmt_date if p.created_at else '--' }}</td><td>{{ p.cte_name or '--' }}</td>
+        <td class="n">{{ p.closings_12m }}{% if p.closed_before %} <small class="muted">+ earlier</small>{% endif %}</td>
         <td><select class="grp" name="grp_{{ p.user_id }}">{% for g, label in groups %}<option value="{{ g }}" {{ 'selected' if p.group == g }}>{{ label }}{{ ' (suggested)' if g == p.suggested and not p.grp }}</option>{% endfor %}</select></td></tr>
       {% endfor %}
     </table></div>

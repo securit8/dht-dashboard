@@ -99,15 +99,20 @@ def roster(cur):
           AND a.name !~* 'follow up boss'
         ORDER BY a.name""", {})
     cte_ready = CTE.ready(cur)
-    this_year = date.today().year
+    year_ago = date.today() - timedelta(days=365)
     for r in rows:
         r["cte_name"] = CTE.name_for(cur, r["name"]) if cte_ready else None
+        r["closings_12m"], r["closed_before"] = 0, False
+        if r["cte_name"]:
+            s = fetch(cur, """SELECT COUNT(DISTINCT (address, close_date)) FILTER (WHERE close_date >= %(ago)s) AS recent,
+                                     BOOL_OR(close_date < %(ago)s) AS older
+                              FROM cte_deals WHERE status = 'Closed' AND close_date IS NOT NULL
+                                AND LOWER(TRIM(primary_agent)) = LOWER(%(n)s)""", {"ago": year_ago, "n": r["cte_name"]})[0]
+            r["closings_12m"], r["closed_before"] = s["recent"] or 0, bool(s["older"])
         if "joe corbisiero" in r["name"].lower():
             suggested = "joe"
-        elif r["cte_name"] and fetch(cur, """SELECT 1 FROM cte_deals WHERE status = 'Closed' AND file_year < %(y)s
-                                               AND LOWER(TRIM(primary_agent)) = LOWER(%(n)s) LIMIT 1""",
-                                     {"y": this_year, "n": r["cte_name"]}):
-            suggested = "established"  # closed a deal in an earlier year
+        elif r["closings_12m"] >= 2 or r["closed_before"]:
+            suggested = "established"  # a track record: 2+ closings in a year, or closings more than a year ago
         else:
             suggested = "ramping"
         r["suggested"] = suggested
