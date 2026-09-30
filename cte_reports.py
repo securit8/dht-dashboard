@@ -445,7 +445,8 @@ def ensure_goal_table(cur):
 
 def year_goals(cur, year):
     ensure_goal_table(cur)
-    row = one(cur, "SELECT gross_goal, net_goal FROM business_goals WHERE year = %(y)s", {"y": year})
+    rows = fetch(cur, "SELECT gross_goal, net_goal FROM business_goals WHERE year = %(y)s", {"y": year})
+    row = rows[0] if rows else None
     return {"gross": _num(row["gross_goal"]) if row and row["gross_goal"] is not None else None,
             "net": _num(row["net_goal"]) if row and row["net_goal"] is not None else None}
 
