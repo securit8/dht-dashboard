@@ -24,6 +24,17 @@
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--soft); margin-top: 10px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
   .pos { color: #1F7A48; } .neg { color: #A33224; }
+  .mcharts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 8px; }
+  .mchart { border: 1px solid var(--bg); border-radius: 12px; padding: 10px 12px 4px; }
+  .mc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
+  .mc-head span { font-size: 11px; color: var(--muted); text-align: right; }
+  .mchart svg { display: block; width: 100%; height: auto; }
+  .mc-val { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; fill: var(--ink);
+            paint-order: stroke; stroke: var(--card, #fff); stroke-width: 3px; stroke-linejoin: round; }
+  .mc-x { font-size: 10px; fill: var(--soft); }
+  .mc-bar:hover rect:first-child { fill: rgba(31,42,68,.05); }
+  .as-table { margin-top: 12px; font-size: 13px; }
+  .as-table summary { cursor: pointer; color: var(--accent-ink); font-weight: 600; }
   .gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 12px; margin-top: 8px; }
   .gauge { text-align: center; }
   .gauge svg { display: block; margin: 0 auto; }
@@ -72,6 +83,46 @@
   </div>
 {% endmacro %}
 
+{# Small bar chart: one bar per period (actual), a dark line per period (target).
+   Bar color = status (green hit, amber in progress, red missed); future periods show the target only. #}
+{% macro minichart(title, labels, cells, money=False, lower=False, sub='') %}
+  {% set W, H, top, bottom, side = 300, 150, 20, 22, 6 %}
+  {% set vals = cells|map(attribute='actual')|reject('none')|list + cells|map(attribute='target')|list %}
+  {% set hi = ([vals|max if vals else 0, 1]|max) * 1.18 %}
+  {% set n = cells|length %}
+  {% set slot = (W - 2 * side) / n %}
+  {% set bw = slot * 0.5 %}
+  {% set ph = H - top - bottom %}
+  {% set colors = {'ok': '#2E9E62', 'running': '#D98A1C', 'behind': '#D2544A', 'info': '#5A6FDB'} %}
+  <div class="mchart">
+    <div class="mc-head"><b>{{ title }}</b>{% if sub %}<span>{{ sub }}</span>{% endif %}</div>
+    <svg viewBox="0 0 {{ W }} {{ H }}" role="img" aria-label="{{ title }}: actual vs target by period">
+      <line x1="{{ side }}" x2="{{ W - side }}" y1="{{ H - bottom }}" y2="{{ H - bottom }}" stroke="var(--line, #E3E6EC)"/>
+      {% for c in cells %}
+        {% set cx = side + slot * loop.index0 + slot / 2 %}
+        {% set ty = top + ph - (c.target / hi * ph) %}
+        {% set tgt = (c.target|dollars if money else c.target|num) %}
+        {% set tip = labels[loop.index0] ~ ': ' ~ (((c.actual|dollars if money else c.actual|num) ~ ' vs ' ~ ('cap ' if lower else 'target ') ~ tgt)
+                     if c.actual is not none else ('not started · ' ~ ('cap ' if lower else 'target ') ~ tgt)) %}
+        <g class="mc-bar"><title>{{ tip }}</title>
+          <rect x="{{ cx - slot / 2 }}" y="0" width="{{ slot }}" height="{{ H }}" fill="transparent"/>
+          {% if c.actual is not none and c.actual > 0 %}
+            {% set bh = [c.actual / hi * ph, 2]|max %}
+            <path d="M{{ cx - bw / 2 }},{{ H - bottom }} V{{ H - bottom - bh + 4 }} q0,-4 4,-4 H{{ cx + bw / 2 - 4 }} q4,0 4,4 V{{ H - bottom }} Z"
+                  fill="{{ colors.get(c.status, '#9AA5B1') }}"/>
+          {% endif %}
+          <line x1="{{ cx - bw / 2 - 6 }}" x2="{{ cx + bw / 2 + 6 }}" y1="{{ ty }}" y2="{{ ty }}" stroke="var(--ink)" stroke-width="2"
+                stroke-dasharray="{{ '3 3' if c.actual is none else 'none' }}" stroke-linecap="round"/>
+          {% if c.actual is not none %}
+            <text x="{{ cx }}" y="{{ H - bottom - ([c.actual / hi * ph, 0]|max) - 5 }}" text-anchor="middle" class="mc-val">{{ c.actual|money if money else c.actual|num }}</text>
+          {% endif %}
+          <text x="{{ cx }}" y="{{ H - 6 }}" text-anchor="middle" class="mc-x">{{ labels[loop.index0] }}</text>
+        </g>
+      {% endfor %}
+    </svg>
+  </div>
+{% endmacro %}
+
 {% block content %}
   {# ---------------- at a glance ---------------- #}
   <div class="card">
@@ -112,14 +163,24 @@
   {# ---------------- monthly targets ---------------- #}
   <div class="card">
     <h3>Monthly targets</h3>
+    {% set mlabels = [] %}{% for c in monthly.cols %}{% set _ = mlabels.append(c.label[:3] ~ " '" ~ c.label[-2:]) %}{% endfor %}
+    <div class="mcharts">
+      {% for r in monthly.rows %}
+        {{ minichart(r.label, mlabels, r.cells, money=r.money, lower=(r.key == 'expenses'),
+                     sub=('lower is better' if r.key == 'expenses' else '')) }}
+      {% endfor %}
+    </div>
+    <div class="legend"><span><i style="background:#2E9E62"></i>hit target</span><span><i style="background:#D98A1C"></i>month in progress</span>
+      <span><i style="background:#D2544A"></i>missed</span><span><i style="background:var(--ink);height:2px;vertical-align:3px"></i>target (dashed = month not started)</span></div>
+    <details class="as-table"><summary>Show as table</summary>
     <div class="tbl-wrap"><table class="tbl">
       <tr><th>Month</th>{% for c in monthly.cols %}<th class="n {{ 'cur' if c.state == 'current' }}" style="text-align:center">{{ c.label }}</th>{% endfor %}</tr>
       {% for r in monthly.rows %}
       <tr><td>{{ r.label }}</td>{% for c in r.cells %}{{ cell(c, r.money) }}{% endfor %}</tr>
       {% endfor %}
     </table></div>
-    <div class="legend"><span><i style="background:#E3F4EA"></i>on target</span><span><i style="background:#FFF3DC"></i>month in progress, not there yet</span>
-      <span><i style="background:#FBE7E4"></i>missed</span><span>Each cell: actual / target</span></div>
+    <div class="legend"><span>Each cell: actual / target</span></div>
+    </details>
     <div class="note">Closings: CTE deal log by close date and Primary Agent; groups are set under <a href="#settings">Agent groups</a>.
       Recruits: agents added to Follow Up Boss that month. Headcount: active agents now (earlier months count agents added by then who are still active).
       Expense cap: QuickBooks operating expenses{% if not monthly.books_live %} (connect QuickBooks to fill){% endif %}.</div>
@@ -129,6 +190,20 @@
   <div class="card">
     <div class="card-head"><h3 style="margin:0">Weekly scorecard (Friday review)</h3>
       <span class="muted" style="font-size:13px">Weeks start Monday &middot; Q4 targets until Dec 31, Q1 after</span></div>
+    {% set wlabels = weekly.cols|map(attribute='label')|list %}
+    <div class="mcharts">
+      {% for r in weekly.rows %}
+        {{ minichart(r.label.split(' (')[0], wlabels, r.cells,
+                     sub=(r.label.split(' (', 1)[1].rstrip(')') if ' (' in r.label else ('typed in below' if r.manual else ''))) }}
+      {% endfor %}
+      {% set lead_cells = [] %}
+      {% for c in weekly.cols %}{% set _ = lead_cells.append({'actual': c.fast_pct if c.leads else none, 'target': 100, 'status': 'info'}) %}{% endfor %}
+      {{ minichart('Contacted within 5 min (%)', wlabels, lead_cells, sub='share of new leads · no target in the plan') }}
+    </div>
+    <div class="legend"><span><i style="background:#2E9E62"></i>hit target</span><span><i style="background:#D98A1C"></i>this week, in progress</span>
+      <span><i style="background:#D2544A"></i>missed</span><span><i style="background:var(--ink);height:2px;vertical-align:3px"></i>target</span>
+      <span>Pending now: <b>{{ weekly.pending_now if weekly.pending_now is not none else '--' }}</b> of {{ weekly.pending_target }}+</span></div>
+    <details class="as-table"><summary>Show as table</summary>
     <div class="tbl-wrap"><table class="tbl">
       <tr><th>Week of</th>{% for c in weekly.cols %}<th class="{{ 'cur' if c.current }}" style="text-align:center">{{ c.label }}{% if c.current %}<br><small>this week</small>{% endif %}</th>{% endfor %}</tr>
       {% for r in weekly.rows %}
@@ -143,6 +218,7 @@
       <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="c none" style="color:var(--ink)">{{ v }}</td>{% endfor %}</tr>
       {% endfor %}
     </table></div>
+    </details>
   </div>
 
   <div class="card">
