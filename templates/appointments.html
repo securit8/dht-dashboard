@@ -20,7 +20,7 @@
   .kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .stage-band { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft);
-                margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--bg); }
+                margin-top: 14px; }
   .stage-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 8px; }
   .stage-kpis .kpi-lbl { min-height: 2.6em; }
   @media (max-width: 1200px) { .stage-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
@@ -52,24 +52,6 @@
 {% else %}
   <div class="card">
     <div class="band-label">For the time period <b>{{ rng.label }}</b></div>
-    <div class="kpis">
-      <div><div class="kpi-lbl">Appointments {{ 'Created' if view_by == 'created' else 'Scheduled' }}</div>
-        <div class="kpi-val">{{ kpis.total|num }}</div><div class="kpi-sub">{{ kpis.set_rate }}% Set rate</div>{{ m.chg(kpis.chg.total) }}</div>
-      <div><div class="kpi-lbl">Appointments Held</div>
-        <div class="kpi-val">{{ kpis.held|num }}</div><div class="kpi-sub">{{ kpis.held_rate }}% Held rate</div>{{ m.chg(kpis.chg.held) }}
-        {% if kpis.probable %}<div class="kpi-sub probable-note"><a href="{{ qs(status='probable', page=None) }}">+ {{ kpis.probable|num }} probably held</a>
-          &middot; {{ kpis.held_with_probable_rate }}% with them</div>{% endif %}</div>
-      <div><div class="kpi-lbl">Appointments Not Held</div>
-        <div class="kpi-val">{{ kpis.not_held|num }}</div><div class="kpi-sub">{{ kpis.not_held_rate }}% Not Held rate</div>{{ m.chg(kpis.chg.not_held) }}</div>
-      <div><div class="kpi-lbl">Appointments with No Outcome</div>
-        <div class="kpi-val">{{ kpis.none|num }}</div><div class="kpi-sub">{{ kpis.none_rate }}% With No Outcome</div>{{ m.chg(kpis.chg.none) }}
-        {% if kpis.probable %}<div class="kpi-sub probable-note">{{ kpis.probable|num }} of these probably happened</div>{% endif %}</div>
-      <div><div class="kpi-lbl">Reached Met with Customer or further</div>
-        {% if moves.known %}<div class="kpi-val" style="color:#2E9E62">{{ moves.met_pct|round|int }}%</div>
-          <div class="kpi-sub">{{ moves.met|num }} of {{ moves.known|num }} leads since their appointment</div>
-        {% else %}<div class="kpi-val muted">--</div><div class="kpi-sub">no stage history yet</div>{% endif %}</div>
-    </div>
-
     <div class="stage-band">Lead funnel &middot; how far the {{ moves.leads|num }} leads with appointments have got</div>
     <div class="kpis stage-kpis">
       {% for f in moves.flow %}

@@ -510,7 +510,7 @@ def appointments():
         if ready:
             rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage,
                                              stage_mode=stage_mode)
-            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage, stage_mode), rows=rows,
+            data = dict(rows=rows,
                         moves=R.appointment_stage_moves(cur, f, view_by, appt_type, stage, stage_mode),
                         total=total, pages=max((total + 24) // 25, 1),
                         type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
