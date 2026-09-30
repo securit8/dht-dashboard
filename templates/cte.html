@@ -120,7 +120,14 @@
   </div>
   {% endif %}
 
-  <div class="note">Source: CTE FILES in OneDrive, updated automatically on each cron run{% if imported_at %} (last change imported {{ imported_at|fmt_date(true) }}){% endif %}.</div>
+  <div class="note" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+    <span>Source: CTE FILES in OneDrive, updated automatically on each cron run{% if imported_at %} (last change imported {{ imported_at|fmt_date(true) }}){% endif %}.</span>
+    {% if onedrive %}
+      {% if refresh.running %}<b>Updating from OneDrive&hellip; refresh the page in a minute.</b>
+      {% else %}<form method="post" action="{{ url_for('cte_refresh') }}" style="margin:0"><button class="btn ghost" type="submit">Update from OneDrive now</button></form>{% endif %}
+    {% endif %}
+  </div>
+  {% if refresh.log and not refresh.running %}<div class="note">Last update{% if refresh.finished %} {{ refresh.finished.strftime('%I:%M %p') }}{% endif %}: {{ refresh.log|join(' · ') }}</div>{% endif %}
 {% endif %}
 {% endblock %}
 

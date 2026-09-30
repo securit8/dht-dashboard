@@ -15,6 +15,8 @@ import cte_reports as CTE
 import goals as G
 import qbo
 import gmail_import
+import cte_import
+import threading
 import reports as R
 
 app = Flask(__name__)
@@ -912,7 +914,33 @@ def cte():
                        "last": CTE.monthly_gci(cur, year - 1, agent)},
                 agent_choices=[("", "Whole team")] + [(n, n) for n in options],
                 imported_at=CTE.last_import(cur))
-    return render_template("cte.html", ready=ready, rng=rng, agent=agent, **data)
+    return render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
+                           refresh=_cte_refresh, **data)
+
+
+# One OneDrive import at a time, in the background (downloading the workbooks can take longer
+# than a web request is allowed to run). Read-only: files are only downloaded, never changed.
+_cte_refresh = {"running": False, "log": [], "finished": None}
+
+
+@app.route("/cte/refresh", methods=["POST"])
+@login_required
+def cte_refresh():
+    if not cte_import.graph_configured():
+        return redirect(url_for("cte"))
+    if not _cte_refresh["running"]:
+        _cte_refresh.update(running=True, log=[], finished=None)
+
+        def run():
+            try:
+                cte_import.import_from_onedrive(DATABASE_URL, log=_cte_refresh["log"].append)
+            except Exception as e:  # noqa: BLE001 - shown on the page
+                _cte_refresh["log"].append(f"CTE import failed: {e}")
+            finally:
+                _cte_refresh.update(running=False, finished=datetime.now(TEAM_TZ))
+
+        threading.Thread(target=run, daemon=True).start()
+    return redirect(url_for("cte", **request.args))
 
 
 # ---------------------------------------------------------------- Agent Snapshot
