@@ -522,14 +522,21 @@ PIPELINE_RANK = {"lead": 0, "new lead": 0, "attempted contact": 1, "spoke with c
                  "listing | pending": 7, "closed": 8, "sale closed": 8}
 MET_RANK = PIPELINE_RANK["met with customer"]
 NURTURE_STAGES = {"nurture", "long term nurture", "short term nurture", "sphere", "past client", "unresponsive"}
-# Stages on the Appointments Report flow chart, in the owner's order: (label, FUB stage names)
-FLOW_STAGES = [("Nurture", {"nurture", "long term nurture", "short term nurture"}),
-               ("Spoke with customer", {"spoke with customer"}),
-               ("Appointment set", {"appointment set"}),
-               ("Showing homes", {"showing homes", "active client"}),
-               ("Met with customer", {"met with customer"}),
-               ("Submitting offers", {"submitting offers"}),
-               ("Closed", {"closed", "sale closed"})]
+# Lead funnel on the Appointments Report, in the owner's order. Each tile counts leads that reached
+# at least that step. (label, FUB stage names that sit at that step); stages not listed count as Lead.
+FUNNEL = [("Lead", {"lead", "new lead", "attempted contact", "unresponsive", "trash", "archive", "archived",
+                    "rejected", "do not contact"}),
+          ("Nurture", {"nurture", "long term nurture", "short term nurture", "sphere", "past client"}),
+          ("Spoke with customer", {"spoke with customer", "appointment set"}),
+          ("Showing homes", {"showing homes", "active client", "listing agreement", "active listing"}),
+          ("Met with customer", {"met with customer"}),
+          ("Submitting offers", {"submitting offers", "under contract", "pending", "listing | pending"}),
+          ("Closed", {"closed", "sale closed"})]
+FUNNEL_STEP = {name: i for i, (_, names) in enumerate(FUNNEL) for name in names}
+
+
+def funnel_step(stage):
+    return FUNNEL_STEP.get((stage or "").strip().lower(), 0)
 TRASH_GROUP = {"trash", "archive", "archived", "rejected", "do not contact"}
 MOVE_GROUPS = [("advanced", "Moved forward", "#2E9E62"), ("stayed", "Stayed at the same stage", "#9AA5B1"),
                ("nurture", "Moved to nurture", "#E88BA0"), ("back", "Moved back", "#F2B84B"),
@@ -575,13 +582,16 @@ def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="
         if at_rank < MET_RANK <= now_rank:
             met += 1
     n = len(known)
-    # Stage tiles: every lead with an appointment in the period, by stage today, and the change since
-    # their first appointment (a lead whose stage then is unknown counts as unchanged)
+    # Funnel tiles: of every lead with an appointment in the period, how many reached at least each step
+    # today, and the gain since their first appointment (unknown stage then = counted as today's)
     flow = []
-    for label, names in FLOW_STAGES:
-        now = sum(1 for r in rows if (r["now_stage"] or "").strip().lower() in names)
-        at = sum(1 for r in rows if (r["at_stage"] or "").strip().lower() in names)
-        flow.append({"stage": label, "now": now, "at": at, "diff": now - at, "pct": pct(now, len(rows), 0)})
+    now_steps = [funnel_step(r["now_stage"]) for r in rows]
+    at_steps = [funnel_step(r["at_stage"]) for r in rows]
+    for i, (label, _) in enumerate(FUNNEL):
+        now = sum(1 for s in now_steps if s >= i)
+        at = sum(1 for s in at_steps if s >= i)
+        flow.append({"stage": label, "now": now, "at": at, "diff": now - at, "pct": pct(now, len(rows), 0),
+                     "stuck": sum(1 for s in now_steps if s == i)})
     return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0), "flow": flow,
             "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
                        for k, label, c in MOVE_GROUPS],

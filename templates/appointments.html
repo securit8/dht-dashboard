@@ -25,6 +25,8 @@
   .stage-kpis .kpi-lbl { min-height: 2.6em; }
   @media (max-width: 1200px) { .stage-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   @media (max-width: 700px) { .stage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .fbar { height: 6px; border-radius: 3px; background: var(--bg); margin: 8px 0 2px; }
+  .fbar div { height: 100%; border-radius: 3px; background: #3E55C9; }
   .stage-chg { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; margin-top: 6px; cursor: help; }
   .stage-chg.up { background: #E3F4EA; color: #1F7A48; } .stage-chg.down { background: #FBE7E4; color: #A33224; }
   .stage-chg.flat { background: var(--bg); color: var(--soft); cursor: default; }
@@ -68,19 +70,24 @@
         {% else %}<div class="kpi-val muted">--</div><div class="kpi-sub">no stage history yet</div>{% endif %}</div>
     </div>
 
-    <div class="stage-band">Where the {{ moves.leads|num }} leads with appointments are today</div>
+    <div class="stage-band">Lead funnel &middot; how far the {{ moves.leads|num }} leads with appointments have got</div>
     <div class="kpis stage-kpis">
       {% for f in moves.flow %}
-      <div><div class="kpi-lbl">{{ f.stage }}</div>
+      <div class="funnel-step" title="{{ f.stuck }} {{ 'lead is' if f.stuck == 1 else 'leads are' }} at this step right now">
+        <div class="kpi-lbl">{{ f.stage }}</div>
         <div class="kpi-val">{{ f.now|num }}</div>
-        <div class="kpi-sub">{{ f.pct|round|int }}% of leads</div>
-        {% if f.diff %}<span class="stage-chg {{ 'up' if f.diff > 0 else 'down' }}" title="{{ f.at }} at their first appointment in this period, {{ f.now }} today">
-          {{ '↗ +' if f.diff > 0 else '↘ ' }}{{ f.diff }} since appointment</span>
-        {% else %}<span class="stage-chg flat">no change</span>{% endif %}
+        <div class="kpi-sub">{{ f.pct|round|int }}% {{ 'of leads' if loop.first else 'reached' }}</div>
+        <div class="fbar"><div style="width: {{ f.pct }}%"></div></div>
+        {% if not loop.first %}
+          {% if f.diff %}<span class="stage-chg {{ 'up' if f.diff > 0 else 'down' }}" title="{{ f.at }} had reached this step at their first appointment in this period, {{ f.now }} today">
+            {{ '↗ +' if f.diff > 0 else '↘ ' }}{{ f.diff }} since appointment</span>
+          {% else %}<span class="stage-chg flat">no change</span>{% endif %}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
-    <div class="note">Stage today in Follow Up Boss. "Since appointment" compares with each lead's stage at their first appointment in the period, where that's known (action plans, or changes recorded since Sep 29 2026).</div>
+    <div class="note">Each step counts leads that reached at least that stage in Follow Up Boss today. Folded in: Attempted contact, Unresponsive and Trash count as Lead; Sphere and Past client as Nurture; Appointment set as Spoke with customer;
+      Listing agreement and Active listing as Showing homes; Under contract and Pending as Submitting offers. "Since appointment" compares with each lead's stage at their first appointment in the period, where known.</div>
   </div>
 
   <div class="card">
