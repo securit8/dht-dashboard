@@ -18,7 +18,7 @@ import os
 import re
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlencode
 
@@ -32,7 +32,10 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 API = "https://gmail.googleapis.com/gmail/v1/users/me"
 # The only emails the dashboard opens
-REMITTANCE_QUERY = 'from:DoNotReply@compass.com subject:"Upcoming Payment Compass Agent Remittance"'
+# Compass remittances: "Upcoming Payment ..." (Compass pays the team directly) and
+# "Agent Remittance Paid by Escrow/Title #address - date" (escrow paid at closing; one per deal)
+REMITTANCE_QUERY = ('from:DoNotReply@compass.com (subject:"Upcoming Payment Compass Agent Remittance" '
+                    'OR subject:"Agent Remittance Paid by Escrow")')
 # Assistant contribution payments, not invoices: "Assist Contr Sep 30", "Jul 25 Asst Cont 1 of 2"
 ASSIST_RE = re.compile(r"\b(assist\s*contr?|asst\.?\s*cont)", re.I)
 AMOUNT_RE = re.compile(r"\(?-?\$\s?[\d,]+\.\d{2}\)?")
@@ -125,6 +128,8 @@ def ensure_tables(cur):
             PRIMARY KEY (message_id, line_no)
         )""")
     cur.execute("ALTER TABLE compass_payments ADD COLUMN IF NOT EXISTS ytd_income NUMERIC")
+    cur.execute("ALTER TABLE compass_payments ADD COLUMN IF NOT EXISTS kind TEXT")  # payment | escrow
+    cur.execute("ALTER TABLE compass_payments ADD COLUMN IF NOT EXISTS property TEXT")
     for col, kind in (("bill_date", "DATE"), ("close_price", "NUMERIC"), ("gross", "NUMERIC"), ("components", "TEXT")):
         cur.execute(f"ALTER TABLE compass_payment_items ADD COLUMN IF NOT EXISTS {col} {kind}")
     cur.execute("ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS import_started_at TIMESTAMPTZ")
@@ -426,21 +431,30 @@ def import_message(database_url, email, message_id):
     items, source = stmt["items"], "pdf"
     if not items:  # no readable statement: fall back to the email's own table
         items, source = body_items(body), "email"
-    paid = re.search(r"sent on (\d{1,2}/\d{1,2}/\d{4})", body) or re.search(r"(\d{1,2}/\d{1,2}/\d{4})", subject)
-    payment = re.search(r"#+(\d+)", subject)
+    escrow = "paid by escrow" in subject.lower()
+    if escrow:  # "Agent Remittance Paid by Escrow/Title #26755 Hemet St Hemet, CA 92544 - 9/14/2026"
+        m = re.search(r"#\s*(.+?)\s+-\s+(\d{1,2}/\d{1,2}/\d{4})\s*$", subject)
+        prop = (re.search(r"commission for (.+?) on \d{1,2}/\d{1,2}/\d{4}", body) or m)
+        prop = prop.group(1).strip() if prop else None
+        paid, payment = (re.search(r"(\d{1,2}/\d{1,2}/\d{4})\s*$", subject), None)
+    else:
+        prop = None
+        paid = re.search(r"sent on (\d{1,2}/\d{1,2}/\d{4})", body) or re.search(r"(\d{1,2}/\d{1,2}/\d{4})", subject)
+        payment = re.search(r"#+(\d+)", subject)
     note = None if items else "No line items found; see the statement text."
     total = stmt["amount_paid"] if stmt["amount_paid"] is not None else _total(subject, body, text)
     conn, cur = _db(database_url)
     cur.execute("""
         INSERT INTO compass_payments (message_id, account, payment_no, paid_on, received_at, total, ytd_income,
-                                      subject, pdf_name, pdf_text, parse_note, pulled_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                                      subject, pdf_name, pdf_text, parse_note, kind, property, pulled_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
         ON CONFLICT (message_id) DO UPDATE SET total = EXCLUDED.total, ytd_income = EXCLUDED.ytd_income,
             paid_on = EXCLUDED.paid_on, pdf_text = EXCLUDED.pdf_text, parse_note = EXCLUDED.parse_note,
-            pulled_at = now()""",
+            kind = EXCLUDED.kind, property = EXCLUDED.property, payment_no = EXCLUDED.payment_no, pulled_at = now()""",
                 (message_id, email, payment.group(1) if payment else None,
                  datetime.strptime(paid.group(1), "%m/%d/%Y").date() if paid else received.date(),
-                 received, total, stmt["ytd_income"], subject, pdf_name, text, note))
+                 received, total, stmt["ytd_income"], subject, pdf_name, text, note,
+                 "escrow" if escrow else "payment", prop))
     cur.execute("DELETE FROM compass_payment_items WHERE message_id = %s", (message_id,))
     for n, it in enumerate(items, 1):
         cur.execute("""INSERT INTO compass_payment_items (message_id, line_no, bill_no, description, amount,
@@ -511,7 +525,7 @@ def payments(cur):
     """Every imported payment with its line items, newest first."""
     ensure_tables(cur)
     cur.execute("""SELECT p.message_id, p.account, p.payment_no, p.paid_on, p.total, p.pdf_name, p.parse_note,
-                          p.ytd_income,
+                          p.ytd_income, p.kind, p.property,
                           COALESCE(json_agg(json_build_object('bill_no', i.bill_no, 'description', i.description,
                                    'amount', i.amount, 'is_assist', i.is_assist, 'source', i.source,
                                    'bill_date', i.bill_date, 'close_price', i.close_price, 'gross', i.gross,
@@ -519,7 +533,7 @@ def payments(cur):
                                    ORDER BY i.line_no) FILTER (WHERE i.line_no IS NOT NULL), '[]')
                    FROM compass_payments p LEFT JOIN compass_payment_items i ON i.message_id = p.message_id
                    GROUP BY p.message_id ORDER BY p.paid_on DESC, p.received_at DESC""")
-    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "ytd_income", "items"]
+    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "ytd_income", "kind", "property", "items"]
     return [dict(zip(keys, r)) for r in cur.fetchall()]
 
 
@@ -549,3 +563,93 @@ def cron_pull(database_url):
         except Exception as e:  # noqa: BLE001 - report and carry on
             _mark_error(database_url, email, f"Import failed: {e}")
             print(f"Gmail {email} import failed: {e}")
+
+
+# ---------------------------------------------------------------- closed deals vs receipts
+
+ORDINALS = {"first": "1st", "second": "2nd", "third": "3rd", "fourth": "4th", "fifth": "5th", "sixth": "6th",
+            "seventh": "7th", "eighth": "8th", "ninth": "9th", "tenth": "10th"}
+ALIASES = {"mt": "mount", "ste": "suite", "n": "north", "s": "south", "e": "east", "w": "west"}
+# Words that don't tell two addresses apart
+GENERIC = {"st", "street", "ave", "avenue", "rd", "road", "dr", "drive", "ln", "lane", "ct", "court", "way", "blvd",
+           "pl", "place", "cir", "circle", "unit", "apt", "suite", "san", "diego", "sd", "ca", "adj", "north", "south",
+           "east", "west", "the", "de", "la", "del", "el", "vista", "chula", "city"}
+
+
+def _addr_key(text):
+    """(street number, set of distinctive words) for fuzzy address matching."""
+    words = [ORDINALS.get(w, ALIASES.get(w, w)) for w in re.findall(r"[a-z0-9]+", (text or "").lower())]
+    words = [w for w in words if not re.fullmatch(r"9\d{4}", w)]  # zip codes
+    if words and words[0] == "adj":
+        words = words[1:]
+    number = words[0] if words and words[0].isdigit() else None
+    return number, {w for w in words[1:] if w not in GENERIC and not w.isdigit()}
+
+
+def deal_receipts(cur, start, end):
+    """CTE closed deals in [start, end) with the Compass receipts that match them (same street number,
+    within 120 days, sharing a street word when there is a choice), plus receipts that match no deal."""
+    ensure_tables(cur)
+    cur.execute("""SELECT file_year, row_num, address, close_date, gci, primary_agent, deal_type, sale_price
+                   FROM cte_deals WHERE status = 'Closed' AND close_date >= %s AND close_date < %s
+                   ORDER BY close_date DESC""", (start, end))
+    deals = [dict(zip(["file_year", "row_num", "address", "close_date", "gci", "agent", "deal_type", "sale_price"], r),
+                  receipts=[]) for r in cur.fetchall()]
+    cur.execute("""SELECT p.message_id, p.kind, p.paid_on, p.property, i.description, i.bill_no, i.bill_date,
+                          i.close_price, i.gross, i.amount, i.components
+                   FROM compass_payment_items i JOIN compass_payments p ON p.message_id = i.message_id
+                   WHERE NOT i.is_assist""")
+    keys = ["message_id", "kind", "paid_on", "property", "description", "bill_no", "bill_date", "close_price",
+            "gross", "amount", "components"]
+    receipts = [dict(zip(keys, r)) for r in cur.fetchall()]
+    lo, hi = start - timedelta(days=150), end + timedelta(days=150)
+    unmatched = []
+    for rc in receipts:
+        when = rc["bill_date"] or rc["paid_on"]
+        number, words = _addr_key(rc["property"] or rc["description"])
+        best = None
+        for d in deals:
+            dn, dw = _addr_key(d["address"])
+            if not number or dn != number or not d["close_date"] or not when:
+                continue
+            gap = abs((when - d["close_date"]).days)
+            if gap > 120:
+                continue
+            score = (len(words & dw) > 0, -gap)
+            if best is None or score > best[0]:
+                best = (score, d)
+        if best:
+            best[1]["receipts"].append(rc)
+        elif when and lo <= when < hi:
+            unmatched.append(rc)
+    return deals, unmatched
+
+
+def monthly_vs_books(cur, year):
+    """Month by month: Compass's YTD Income from the latest statement of the month vs QuickBooks
+    income summed from January (qbo_pnl, pulled from the QuickBooks API)."""
+    ensure_tables(cur)
+    cur.execute("""SELECT DISTINCT ON (date_trunc('month', paid_on)) date_trunc('month', paid_on)::date, ytd_income
+                   FROM compass_payments WHERE ytd_income IS NOT NULL AND EXTRACT(YEAR FROM paid_on) = %s
+                   ORDER BY date_trunc('month', paid_on), paid_on DESC, ytd_income DESC""", (year,))
+    compass = dict(cur.fetchall())
+    books = {}
+    cur.execute("SELECT to_regclass('qbo_pnl') IS NOT NULL")
+    if cur.fetchone()[0]:
+        cur.execute("SELECT month, income FROM qbo_pnl WHERE EXTRACT(YEAR FROM month) = %s ORDER BY month", (year,))
+        books = {m: float(v or 0) for m, v in cur.fetchall()}
+    rows, c_ytd, b_ytd, prev_c = [], None, 0.0, 0.0
+    for month in range(1, 13):
+        m = date(year, month, 1)
+        if m > date.today():
+            break
+        if m in compass:
+            c_ytd = float(compass[m])
+        b_ytd += books.get(m, 0.0)
+        c_month = (c_ytd - prev_c) if c_ytd is not None else None
+        rows.append({"month": m, "compass_ytd": c_ytd, "books_ytd": b_ytd if books else None,
+                     "compass_month": c_month, "books_month": books.get(m) if books else None,
+                     "statement": m in compass})
+        if c_ytd is not None:
+            prev_c = c_ytd
+    return rows

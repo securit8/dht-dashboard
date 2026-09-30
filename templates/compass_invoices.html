@@ -90,6 +90,86 @@
   </div>
 
   <div class="card">
+    <div class="card-head"><h2>Month by month &middot; {{ year }}</h2>
+      <div class="seg">{% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ url_for('compass_invoices', year=y, deals=deal_filter, show=show) }}">{{ y }}</a>{% endfor %}</div>
+    </div>
+    <div class="eyebrow" style="margin:-6px 0 10px">Compass = YTD Income on the latest statement of the month. QuickBooks = Total Income from the Profit &amp; Loss (QuickBooks API), added up from January.</div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Month</th><th class="n">Compass YTD</th><th class="n">QuickBooks YTD</th><th class="n">Difference</th>
+            <th class="n">Compass this month</th><th class="n">QuickBooks this month</th><th class="n">Month difference</th></tr>
+        {% for r in monthly %}
+        <tr><td>{{ r.month.strftime('%b %Y') }}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.compass_ytd) if r.compass_ytd is not none else '--' }}{% if r.compass_ytd is not none and not r.statement %} <span class="muted" title="No statement this month; carried from the month before">*</span>{% endif %}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.books_ytd) if r.books_ytd is not none else '--' }}</td>
+          <td class="n">{% if r.books_ytd is not none and r.compass_ytd is not none %}<b>{{ '${:,.2f}'.format(r.books_ytd - r.compass_ytd) }}</b>{% endif %}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.compass_month) if r.compass_month is not none and r.statement else '' }}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.books_month) if r.books_month is not none else '' }}</td>
+          <td class="n">{% if r.books_month is not none and r.compass_month is not none and r.statement %}{{ '${:,.2f}'.format(r.books_month - r.compass_month) }}{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="note">Difference = QuickBooks minus Compass. Positive: the books show more income than Compass paid by then (other income, or booked in a different month). Negative: Compass paid more than was booked. * no statement that month; the last one carries over.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Closed deals &amp; their Compass receipts &middot; {{ year }}</h2>
+      <div class="seg">
+        <a class="{{ 'on' if deal_filter != 'missing' }}" href="{{ url_for('compass_invoices', year=year, show=show) }}">All {{ deal_stats.total }}</a>
+        <a class="{{ 'on' if deal_filter == 'missing' }}" href="{{ url_for('compass_invoices', year=year, deals='missing', show=show) }}">No receipt {{ deal_stats.missing }}</a>
+      </div>
+    </div>
+    <div class="eyebrow" style="margin:-6px 0 10px">Closed deals from the CTE files, matched to Compass remittance emails (invoice payments and "Paid by Escrow/Title" statements) by street number and close date.
+      {{ deal_stats.with }} of {{ deal_stats.total }} have a receipt.</div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Closed</th><th>Address (CTE)</th><th>Agent</th><th>Side</th><th class="n">GCI (CTE)</th>
+            <th>Receipt</th><th>Compass says</th><th class="n">Commission</th><th class="n">Paid</th><th></th></tr>
+        {% for d in deals %}
+          {% if d.receipts %}
+            {% for r in d.receipts %}
+            <tr>
+              {% if loop.first %}<td rowspan="{{ d.receipts|length }}">{{ d.close_date.strftime('%m/%d/%Y') }}</td>
+                <td rowspan="{{ d.receipts|length }}"><b>{{ d.address }}</b></td><td rowspan="{{ d.receipts|length }}">{{ d.agent or '' }}</td>
+                <td rowspan="{{ d.receipts|length }}">{{ d.deal_type or '' }}</td>
+                <td class="n" rowspan="{{ d.receipts|length }}">{{ '${:,.0f}'.format(d.gci|float) if d.gci is not none else '' }}</td>{% endif %}
+              <td><span class="tag inv">{{ 'Escrow statement' if r.kind == 'escrow' else 'Invoice payment' }}</span>
+                <div class="muted" style="font-size:12px">{{ (r.bill_date or r.paid_on).strftime('%m/%d/%Y') if (r.bill_date or r.paid_on) else '' }}{% if r.bill_no %} &middot; Bill #{{ r.bill_no }}{% endif %}</div></td>
+              <td style="font-size:13px">{{ r.property or r.description }}{% if r.components %}<div class="muted" style="font-size:12px">{{ r.components }}</div>{% endif %}</td>
+              <td class="n">{{ '${:,.2f}'.format(r.gross|float) if r.gross is not none else '' }}</td>
+              <td class="n"><b>{{ '${:,.2f}'.format(r.amount|float) if r.amount is not none else '--' }}</b></td>
+              <td><a href="{{ url_for('compass_invoice_text', message_id=r.message_id) }}" target="_blank" rel="noopener">text</a></td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td>{{ d.close_date.strftime('%m/%d/%Y') }}</td><td><b>{{ d.address }}</b></td><td>{{ d.agent or '' }}</td>
+              <td>{{ d.deal_type or '' }}</td><td class="n">{{ '${:,.0f}'.format(d.gci|float) if d.gci is not none else '' }}</td>
+              <td colspan="5"><span class="tag miss">No receipt found</span></td></tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="10" class="muted">No closed deals in {{ year }}.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% if unmatched %}
+    <h3 style="margin-top:18px">Receipts that match no closed deal in the CTE file ({{ unmatched|length }})</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <tr><th>Date</th><th>Receipt</th><th>Compass says</th><th class="n">Commission</th><th class="n">Paid</th><th></th></tr>
+        {% for r in unmatched %}
+        <tr><td>{{ (r.bill_date or r.paid_on).strftime('%m/%d/%Y') if (r.bill_date or r.paid_on) else '' }}</td>
+          <td><span class="tag">{{ 'Escrow statement' if r.kind == 'escrow' else 'Invoice payment' }}</span></td>
+          <td>{{ r.property or r.description }}{% if r.components %}<div class="muted" style="font-size:12px">{{ r.components }}</div>{% endif %}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.gross|float) if r.gross is not none else '' }}</td>
+          <td class="n">{{ '${:,.2f}'.format(r.amount|float) if r.amount is not none else '--' }}</td>
+          <td><a href="{{ url_for('compass_invoice_text', message_id=r.message_id) }}" target="_blank" rel="noopener">text</a></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
     <div class="card-head"><h2>Payments</h2>
       <div class="seg">
         <a class="{{ 'on' if show != 'all' }}" href="{{ url_for('compass_invoices') }}">Invoices only</a>
