@@ -605,6 +605,15 @@ def _addr_key(text):
     return number, {w for w in words[1:] if w not in GENERIC and not w.isdigit()}
 
 
+def _street(text):
+    """First distinctive word of the street name ("caminito", "enfield"), for typo suggestions;
+    the city words later in the address must not count as the same street."""
+    words = [ORDINALS.get(w, ALIASES.get(w, w)) for w in re.findall(r"[a-z0-9]+", (text or "").lower())]
+    words = [w for w in words if w != "adj"]
+    rest = words[1:] if words and words[0].isdigit() else words
+    return next((w for w in rest if w not in GENERIC and not w.isdigit()), None)
+
+
 def _digits_close(a, b):
     """True when two street numbers look like a typo of each other: same digits in another order,
     or one digit different (7832 / 7382, 1832 / 1831, 1607 / 1670)."""
@@ -662,15 +671,16 @@ def deal_receipts(cur, start, end):
     for d in deals:
         if d["receipts"] or not d["close_date"]:
             continue
-        dn, dw = d["key"]
+        dn, street = d["key"][0], _street(d["address"])
         for rc in unmatched:
             when = rc["bill_date"] or rc["paid_on"]
-            number, words = rc["key"]
+            number = rc["key"][0]
+            same_street = street and street == _street(rc["property"] or rc["description"])
             gap = abs((when - d["close_date"]).days)
             # same street: a number that looks like a typo, or any other number when it closed within two weeks
-            if words & dw and dn != number and (_digits_close(dn, number) and gap <= 120 or gap <= 14):
+            if same_street and dn != number and (_digits_close(dn, number) and gap <= 120 or gap <= 14):
                 d["suggestions"].append(dict(rc, why="street number differs"))
-            elif words & dw and dn == number and 120 < gap <= 400:
+            elif same_street and dn == number and 120 < gap <= 400:
                 d["suggestions"].append(dict(rc, why="close date differs"))
     in_period = [d for d in deals if d["close_date"] and start <= d["close_date"] < end]
     return in_period, [rc for rc in unmatched if start <= (rc["bill_date"] or rc["paid_on"]) < end]
