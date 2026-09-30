@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Agent Splits{% endblock %}
+{% block eyebrow %}Agent contracts vs what Compass paid{% endblock %}
+{% block heading %}Is every deal paid at the contract split?{% endblock %}
+{% block style %}
+  .tag { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .tag.ok { background: #E3F4EA; color: #1F7A48; }
+  .tag.under { background: #FBE7E4; color: #A33224; }
+  .tag.over { background: #FFF3DC; color: #8A5A00; }
+  .tag.none { background: var(--bg); color: var(--soft); }
+  table.fit { width: 100%; table-layout: fixed; }
+  table.fit th, table.fit td { white-space: normal; padding-left: 6px; padding-right: 6px; }
+  .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  td.neg { color: #A33224; font-weight: 600; }
+  td.pos { color: #1F7A48; }
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <div class="card-head"><h2>By agent &middot; {{ year }}</h2>
+      <div class="seg">{% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ url_for('splits_page', year=y, show=show) }}">{{ y }}</a>{% endfor %}</div>
+    </div>
+    <div class="eyebrow" style="margin:-6px 0 10px">Company share Compass actually paid on each closed deal, against the company share in the agent's contract for that lead type.
+      Compass keeps 7.5% + about $150 per deal, so actual % = company commission &divide; (GCI &times; 0.925 &minus; $150).</div>
+    <table class="tbl fit">
+      <tr><th>Agent</th><th class="n">Deals checked</th><th class="n">On contract</th><th class="n">Under</th><th class="n">Over</th>
+          <th class="n">Company got</th><th class="n">Contract says</th><th class="n">Difference</th></tr>
+      {% for a in agents %}
+      <tr><td><b>{{ a.agent }}</b>{% if a.note %}<div class="sub">{{ a.note }}</div>{% endif %}</td>
+        <td class="n">{{ a.checked }}</td><td class="n">{{ a.ok }}</td>
+        <td class="n">{% if a.under %}<b style="color:#A33224">{{ a.under }}</b>{% endif %}</td><td class="n">{{ a.over or '' }}</td>
+        <td class="n">{{ '${:,.0f}'.format(a.company) if a.checked else '' }}</td>
+        <td class="n">{{ '${:,.0f}'.format(a.expected) if a.checked else '' }}</td>
+        <td class="n {{ 'neg' if a.gap < -1 else 'pos' if a.gap > 1 }}">{{ '${:,.0f}'.format(a.gap) if a.checked else '' }}</td></tr>
+      {% endfor %}
+      <tr><td><b>All agents</b></td><td class="n"><b>{{ total.checked }}</b></td><td class="n">{{ total.ok }}</td><td class="n"><b>{{ total.under }}</b></td><td class="n">{{ total.over }}</td>
+        <td class="n"><b>{{ '${:,.0f}'.format(total.company) }}</b></td><td class="n"><b>{{ '${:,.0f}'.format(total.expected) }}</b></td>
+        <td class="n {{ 'neg' if total.gap < -1 else 'pos' if total.gap > 1 }}"><b>{{ '${:,.0f}'.format(total.gap) }}</b></td></tr>
+    </table>
+    <div class="note">Only deals that closed after the agent's contract was signed and have a Compass receipt are checked. Lead type comes from the CTE "Source" column:
+      Sphere, Personal, Client Referral, Past Clients, Family, Friends = personal; Zillow = Zillow; everything else (open house, Realtor.com, Google PPC, team past client&hellip;) = team / database.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Every closed deal &middot; {{ year }}</h2>
+      <div class="seg">
+        <a class="{{ 'on' if show != 'all' }}" href="{{ url_for('splits_page', year=year) }}">Off contract ({{ total.under + total.over }})</a>
+        <a class="{{ 'on' if show == 'all' }}" href="{{ url_for('splits_page', year=year, show='all') }}">All {{ rows|length }}</a>
+      </div>
+    </div>
+    <table class="tbl fit">
+      <tr><th style="width:9%">Closed</th><th style="width:17%">Address</th><th style="width:13%">Agent</th><th style="width:12%">Lead (CTE source)</th>
+          <th class="n">GCI</th><th class="n">Company got</th><th class="n">Actual %</th><th class="n">Contract %</th><th class="n">Difference</th><th>Check</th></tr>
+      {% for r in rows if show == 'all' or r.status in ('under', 'over') %}
+      <tr><td>{{ r.close_date.strftime('%m/%d/%Y') }}</td><td>{{ r.address }}<div class="sub">{{ r.deal_type or '' }}</div></td>
+        <td>{{ r.agent }}</td>
+        <td>{{ {'personal': 'Personal', 'zillow': 'Zillow', 'database': 'Team / database'}[r.lead] }}<div class="sub">{{ r.source or '' }}</div></td>
+        <td class="n">{{ '${:,.0f}'.format(r.gci|float) if r.gci is not none else '' }}</td>
+        <td class="n">{{ '${:,.2f}'.format(r.company) if r.company is not none else '' }}</td>
+        <td class="n"><b>{{ '{:.1f}%'.format(r.actual_pct) if r.actual_pct is not none else '' }}</b></td>
+        <td class="n">{{ '{}%'.format(r.expected_pct) if r.expected_pct is not none else '' }}</td>
+        <td class="n {{ 'neg' if r.gap is not none and r.gap < -1 else 'pos' if r.gap is not none and r.gap > 1 }}">{{ '${:,.0f}'.format(r.gap) if r.gap is not none else '' }}</td>
+        <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>
+          {% elif r.status == 'under' %}<span class="tag under">Under contract</span>
+          {% elif r.status == 'over' %}<span class="tag over">Over contract</span>
+          {% elif r.status == 'owner' %}<span class="tag none">Owner deal</span>
+          {% elif r.status == 'before_contract' %}<span class="tag none">Before contract</span>
+          {% elif r.status == 'no_contract' %}<span class="tag none">No contract in Drive</span>
+          {% else %}<span class="tag none">No receipt</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Contract terms &middot; company share</h3>
+    <table class="tbl fit">
+      <tr><th style="width:17%">Agent</th><th style="width:10%">Signed</th><th class="n" style="width:9%">Personal</th><th class="n" style="width:8%">Zillow</th><th class="n" style="width:10%">Team / database</th><th>Notes</th></tr>
+      {% for c in contracts %}
+      <tr><td><b>{{ c.agent }}</b><div class="sub">{{ c.file }}</div></td><td>{{ c.since.strftime('%m/%d/%Y') if c.since else 'not signed' }}</td>
+        <td class="n">{{ c.personal }}%</td><td class="n">{{ c.zillow }}%</td><td class="n">{{ c.database }}%</td><td class="muted" style="font-size:13px">{{ c.note }}</td></tr>
+      {% endfor %}
+    </table>
+    <div class="note">All agreements: Compass fee 10% of gross shared by split, $550 TC fee paid by the agent (split for Margaryta and Sam), $1,500 onboarding fee if the agent leaves within 10 months.
+      No agreement found in Drive for {{ no_contract|join(', ') }}.</div>
+  </div>
+{% endblock %}

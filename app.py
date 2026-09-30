@@ -16,6 +16,7 @@ import goals as G
 import qbo
 import gmail_import
 import cte_import
+import splits as SP
 import threading
 import reports as R
 
@@ -41,7 +42,7 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 NAV = [
     ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
-                          ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("goals_page", "Goals: Oct–Mar Plan")]),
+                          ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("splits_page", "Agent Splits"), ("goals_page", "Goals: Oct–Mar Plan")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -264,6 +265,35 @@ def gmail_disconnect():
     email = request.form.get("email", "")
     gmail_import.disconnect(DATABASE_URL, email)
     return redirect(url_for("compass_invoices", msg=f"Disconnected {email}. Everything imported from it was deleted."))
+
+
+@app.route("/splits")
+@login_required
+def splits_page():
+    """Every closed deal's company share (from the Compass receipts) against the agent's contract."""
+    today = datetime.now(TEAM_TZ).date()
+    try:
+        year = int(request.args.get("year") or today.year)
+    except ValueError:
+        year = today.year
+    with db() as cur:
+        rows = SP.deal_check(cur, date(year, 1, 1), date(year + 1, 1, 1))
+    notes = {c["agent"]: c["note"] for c in SP.contracts_table()}
+    agents, total = {}, {"checked": 0, "ok": 0, "under": 0, "over": 0, "company": 0.0, "expected": 0.0, "gap": 0.0}
+    for r in rows:
+        if r["status"] not in ("ok", "under", "over"):
+            continue
+        a = agents.setdefault(r["agent"], {"agent": r["agent"], "note": notes.get(r["agent"], ""), "checked": 0, "ok": 0,
+                                           "under": 0, "over": 0, "company": 0.0, "expected": 0.0, "gap": 0.0})
+        for t in (a, total):
+            t["checked"] += 1
+            t[r["status"]] += 1
+            t["company"] += r["company"]
+            t["expected"] += r["expected"]
+            t["gap"] += r["gap"]
+    return render_template("splits.html", year=year, year_choices=list(range(today.year, 2023, -1)),
+                           rows=rows, agents=sorted(agents.values(), key=lambda a: a["gap"]), total=total,
+                           contracts=SP.contracts_table(), no_contract=SP.NO_CONTRACT, show=request.args.get("show"))
 
 
 @app.route("/login", methods=["GET", "POST"])
