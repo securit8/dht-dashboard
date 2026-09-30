@@ -392,6 +392,14 @@ def import_from_onedrive(database_url, force=False, log=print):
     conn.commit()
     cur.execute("SELECT source_file, etag FROM cte_import_log")
     seen = dict(cur.fetchall())
+    # A workbook deleted or renamed in OneDrive takes its rows with it (a renamed copy would
+    # otherwise count that year twice)
+    gone = [name for name in seen if name not in {f["name"] for f in files}]
+    if files and gone:
+        for table in ("cte_activity", "cte_deals", "cte_financials", "cte_import_log"):
+            cur.execute(f"DELETE FROM {table} WHERE source_file = ANY(%s)", (gone,))
+        conn.commit()
+        log(f"CTE: removed rows of workbooks no longer in OneDrive/{folder}: {', '.join(gone)}")
     for f in files:
         if not force and f["etag"] and seen.get(f["name"]) == f["etag"]:
             continue
