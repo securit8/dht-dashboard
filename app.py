@@ -236,7 +236,8 @@ def gmail_callback():
 @login_required
 def gmail_refresh():
     email, reimport = request.form.get("email", ""), request.form.get("reimport") == "1"
-    if not gmail_import.pull_in_background(DATABASE_URL, email, reimport=reimport):
+    if not gmail_import.pull_in_background(DATABASE_URL, email, reimport=reimport,
+                                           retry=request.form.get("retry") == "1"):
         return redirect(url_for("compass_invoices", msg="An import is already running. Refresh in a minute."))
     return redirect(url_for("compass_invoices", msg="Import started. It reads every PDF, so give it a minute or two, then refresh."))
 

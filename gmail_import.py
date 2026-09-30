@@ -240,10 +240,18 @@ def _access_token(database_url, email, force_refresh=False):
 
 def _get(database_url, email, path, params=None):
     token = _access_token(database_url, email)
-    for attempt in range(2):
+    refreshed, waits = False, 0
+    while True:
         r = _request("GET", f"{API}/{path}", params=params, headers={"Authorization": f"Bearer {token}"})
-        if r.status_code == 401 and attempt == 0:
-            token = _access_token(database_url, email, force_refresh=True)
+        if r.status_code == 401 and not refreshed:
+            token, refreshed = _access_token(database_url, email, force_refresh=True), True
+            continue
+        # Gmail answers 403 (not 429) when requests come too fast: wait and try again
+        if r.status_code == 403 and re.search(r"rateLimitExceeded|userRateLimitExceeded|quota", r.text, re.I):
+            if waits >= 6:
+                raise GmailError("Gmail rate limit: too many requests. The next update continues where this one stopped.")
+            time.sleep(min(60, 5 * 2 ** waits))
+            waits += 1
             continue
         if r.status_code in (401, 403):
             msg = f"Gmail refused access (HTTP {r.status_code})"
@@ -486,6 +494,7 @@ def pull(database_url, email, reimport=False):
     todo = ids if reimport else [i for i in ids if i not in done]
     for mid in todo:
         import_message(database_url, email, mid)
+        time.sleep(0.25)  # stay under Gmail's per-user rate limit
     conn, cur = _db(database_url)
     cur.execute("UPDATE gmail_accounts SET last_pull_at = now(), last_error = NULL WHERE email = %s", (email,))
     conn.commit()
@@ -493,12 +502,15 @@ def pull(database_url, email, reimport=False):
     return len(todo), len(ids)
 
 
-def pull_in_background(database_url, email, reimport=False):
+def pull_in_background(database_url, email, reimport=False, retry=False):
     """Run pull() in a background thread so the page answers at once (a full import reads every PDF
     and takes longer than the web server's request timeout). Returns False if one is already running."""
     conn, cur = _db(database_url)
-    cur.execute("""UPDATE gmail_accounts SET import_started_at = now() WHERE email = %s
-                   AND (import_started_at IS NULL OR import_started_at < now() - interval '15 minutes')""", (email,))
+    cur.execute("""UPDATE gmail_accounts SET import_started_at = now(),
+                          needs_reconnect = CASE WHEN %s THEN false ELSE needs_reconnect END
+                   WHERE email = %s
+                   AND (import_started_at IS NULL OR import_started_at < now() - interval '15 minutes')""",
+                (retry, email))
     started = cur.rowcount == 1
     conn.commit()
     conn.close()

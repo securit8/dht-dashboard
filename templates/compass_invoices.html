@@ -59,6 +59,10 @@
           <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
             <input type="hidden" name="reimport" value="1"><button class="btn ghost" type="submit">Re-read all</button></form>
           {% endif %}
+          {% if a.needs_reconnect and not a.importing %}
+          <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
+            <input type="hidden" name="retry" value="1"><button class="btn ghost" type="submit">Try again</button></form>
+          {% endif %}
           <form method="post" action="{{ url_for('gmail_disconnect') }}" onsubmit="return confirm('Disconnect {{ a.email }} and delete everything imported from it?')">
             <input type="hidden" name="email" value="{{ a.email }}"><button class="btn danger" type="submit">Disconnect</button></form>
         </div>
