@@ -347,17 +347,23 @@ def parse_statement(text):
     Final Close Price, Memo or Description, Amount (2025+) or Date, Type, Description, Memo, Amount (2024).
     Each bill lists labeled amounts (Commission Income, Referral Income, fees as negatives)."""
     flat = " ".join(text.split())
-    paid = re.search(r"Amount Paid\s+(-?\$[\d,]+\.\d{2})", flat)
+    # Escrow statements have no "Amount Paid"; their total is "Paid by Title/Escrow $X" after the table
+    paid = (re.search(r"Amount Paid\s+(-?\$[\d,]+\.\d{2})", flat)
+            or re.search(r"Payment Questions:.*?Paid by Title/Escrow\s+(\$[\d,]+\.\d{2})", flat))
     ytd = re.search(r"YTD Income\s+(-?\$[\d,]+\.\d{2})", flat)
     out = {"amount_paid": _money(paid.group(1)) if paid else None,
            "ytd_income": _money(ytd.group(1)) if ytd else None, "items": []}
     start = re.search(r"\bAmount\s+(?=\d{1,2}/\d{1,2}/\d{4}\s+Bill)", flat)
-    end = flat.find("Sub-total")
     if not start:
         return out
+    # The table ends at "Sub-total" (payments) or at the contact lines / YTD figures (escrow statements)
+    ends = [i for i in (flat.find(k, start.end()) for k in
+                        ("Sub-total", "Commission Payment Questions", "Non-Commission Payment", "Incentive Payment",
+                         "Invoicing Related", "YTD ")) if i > 0]
+    end = min(ends) if ends else len(flat)
     header = flat[:start.end()]
     has_price = "Final Close Price" in header[header.rfind("Amount Paid"):]
-    body = flat[start.end():end if end > 0 else len(flat)]
+    body = flat[start.end():end]
     bills = list(BILL_RE.finditer(body))
     # 2024 statements repeat "date Bill #N address" on every line of the same bill: merge them
     groups = []
@@ -383,9 +389,10 @@ def parse_statement(text):
             lines = [REF_RE.sub("", s).strip() for s in segs]
             desc = _address(lines)
             for line in lines:
+                prev = len(desc) if desc and line.startswith(desc) else 0
                 for t in MONEY_RE.finditer(line):
-                    label = line[len(desc):t.start()].strip() if line.startswith(desc) else line[:t.start()].strip()
-                    parts.append((label or desc or "Amount", _money(t.group(0))))
+                    parts.append((line[prev:t.start()].strip() or desc or "Amount", _money(t.group(0))))
+                    prev = t.end()
             desc = desc or (parts[0][0] if parts else "")
         gross = sum(v for k, v in parts if re.search(r"income", k, re.I))
         out["items"].append({
@@ -627,7 +634,8 @@ def deal_receipts(cur, start, end):
             gap = abs((when - d["close_date"]).days)
             if gap > 120:
                 continue
-            score = (len(words & dw) > 0, -gap)
+            # buyer and listing sides are separate CTE rows with the same address: spread receipts over them
+            score = (len(words & dw) > 0, -(gap // 10), -len(d["receipts"]), -gap)
             if best is None or score > best[0]:
                 best = (score, d)
         if best:
@@ -641,9 +649,11 @@ def monthly_vs_books(cur, year):
     """Month by month: Compass's YTD Income from the latest statement of the month vs QuickBooks
     income summed from January (qbo_pnl, pulled from the QuickBooks API)."""
     ensure_tables(cur)
-    cur.execute("""SELECT DISTINCT ON (date_trunc('month', paid_on)) date_trunc('month', paid_on)::date, ytd_income
+    # Highest YTD in the month: statements for late-December closings are often run in January and
+    # already show the new year's (small) YTD, so the latest one isn't always the right one
+    cur.execute("""SELECT date_trunc('month', paid_on)::date, MAX(ytd_income)
                    FROM compass_payments WHERE ytd_income IS NOT NULL AND EXTRACT(YEAR FROM paid_on) = %s
-                   ORDER BY date_trunc('month', paid_on), paid_on DESC, ytd_income DESC""", (year,))
+                   GROUP BY 1""", (year,))
     compass = dict(cur.fetchall())
     books = {}
     cur.execute("SELECT to_regclass('qbo_pnl') IS NOT NULL")
@@ -656,7 +666,7 @@ def monthly_vs_books(cur, year):
         if m > date.today():
             break
         if m in compass:
-            c_ytd = float(compass[m])
+            c_ytd = max(float(compass[m]), c_ytd or 0.0)  # YTD only grows within a year
         b_ytd += books.get(m, 0.0)
         c_month = (c_ytd - prev_c) if c_ytd is not None else None
         rows.append({"month": m, "compass_ytd": c_ytd, "books_ytd": b_ytd if books else None,

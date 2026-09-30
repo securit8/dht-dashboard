@@ -161,14 +161,21 @@ def compass_invoices():
     for p in sorted(payments, key=lambda p: (p["paid_on"] or date.min)):
         y = years.setdefault(p["paid_on"].year if p["paid_on"] else 0,
                              {"emails": 0, "invoices": 0, "gross": 0.0, "net": 0.0, "assist": 0.0,
+                              "escrow": 0, "escrow_gross": 0.0, "escrow_net": 0.0,
                               "ytd_income": None, "ytd_as_of": None, "books": None})
         y["emails"] += 1
-        if p["ytd_income"] is not None:  # the latest statement of the year carries the year's total
+        # The year's total is the highest YTD Income on its statements (YTD only grows; statements for
+        # late-December closings run in January already show the new year's YTD)
+        if p["ytd_income"] is not None and (y["ytd_income"] is None or float(p["ytd_income"]) >= y["ytd_income"]):
             y["ytd_income"], y["ytd_as_of"] = float(p["ytd_income"]), p["paid_on"]
         for it in p["items"]:
             amt = float(it["amount"] or 0)
             if it["is_assist"]:
                 y["assist"] += amt
+            elif p["kind"] == "escrow":
+                y["escrow"] += 1
+                y["escrow_net"] += amt
+                y["escrow_gross"] += float(it["gross"] or amt)
             else:
                 y["invoices"] += 1
                 y["net"] += amt
