@@ -551,7 +551,8 @@ def appointments_csv():
         w.writerow([r["agent_names"], r["lead_name"],
                     r["created_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d") if r["created_at"] else "",
                     r["start_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d %H:%M") if r["start_at"] else "",
-                    r["stage"], r["created_by_name"], r["type"], r["outcome"], r["source"]])
+                    r["stage"], r["created_by_name"], r["type"],
+                    "Probably held (estimated)" if r["probable"] else r["outcome"], r["source"]])
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=appointments.csv"})
 
