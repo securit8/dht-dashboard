@@ -16,6 +16,7 @@ import gmail_import
 COMPASS_KEEP = 0.075     # Compass's split, seen on every 2026 statement
 COMPASS_FEE = 150.0      # flat fee shared in proportion to the split
 TOLERANCE = 2.0          # points of difference before a deal is flagged
+ZILLOW_FEE = (0.25, 0.45)  # Zillow referral fee range (share of the commission) treated as on contract
 
 # Company share (%) by lead type, from each agent's signed agreement.
 # (agent as named in CTE, effective date, personal, zillow, database, file, note)
@@ -114,5 +115,11 @@ def deal_check(cur, start, end):
             row["gap"] = company - row["expected"]
             diff = row["actual_pct"] - row["expected_pct"]
             row["status"] = "ok" if abs(diff) <= TOLERANCE else ("under" if diff < 0 else "over")
+            # Zillow's referral fee (usually 35-40% of the commission) comes off the top before the split,
+            # so a Zillow deal paid at the contract % of what was left is on contract
+            if row["lead"] == "zillow" and row["status"] == "under":
+                fee = 1 - row["actual_pct"] / row["expected_pct"]
+                if ZILLOW_FEE[0] <= fee <= ZILLOW_FEE[1]:
+                    row.update(status="ok", zillow_fee=fee * 100, expected=company, gap=0.0)
         out.append(row)
     return out

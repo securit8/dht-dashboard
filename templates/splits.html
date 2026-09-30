@@ -20,7 +20,8 @@
       <div class="seg">{% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ url_for('splits_page', year=y, show=show) }}">{{ y }}</a>{% endfor %}</div>
     </div>
     <div class="eyebrow" style="margin:-6px 0 10px">Company share Compass actually paid on each closed deal, against the company share in the agent's contract for that lead type.
-      Compass keeps 7.5% + about $150 per deal, so actual % = company commission &divide; (GCI &times; 0.925 &minus; $150).</div>
+      Compass keeps 7.5% + about $150 per deal, so actual % = company commission &divide; (GCI &times; 0.925 &minus; $150).
+      Zillow deals count as on contract when the difference is Zillow's referral fee (25&ndash;45% of the commission) taken off the top.</div>
     <table class="tbl fit">
       <tr><th>Agent</th><th class="n">Deals checked</th><th class="n">On contract</th><th class="n">Under</th><th class="n">Over</th>
           <th class="n">Company got</th><th class="n">Contract says</th><th class="n">Difference</th></tr>
@@ -59,7 +60,7 @@
         <td class="n"><b>{{ '{:.1f}%'.format(r.actual_pct) if r.actual_pct is not none else '' }}</b></td>
         <td class="n">{{ '{}%'.format(r.expected_pct) if r.expected_pct is not none else '' }}</td>
         <td class="n {{ 'neg' if r.gap is not none and r.gap < -1 else 'pos' if r.gap is not none and r.gap > 1 }}">{{ '${:,.0f}'.format(r.gap) if r.gap is not none else '' }}</td>
-        <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>
+        <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>{% if r.zillow_fee %}<div class="sub">after a {{ '{:.0f}'.format(r.zillow_fee) }}% Zillow fee</div>{% endif %}
           {% elif r.status == 'under' %}<span class="tag under">Under contract</span>
           {% elif r.status == 'over' %}<span class="tag over">Over contract</span>
           {% elif r.status == 'owner' %}<span class="tag none">Owner deal</span>
