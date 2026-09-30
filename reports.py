@@ -575,18 +575,14 @@ def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="
         if at_rank < MET_RANK <= now_rank:
             met += 1
     n = len(known)
-    # Stage-by-stage: how many leads sat in each stage at their first appointment vs. today
+    # Stage tiles: every lead with an appointment in the period, by stage today, and the change since
+    # their first appointment (a lead whose stage then is unknown counts as unchanged)
     flow = []
     for label, names in FLOW_STAGES:
-        flow.append({"stage": label, "at": sum(1 for r in known if (r["at_stage"] or "").strip().lower() in names),
-                     "now": sum(1 for r in known if (r["now_stage"] or "").strip().lower() in names)})
-    listed = set().union(*(names for _, names in FLOW_STAGES))
-    other_at = [r["at_stage"] or "(none)" for r in known if (r["at_stage"] or "").strip().lower() not in listed]
-    other_now = [r["now_stage"] or "(none)" for r in known if (r["now_stage"] or "").strip().lower() not in listed]
-    flow.append({"stage": "Other", "at": len(other_at), "now": len(other_now), "other": True,
-                 "detail": ", ".join(sorted({s for s in other_at + other_now}))})
+        now = sum(1 for r in rows if (r["now_stage"] or "").strip().lower() in names)
+        at = sum(1 for r in rows if (r["at_stage"] or "").strip().lower() in names)
+        flow.append({"stage": label, "now": now, "at": at, "diff": now - at, "pct": pct(now, len(rows), 0)})
     return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0), "flow": flow,
-            "flow_max": max([f["at"] for f in flow] + [f["now"] for f in flow] + [1]),
             "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
                        for k, label, c in MOVE_GROUPS],
             "pairs": sorted(({"from": a, "to": b, "n": v} for (a, b), v in pairs.items()),

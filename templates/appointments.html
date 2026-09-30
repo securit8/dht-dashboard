@@ -19,27 +19,15 @@
   .hist-link:hover { color: var(--accent-ink); }
   .kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  .flow-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px;
-               margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--bg); }
-  .flow-legend { display: flex; gap: 16px; font-size: 12px; color: var(--soft); }
-  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-  .sw.at, .fb.at { background: #B9C3EE; } .sw.now, .fb.now { background: #3E55C9; }
-  .flow { display: flex; align-items: flex-end; gap: 4px; margin-top: 14px; overflow-x: auto; padding-bottom: 2px; }
-  .flow-col { flex: 1 1 0; min-width: 84px; display: flex; flex-direction: column; align-items: center; }
-  .flow-col.other { opacity: .7; }
-  .flow-bars { display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 150px; width: 100%;
-               border-bottom: 1px solid var(--line, #E3E6EC); }
-  .fb-wrap { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; width: 26px; cursor: default; }
-  .fb { width: 100%; border-radius: 4px 4px 0 0; min-height: 0; }
-  .fb-val { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-  .fb-wrap:hover .fb { filter: brightness(.9); }
-  .flow-lbl { font-size: 12px; font-weight: 600; text-align: center; margin-top: 8px; line-height: 1.3; min-height: 32px; }
-  .flow-lbl small { display: block; font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
-  .flow-lbl small.up { color: #1F7A48; } .flow-lbl small.down { color: #A33224; }
-  .flow-arrow { align-self: center; margin-bottom: 40px; color: var(--muted); font-size: 22px; }
-  .flow-gap { width: 18px; }
-  .changes { margin-top: 14px; font-size: 13px; }
-  .changes summary { cursor: pointer; color: var(--accent-ink); font-weight: 600; margin-bottom: 6px; }
+  .stage-band { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft);
+                margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--bg); }
+  .stage-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 8px; }
+  .stage-kpis .kpi-lbl { min-height: 2.6em; }
+  @media (max-width: 1200px) { .stage-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .stage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stage-chg { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; margin-top: 6px; cursor: help; }
+  .stage-chg.up { background: #E3F4EA; color: #1F7A48; } .stage-chg.down { background: #FBE7E4; color: #A33224; }
+  .stage-chg.flat { background: var(--bg); color: var(--soft); cursor: default; }
   .pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 28px; margin-top: 6px; }
   .pair-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
   .pair-row b { font-family: 'IBM Plex Mono', monospace; }
@@ -80,39 +68,19 @@
         {% else %}<div class="kpi-val muted">--</div><div class="kpi-sub">no stage history yet</div>{% endif %}</div>
     </div>
 
-    <div class="flow-head">
-      <h3 style="margin:0">Where these leads are now</h3>
-      <div class="flow-legend"><span><i class="sw at"></i>At first appointment</span><span><i class="sw now"></i>Today</span></div>
-    </div>
-    {% if moves.known %}
-    <div class="flow">
+    <div class="stage-band">Where the {{ moves.leads|num }} leads with appointments are today</div>
+    <div class="kpis stage-kpis">
       {% for f in moves.flow %}
-      <div class="flow-col {{ 'other' if f.other }}" {% if f.other and f.detail %}title="Other stages: {{ f.detail }}"{% endif %}>
-        <div class="flow-bars">
-          {% for key, cls, label in [('at', 'at', 'at first appointment'), ('now', 'now', 'today')] %}
-          <div class="fb-wrap" title="{{ f.stage }}: {{ f[key] }} {{ 'lead' if f[key] == 1 else 'leads' }} {{ label }}">
-            <span class="fb-val">{{ f[key] }}</span>
-            <div class="fb {{ cls }}" style="height: {{ (f[key] / moves.flow_max * 100)|round(1) }}%"></div>
-          </div>
-          {% endfor %}
-        </div>
-        <div class="flow-lbl">{{ f.stage }}{% if f.now != f.at %}<small class="{{ 'up' if f.now > f.at else 'down' }}">{{ '+' if f.now > f.at }}{{ f.now - f.at }}</small>{% endif %}</div>
+      <div><div class="kpi-lbl">{{ f.stage }}</div>
+        <div class="kpi-val">{{ f.now|num }}</div>
+        <div class="kpi-sub">{{ f.pct|round|int }}% of leads</div>
+        {% if f.diff %}<span class="stage-chg {{ 'up' if f.diff > 0 else 'down' }}" title="{{ f.at }} at their first appointment in this period, {{ f.now }} today">
+          {{ '↗ +' if f.diff > 0 else '↘ ' }}{{ f.diff }} since appointment</span>
+        {% else %}<span class="stage-chg flat">no change</span>{% endif %}
       </div>
-      {% if not loop.last and not moves.flow[loop.index].other %}<div class="flow-arrow">&rsaquo;</div>{% elif not loop.last %}<div class="flow-gap"></div>{% endif %}
       {% endfor %}
     </div>
-    <details class="changes">
-      <summary>Most common changes</summary>
-      {% if moves.pairs %}
-      <div class="pair-grid">
-        {% for p in moves.pairs %}<div class="pair-row"><span>{{ p.from }} <span class="muted">&rarr;</span> {{ p.to }}</span><b>{{ p.n }}</b></div>{% endfor %}
-      </div>
-      {% else %}<div class="muted">No stage changes since the appointments yet.</div>{% endif %}
-    </details>
-    <div class="note">Based on {{ moves.known|num }} of {{ moves.leads|num }} leads: the ones whose stage at their first appointment in this period is known (from action plans, or changes recorded since Sep 29 2026). "Other" = stages not in this list, e.g. Lead, Attempted contact, Trash.</div>
-    {% else %}
-    <div class="muted">None of the {{ moves.leads|num }} leads in this view have stage history from before their appointment yet.</div>
-    {% endif %}
+    <div class="note">Stage today in Follow Up Boss. "Since appointment" compares with each lead's stage at their first appointment in the period, where that's known (action plans, or changes recorded since Sep 29 2026).</div>
   </div>
 
   <div class="card">
