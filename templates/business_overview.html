@@ -18,6 +18,23 @@
   .stile .vals b { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 16px; color: #fff; }
   .stile .split { font-size: 12px; color: rgba(255,255,255,.80); margin-top: 10px; }
   .stile .more { font-size: 12px; color: #fff; margin-top: 10px; font-weight: 600; }
+  .year-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 8px; }
+  .ybox { background: #fff; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); }
+  .ylbl { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
+  .yval { font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 700; margin: 8px 0 4px; }
+  .ysub { font-size: 13px; color: var(--soft); }
+  .ysrc { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pos { color: #1F7A48; } .neg { color: #A33224; }
+  .ybar { position: relative; height: 8px; border-radius: 4px; background: var(--bg); margin-top: 10px; }
+  .ybar div { height: 100%; border-radius: 4px; background: #2E9E62; }
+  .ybar span { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+  .goal-edit { margin-bottom: 20px; font-size: 13px; }
+  .goal-edit summary { cursor: pointer; color: var(--accent-ink); font-weight: 600; padding: 4px 0; }
+  .goal-edit form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 8px; }
+  .goal-edit label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; color: var(--soft); }
+  .goal-edit input { padding: 8px 10px; border: 1px solid var(--line, #E3E6EC); border-radius: 8px; font: inherit; width: 160px; }
+  @media (max-width: 900px) { .year-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .year-totals { grid-template-columns: 1fr; } }
   .qbtn { font: inherit; font-weight: 600; color: var(--accent-ink); background: none; border: 0; padding: 4px 8px;
           margin: -4px -8px; border-radius: 8px; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
   .qbtn:hover { background: var(--bg); text-decoration: underline; }
@@ -38,6 +55,60 @@
 {% if not ready %}
   {{ m.empty('Waiting for the first deal sync from Follow Up Boss.') }}
 {% else %}
+  {% if totals %}{% set t = totals %}
+  <div class="year-totals" id="year-totals">
+    <div class="ybox">
+      <div class="ylbl">Total gross (GCI) &middot; {{ t.year }}</div>
+      <div class="yval">{{ t.gross|dollars }}</div>
+      <div class="ysub">+ {{ t.pending|dollars }} pending to close</div>
+      <div class="ysrc">CTE Financial Statement &middot; whole team</div>
+    </div>
+    <div class="ybox">
+      <div class="ylbl">Net income &middot; {{ t.year }}</div>
+      {% if t.books %}
+        <div class="yval {{ 'neg' if t.net < 0 }}">{{ t.net|dollars }}</div>
+        <div class="ysub">Gross profit {{ t.books.gross_profit|dollars }} &middot; income {{ t.books.income|dollars }}</div>
+        <div class="ysrc">QuickBooks{% if t.books.through %} &middot; through {{ t.books.through.strftime('%b %Y') }}{% endif %}</div>
+      {% else %}
+        <div class="yval muted">--</div>
+        <div class="ysub">Needs QuickBooks connected to your real books.</div>
+        <div class="ysrc"><a href="{{ url_for('quickbooks') }}">Connect QuickBooks &rarr;</a></div>
+      {% endif %}
+    </div>
+    {% for key, label, vs, actual in [('gross', 'Gross goal', t.gross_vs, t.gross), ('net', 'Net goal', t.net_vs, t.net)] %}
+    <div class="ybox">
+      <div class="ylbl">{{ label }} &middot; {{ t.year }}</div>
+      {% if vs %}
+        <div class="yval">{{ vs.goal|dollars }}</div>
+        <div class="ysub"><b class="{{ 'pos' if vs.diff >= 0 else 'neg' }}">{{ '+' if vs.diff >= 0 }}{{ vs.diff|abs|dollars }}</b>
+          {{ 'over' if vs.diff >= 0 else 'to go' }} &middot; {{ vs.pct|round|int }}% reached</div>
+        <div class="ybar"><div style="width: {{ [vs.pct, 100]|min }}%"></div><span style="left: {{ [t.pace_pct, 100]|min }}%" title="Where you should be today"></span></div>
+        {% if t.pace_pct < 100 %}
+        <div class="ysrc">{{ 'Ahead of' if vs.pace_diff >= 0 else 'Behind' }} pace by <b class="{{ 'pos' if vs.pace_diff >= 0 else 'neg' }}">{{ vs.pace_diff|abs|dollars }}</b>
+          (should be at {{ vs.pace_target|dollars }} today)</div>
+        {% endif %}
+      {% elif t.goals[key] is not none %}
+        <div class="yval">{{ t.goals[key]|dollars }}</div>
+        <div class="ysub muted">No {{ 'net income from QuickBooks' if key == 'net' else 'gross' }} yet to compare.</div>
+      {% else %}
+        <div class="yval muted">--</div>
+        <div class="ysub muted">No goal set for {{ t.year }}.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <details class="goal-edit">
+    <summary>Set {{ t.year }} goals</summary>
+    <form method="post" action="{{ url_for('business_goals') }}">
+      <input type="hidden" name="year" value="{{ t.year }}">
+      <label>Gross (GCI) goal <input name="gross_goal" placeholder="e.g. 2.5M" value="{{ t.goals.gross|int if t.goals.gross is not none }}"></label>
+      <label>Net income goal <input name="net_goal" placeholder="e.g. 400K" value="{{ t.goals.net|int if t.goals.net is not none }}"></label>
+      <button class="btn" type="submit">Save goals</button>
+      <span class="muted" style="font-size:12px">Type 2500000, 2.5M or 400K. Leave empty to clear.</span>
+    </form>
+  </details>
+  {% endif %}
+
   {% if statuses %}
   <div class="status-tiles">
     {% for s in statuses %}

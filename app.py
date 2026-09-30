@@ -591,6 +591,49 @@ def lead_source():
 
 # ---------------------------------------------------------------- Business Overview
 
+def _year_totals(cur, year, today):
+    """Team gross (CTE) and net (QuickBooks) for the year against the owner's goals, with pace."""
+    if year < today.year:
+        pace = 1.0
+    elif year > today.year:
+        pace = 0.0
+    else:
+        start = date(year, 1, 1)
+        pace = ((today.date() - start).days + 1) / ((date(year + 1, 1, 1) - start).days)
+    income = CTE.year_income(cur, year)
+    books = qbo.year_totals(cur, year)
+    goals = CTE.year_goals(cur, year)
+
+    def vs_goal(actual, goal):
+        if goal is None or actual is None:
+            return None
+        return {"goal": goal, "diff": actual - goal, "pct": actual / goal * 100 if goal else 0,
+                "pace_target": goal * pace, "pace_diff": actual - goal * pace}
+
+    net = books["net_income"] if books else None
+    return {"year": year, "gross": income["gross"], "pending": income["pending"], "books": books, "net": net,
+            "goals": goals, "gross_vs": vs_goal(income["gross"], goals["gross"]), "net_vs": vs_goal(net, goals["net"]),
+            "pace_pct": pace * 100}
+
+
+@app.route("/business-overview/goals", methods=["POST"])
+@login_required
+def business_goals():
+    year = request.form.get("year", type=int)
+
+    def amount(name):
+        v = (request.form.get(name) or "").replace("$", "").replace(",", "").strip().lower()
+        mult = 1_000_000 if v.endswith("m") else 1_000 if v.endswith("k") else 1
+        try:
+            return float(v.rstrip("mk")) * mult if v else None
+        except ValueError:
+            return None
+    if year:
+        with db() as cur:
+            CTE.save_year_goals(cur, year, amount("gross_goal"), amount("net_goal"))
+    return redirect(url_for("business_overview", year=year) + "#year-totals")
+
+
 @app.route("/business-overview")
 @login_required
 def business_overview():
@@ -626,6 +669,7 @@ def business_overview():
             status = request.args.get("status")
             status = status if status in dict(CTE.STATUS_TILES) else None
             data = dict(
+                totals=_year_totals(cur, year, today),
                 statuses=CTE.status_summary(cur, year, agent, source), status=status,
                 status_deals=CTE.deals_with_status(cur, year, status, agent, source) if status else [],
                 source_name="CTE", metrics=metrics, quarters=quarters, total=total,

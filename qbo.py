@@ -146,6 +146,20 @@ def pnl_rows(cur, months=24):
     return rows
 
 
+def year_totals(cur, year):
+    """Income / gross profit / net income for a calendar year from the stored P&L, or None
+    when QuickBooks isn't connected to the real (production) books."""
+    conn = status(cur)
+    if not conn or conn["env"] != "production" or conn["needs_reconnect"]:
+        return None
+    cur.execute("""SELECT COALESCE(SUM(income), 0), COALESCE(SUM(gross_profit), 0), COALESCE(SUM(net_income), 0),
+                          MAX(month) FILTER (WHERE income <> 0 OR net_income <> 0)
+                   FROM qbo_pnl WHERE EXTRACT(YEAR FROM month) = %s""", (year,))
+    income, gross_profit, net_income, last_month = cur.fetchone()
+    return {"income": float(income), "gross_profit": float(gross_profit), "net_income": float(net_income),
+            "through": last_month, "company": conn["company_name"]}
+
+
 def _mark_error(database_url, message, reconnect=False):
     conn, cur = _db(database_url)
     cur.execute("UPDATE qbo_connection SET last_error = %s, needs_reconnect = needs_reconnect OR %s WHERE id = 1",

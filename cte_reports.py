@@ -429,6 +429,34 @@ def deals_with_status(cur, year, status, cte_agent=None, source=None):
         {"y": year, "status": status, "cte_agent": cte_agent, "source": source})
 
 
+def year_income(cur, year):
+    """Team gross (GCI) for a year from the CTE Financial Statement: closed, plus pending to close."""
+    rows = {r["label"]: _num(r["v"]) for r in fetch(cur, """
+        SELECT label, SUM(amount) AS v FROM cte_financials
+        WHERE file_year = %(y)s AND label IN ('Total Income', 'Pending to Closed Income') GROUP BY 1""", {"y": year})}
+    return {"gross": rows.get("Total Income", 0.0), "pending": rows.get("Pending to Closed Income", 0.0)}
+
+
+# Yearly team goals typed in on Business Overview (the owner's own numbers)
+def ensure_goal_table(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS business_goals (
+                       year INT PRIMARY KEY, gross_goal NUMERIC, net_goal NUMERIC, updated_at TIMESTAMPTZ DEFAULT now())""")
+
+
+def year_goals(cur, year):
+    ensure_goal_table(cur)
+    row = one(cur, "SELECT gross_goal, net_goal FROM business_goals WHERE year = %(y)s", {"y": year})
+    return {"gross": _num(row["gross_goal"]) if row and row["gross_goal"] is not None else None,
+            "net": _num(row["net_goal"]) if row and row["net_goal"] is not None else None}
+
+
+def save_year_goals(cur, year, gross_goal, net_goal):
+    ensure_goal_table(cur)
+    cur.execute("""INSERT INTO business_goals (year, gross_goal, net_goal, updated_at) VALUES (%s, %s, %s, now())
+                   ON CONFLICT (year) DO UPDATE SET gross_goal = EXCLUDED.gross_goal, net_goal = EXCLUDED.net_goal,
+                                                    updated_at = now()""", (year, gross_goal, net_goal))
+
+
 def closed_count_since(cur, since, cte_agent=None):
     return one(cur, f"""SELECT COUNT(*) AS n FROM cte_deals d WHERE d.status = 'Closed' AND d.close_date >= %(since)s
                         AND EXTRACT(YEAR FROM d.close_date) = d.file_year AND {DEAL_AGENT_MATCH}""",
