@@ -166,8 +166,14 @@ def compass_invoices():
         y["emails"] += 1
         # The year's total is the highest YTD Income on its statements (YTD only grows; statements for
         # late-December closings run in January already show the new year's YTD)
-        if p["ytd_income"] is not None and (y["ytd_income"] is None or float(p["ytd_income"]) >= y["ytd_income"]):
-            y["ytd_income"], y["ytd_as_of"] = float(p["ytd_income"]), p["paid_on"]
+        # YTD Income is as of the day the statement was sent, so it counts toward that year
+        sent = p["received_at"].astimezone(TEAM_TZ).date() if p["received_at"] else p["paid_on"]
+        if p["ytd_income"] is not None and sent:
+            yy = years.setdefault(sent.year, {"emails": 0, "invoices": 0, "gross": 0.0, "net": 0.0, "assist": 0.0,
+                                              "escrow": 0, "escrow_gross": 0.0, "escrow_net": 0.0,
+                                              "ytd_income": None, "ytd_as_of": None, "books": None})
+            if yy["ytd_income"] is None or float(p["ytd_income"]) >= yy["ytd_income"]:
+                yy["ytd_income"], yy["ytd_as_of"] = float(p["ytd_income"]), sent
         for it in p["items"]:
             amt = float(it["amount"] or 0)
             if it["is_assist"]:

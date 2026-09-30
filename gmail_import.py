@@ -544,7 +544,7 @@ def payments(cur):
     """Every imported payment with its line items, newest first."""
     ensure_tables(cur)
     cur.execute("""SELECT p.message_id, p.account, p.payment_no, p.paid_on, p.total, p.pdf_name, p.parse_note,
-                          p.ytd_income, p.kind, p.property,
+                          p.ytd_income, p.kind, p.property, p.received_at,
                           COALESCE(json_agg(json_build_object('bill_no', i.bill_no, 'description', i.description,
                                    'amount', i.amount, 'is_assist', i.is_assist, 'source', i.source,
                                    'bill_date', i.bill_date, 'close_price', i.close_price, 'gross', i.gross,
@@ -552,7 +552,7 @@ def payments(cur):
                                    ORDER BY i.line_no) FILTER (WHERE i.line_no IS NOT NULL), '[]')
                    FROM compass_payments p LEFT JOIN compass_payment_items i ON i.message_id = p.message_id
                    GROUP BY p.message_id ORDER BY p.paid_on DESC, p.received_at DESC""")
-    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "ytd_income", "kind", "property", "items"]
+    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "ytd_income", "kind", "property", "received_at", "items"]
     return [dict(zip(keys, r)) for r in cur.fetchall()]
 
 
@@ -651,8 +651,10 @@ def monthly_vs_books(cur, year):
     ensure_tables(cur)
     # Highest YTD in the month: statements for late-December closings are often run in January and
     # already show the new year's (small) YTD, so the latest one isn't always the right one
-    cur.execute("""SELECT date_trunc('month', paid_on)::date, MAX(ytd_income)
-                   FROM compass_payments WHERE ytd_income IS NOT NULL AND EXTRACT(YEAR FROM paid_on) = %s
+    # by the day the statement was sent: YTD Income is as of that day, even for an older closing
+    cur.execute("""SELECT date_trunc('month', received_at AT TIME ZONE 'America/Los_Angeles')::date, MAX(ytd_income)
+                   FROM compass_payments WHERE ytd_income IS NOT NULL
+                     AND EXTRACT(YEAR FROM received_at AT TIME ZONE 'America/Los_Angeles') = %s
                    GROUP BY 1""", (year,))
     compass = dict(cur.fetchall())
     books = {}
