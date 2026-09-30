@@ -411,8 +411,8 @@ PLAN_STAGE_CASE = "(CASE " + " ".join(
     for rx, stage in PLAN_STAGES) + " END)"
 
 # Held / Not Held is judged by what happened to the lead, not the outcome field (agents rarely fill it in):
-#   Held      = the outcome says an agreement was signed / listing obtained (agents often take the lead out of
-#               the pipeline after that), or after the appointment the lead reached Met with customer or further
+#   Held      = the agent typed an outcome other than cancelled / no show (they met, even if the lead went back
+#               later or was taken out of the pipeline), or after the appointment the lead reached Met with customer or further
 #               at any point (stage history), is there now (or Past client), or got a deal
 #   Not Held  = the lead is below Appointment set now and never got past it, or the appointment was
 #               marked cancelled / no show and a later appointment replaced it
@@ -427,7 +427,7 @@ _APPT_REACHED = f"""(EXISTS (SELECT 1 FROM people_stage_history hc WHERE hc.pers
     OR EXISTS (SELECT 1 FROM action_plan_people ap WHERE ap.person_id = a.person_id
                   AND ap.created_at >= a.start_at AND LOWER({PLAN_STAGE_CASE}) IN ({_FWD})))"""
 APPT_CLASS = f"""(CASE
-    WHEN a.outcome ~* '(agreement signed|listing obtained|closed)' AND a.outcome !~* 'not' THEN 'held'
+    WHEN COALESCE(a.outcome, '') <> '' AND a.outcome !~* '(no.?show|cancel|resched|miss|didn)' THEN 'held'
     WHEN a.outcome ~* '(no.?show|cancel|resched)' AND EXISTS (SELECT 1 FROM appointments ax
          WHERE ax.person_id = a.person_id AND ax.start_at > a.start_at) THEN 'not_held'
     WHEN a.start_at > now() THEN 'none'
