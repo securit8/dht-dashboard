@@ -545,13 +545,14 @@ def appointments_csv():
     w = csv.writer(out)
     w.writerow(["Agent(s)", "Lead", "Created", "Appointment Time",
                 "Stage at Appointment" if stage_mode == "appt" else "Current Stage", "Created By",
-                "Type", "Outcome", "Lead Source"])
+                "Type", "Held / Not Held", "Outcome in FUB", "Lead Source"])
     for r in rows:
         w.writerow([r["agent_names"], r["lead_name"],
                     r["created_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d") if r["created_at"] else "",
                     r["start_at"].astimezone(TEAM_TZ).strftime("%Y-%m-%d %H:%M") if r["start_at"] else "",
                     r["stage"], r["created_by_name"], r["type"],
-                    "Probably held (estimated)" if r["probable"] else r["outcome"], r["source"]])
+                    {"held": "Held", "not_held": "Not Held"}.get(r["status"], "No outcome yet"), r["outcome"],
+                    r["source"]])
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=appointments.csv"})
 

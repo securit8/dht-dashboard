@@ -68,11 +68,25 @@ DEAL_CLASS = """(CASE
 # When a closed/pending deal "happened": the day it entered that stage
 DEAL_DATE = "COALESCE(d.entered_stage_at, d.projected_close, d.created_at)"
 
-# Appointment outcomes are free-text in FUB; blank = no outcome recorded yet
-APPT_CLASS = """(CASE
-    WHEN COALESCE(a.outcome, '') = '' THEN 'none'
-    WHEN a.outcome ~* '(not|no.?show|cancel|resched|miss|didn)' THEN 'not_held'
-    ELSE 'held' END)"""
+# Held / Not Held is judged by what happened to the lead, not the outcome field (agents rarely fill it in):
+#   Held      = the lead is now at Met with customer or further (or Past client), or got a deal after the appointment
+#   Not Held  = the lead is below Appointment set now (moved back, nurture, trash), or the appointment was
+#               marked cancelled / no show and a later appointment replaced it
+#   No outcome = the appointment hasn't happened yet, or the lead is still sitting at Appointment set
+APPT_FORWARD_STAGES = ("met with customer", "showing homes", "listing agreement", "active client", "active listing",
+                       "submitting offers", "under contract", "pending", "listing | pending", "closed", "sale closed",
+                       "past client")
+_APPT_LEAD_STAGE = "(SELECT LOWER(TRIM(COALESCE(pc.stage, ''))) FROM people pc WHERE pc.person_id = a.person_id)"
+APPT_CLASS = f"""(CASE
+    WHEN a.outcome ~* '(no.?show|cancel|resched)' AND EXISTS (SELECT 1 FROM appointments ax
+         WHERE ax.person_id = a.person_id AND ax.start_at > a.start_at) THEN 'not_held'
+    WHEN a.start_at > now() THEN 'none'
+    WHEN {_APPT_LEAD_STAGE} IN ({", ".join(f"'{s}'" for s in APPT_FORWARD_STAGES)})
+         OR EXISTS (SELECT 1 FROM deals dc WHERE a.person_id = ANY(dc.person_ids) AND dc.created_at >= a.start_at)
+         THEN 'held'
+    WHEN {_APPT_LEAD_STAGE} = 'appointment set' THEN 'none'
+    WHEN a.person_id IS NULL THEN 'none'
+    ELSE 'not_held' END)"""
 
 # Real leads only: not agents/vendors, and no bulk imports unless that source is picked
 REAL_LEADS = f"""LOWER(TRIM(COALESCE(p.stage, ''))) <> ALL(%(not_lead_stages)s)
@@ -393,7 +407,7 @@ def top_performers(cur, f, today):
 # ---------------------------------------------------------------- Appointments
 
 APPT_DATE_FIELDS = {"created": "a.created_at", "start": "a.start_at"}
-APPT_STATUSES = {"all", "held", "not_held", "none", "probable"}
+APPT_STATUSES = {"all", "held", "not_held", "none"}
 STAGE_MODES = {"current", "appt"}  # the lead's stage today, or when the appointment happened
 
 # FUB's API has no stage history. Action plans that start on a stage change stand in for it
@@ -449,46 +463,18 @@ def appt_stage_filter(cur, stage_mode):
                                                 AND LOWER(TRIM(ps.stage)) = LOWER(TRIM(%(stage)s))))"""
 
 
-def _rank_sql(expr):
-    return ("(CASE LOWER(TRIM(COALESCE(" + expr + ", ''))) "
-            + " ".join(f"WHEN '{k}' THEN {v}" for k, v in PIPELINE_RANK.items()) + " ELSE -1 END)")
-
-
-def probable_held_sql(cur):
-    """True for an appointment with no outcome that most likely happened: its time has passed,
-    it is the lead's earliest appointment still without an outcome, and afterwards the lead moved to
-    Met with customer or further (from below it, or from an unknown stage), got a deal, or had a
-    later appointment marked held. An estimate; the recorded outcome always wins."""
-    at_sql, known_sql = stage_at_appt_sql(cur)
-    current = "(SELECT ps.stage FROM people ps WHERE ps.person_id = a.person_id)"
-    moved = f"({_rank_sql(current)} >= {MET_RANK} AND (NOT {known_sql} OR {_rank_sql(at_sql)} < {MET_RANK}))"
-    deal = ("EXISTS (SELECT 1 FROM deals d WHERE a.person_id = ANY(d.person_ids) AND d.created_at >= a.start_at)"
-            if table_exists(cur, "deals") else "false")
-    later_held = f"""EXISTS (SELECT 1 FROM appointments a2 WHERE a2.person_id = a.person_id
-                        AND a2.start_at > a.start_at AND {APPT_CLASS.replace('a.', 'a2.')} = 'held')"""
-    earliest = f"""NOT EXISTS (SELECT 1 FROM appointments a3 WHERE a3.person_id = a.person_id
-                        AND a3.start_at < a.start_at AND {APPT_CLASS.replace('a.', 'a3.')} = 'none')"""
-    return (f"({APPT_CLASS} = 'none' AND a.person_id IS NOT NULL AND a.start_at < now() AND {earliest}"
-            f" AND ({moved} OR {deal} OR {later_held}))")
-
-
 def appointment_kpis(cur, f, view_by, appt_type, stage=None, stage_mode="current"):
     col = APPT_DATE_FIELDS[view_by]
     sql = f"""
         SELECT COUNT(*) AS total,
                COUNT(*) FILTER (WHERE {APPT_CLASS} = 'held') AS held,
                COUNT(*) FILTER (WHERE {APPT_CLASS} = 'not_held') AS not_held,
-               COUNT(*) FILTER (WHERE {APPT_CLASS} = 'none') AS none,
-               COUNT(*) FILTER (WHERE {probable_held_sql(cur)}) AS probable
+               COUNT(*) FILTER (WHERE {APPT_CLASS} = 'none') AS none
         FROM appointments a
         WHERE {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
           AND (%(type)s::text IS NULL OR a.type = %(type)s){appt_stage_filter(cur, stage_mode)}"""
     c = one(cur, sql, f.params(type=appt_type, stage=stage))
     p = one(cur, sql, f.previous().params(type=appt_type, stage=stage))
-    for d in (c, p):  # Held includes the "probably held" estimate; those leave No Outcome
-        d["held_recorded"] = d["held"]
-        d["held"] += d["probable"]
-        d["none"] -= d["probable"]
     leads = funnel_counts(cur, f)["new_leads"]
     return {**c, "set_rate": pct(c["total"], leads, 0),
             "held_rate": pct(c["held"], c["total"], 0), "not_held_rate": pct(c["not_held"], c["total"], 0),
@@ -498,8 +484,7 @@ def appointment_kpis(cur, f, view_by, appt_type, stage=None, stage_mode="current
 
 def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stage=None, stage_mode="current"):
     col = APPT_DATE_FIELDS[view_by]
-    probable = probable_held_sql(cur)
-    status_f = probable if status == "probable" else f"(%(status)s = 'all' OR {APPT_CLASS} = %(status)s)"
+    status_f = f"(%(status)s = 'all' OR {APPT_CLASS} = %(status)s)"
     where = f"""{col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
         AND (%(type)s::text IS NULL OR a.type = %(type)s)
         AND {status_f}{appt_stage_filter(cur, stage_mode)}"""
@@ -509,7 +494,7 @@ def appointment_list(cur, f, view_by, appt_type, status, page, per_page=25, stag
     stage_sql, known_sql = stage_at_appt_sql(cur) if stage_mode == "appt" else ("p.stage", "true")
     rows = fetch(cur, f"""
         SELECT a.agent_names, a.person_id, COALESCE(NULLIF(a.lead_name, ''), p.name, '') AS lead_name,
-               a.created_at, a.start_at, a.type, a.outcome, {APPT_CLASS} AS status, {probable} AS probable,
+               a.created_at, a.start_at, a.type, a.outcome, {APPT_CLASS} AS status,
                COALESCE(NULLIF(TRIM(p.source), ''), '<unspecified>') AS source,
                {stage_sql} AS stage, {known_sql} AS stage_known, a.created_by_name
         FROM appointments a LEFT JOIN people p ON p.person_id = a.person_id
