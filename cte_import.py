@@ -31,7 +31,7 @@ import os
 import re
 import sys
 import warnings
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from urllib.parse import quote
 
 import openpyxl
@@ -335,7 +335,7 @@ def import_workbook(cur, name, source, modified=None, etag=None, dry_run=False):
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 DEFAULT_ONEDRIVE_USER = "joecorbisiero@dreamhomesteam.onmicrosoft.com"
-DEFAULT_ONEDRIVE_FOLDER = "CTE FILES"
+DEFAULT_ONEDRIVE_FOLDER = "CTE FILES,CTE"
 
 
 def graph_configured():
@@ -381,10 +381,26 @@ def import_from_onedrive(database_url, force=False, log=print):
     """Download changed CTE workbooks from OneDrive and import them.
     Unchanged files (same eTag as the last import) are skipped."""
     user = os.environ.get("MS_ONEDRIVE_USER") or DEFAULT_ONEDRIVE_USER
-    folder = os.environ.get("CTE_ONEDRIVE_FOLDER") or DEFAULT_ONEDRIVE_FOLDER
+    # Several folders may hold copies of the same yearly workbook ("CTE FILES" and "CTE"):
+    # for each year the most recently modified copy wins, wherever it was saved
+    folders = [f.strip() for f in (os.environ.get("CTE_ONEDRIVE_FOLDER") or DEFAULT_ONEDRIVE_FOLDER).split(",")
+               if f.strip()]
     session = graph_session()
-    files = onedrive_files(session, user, folder)
-    log(f"CTE: {len(files)} workbooks in OneDrive/{folder}")
+    by_year = {}
+    for folder in folders:
+        try:
+            found = onedrive_files(session, user, folder)
+        except RuntimeError as e:  # a folder that doesn't exist is not fatal when others do
+            log(f"CTE: {e}")
+            continue
+        log(f"CTE: {len(found)} workbooks in OneDrive/{folder}")
+        for f in found:
+            year = file_year(f["name"])
+            f["folder"] = folder
+            if year and (year not in by_year or (f["modified"] or datetime.min.replace(tzinfo=timezone.utc))
+                         > (by_year[year]["modified"] or datetime.min.replace(tzinfo=timezone.utc))):
+                by_year[year] = f
+    files = [by_year[y] for y in sorted(by_year)]
 
     conn = psycopg2.connect(database_url)
     cur = conn.cursor()
@@ -397,7 +413,11 @@ def import_from_onedrive(database_url, force=False, log=print):
             continue
         resp = session.get(f"{GRAPH}/users/{quote(user)}/drive/items/{f['id']}/content", timeout=300)
         resp.raise_for_status()
-        log("CTE: " + import_workbook(cur, f["name"], io.BytesIO(resp.content), f["modified"], f["etag"]))
+        log(f"CTE ({f['folder']}): " + import_workbook(cur, f["name"], io.BytesIO(resp.content), f["modified"], f["etag"]))
+        # the year's rows now come from this copy: drop rows left from another copy with a different name
+        for table in ("cte_activity", "cte_deals", "cte_financials", "cte_import_log"):
+            cur.execute(f"DELETE FROM {table} WHERE file_year = %s AND source_file <> %s",
+                        (file_year(f["name"]), f["name"]))
         conn.commit()  # one file at a time, so a bad file doesn't undo the others
     unchanged = sum(1 for f in files if f["etag"] and seen.get(f["name"]) == f["etag"])
     if unchanged and not force:
