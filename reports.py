@@ -485,11 +485,14 @@ def appointment_kpis(cur, f, view_by, appt_type, stage=None, stage_mode="current
           AND (%(type)s::text IS NULL OR a.type = %(type)s){appt_stage_filter(cur, stage_mode)}"""
     c = one(cur, sql, f.params(type=appt_type, stage=stage))
     p = one(cur, sql, f.previous().params(type=appt_type, stage=stage))
+    for d in (c, p):  # Held includes the "probably held" estimate; those leave No Outcome
+        d["held_recorded"] = d["held"]
+        d["held"] += d["probable"]
+        d["none"] -= d["probable"]
     leads = funnel_counts(cur, f)["new_leads"]
     return {**c, "set_rate": pct(c["total"], leads, 0),
             "held_rate": pct(c["held"], c["total"], 0), "not_held_rate": pct(c["not_held"], c["total"], 0),
             "none_rate": pct(c["none"], c["total"], 0),
-            "held_with_probable_rate": pct(c["held"] + c["probable"], c["total"], 0),
             "chg": {k: change(c[k], p[k]) for k in ("total", "held", "not_held", "none")}}
 
 
@@ -537,6 +540,18 @@ FUNNEL_STEP = {name: i for i, (_, names) in enumerate(FUNNEL) for name in names}
 
 def funnel_step(stage):
     return FUNNEL_STEP.get((stage or "").strip().lower(), 0)
+
+
+def lead_funnel(cur, f):
+    """Leads created in the period (page filters apply): how many reached at least each funnel step today."""
+    steps = [funnel_step(r["stage"]) for r in fetch(cur, f"""
+        SELECT p.stage FROM people p WHERE p.created_at >= %(start)s AND p.created_at < %(end)s AND {PEOPLE_F}""",
+        f.params())]
+    total = len(steps)
+    return {"leads": total, "steps": [{"stage": label, "reached": sum(1 for s in steps if s >= i),
+                                       "pct": pct(sum(1 for s in steps if s >= i), total, 0),
+                                       "at": sum(1 for s in steps if s == i)}
+                                      for i, (label, _) in enumerate(FUNNEL)]}
 TRASH_GROUP = {"trash", "archive", "archived", "rejected", "do not contact"}
 MOVE_GROUPS = [("advanced", "Moved forward", "#2E9E62"), ("stayed", "Stayed at the same stage", "#9AA5B1"),
                ("nurture", "Moved to nurture", "#E88BA0"), ("back", "Moved back", "#F2B84B"),

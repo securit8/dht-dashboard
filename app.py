@@ -510,8 +510,7 @@ def appointments():
         if ready:
             rows, total = R.appointment_list(cur, f, view_by, appt_type, status, page, stage=stage,
                                              stage_mode=stage_mode)
-            data = dict(rows=rows,
-                        moves=R.appointment_stage_moves(cur, f, view_by, appt_type, stage, stage_mode),
+            data = dict(kpis=R.appointment_kpis(cur, f, view_by, appt_type, stage, stage_mode), rows=rows,
                         total=total, pages=max((total + 24) // 25, 1),
                         type_choices=[("", "All types")] + [(t, t) for t in R.appt_type_options(cur)],
                         stage_choices=[("", "All stages")] + [
@@ -569,7 +568,7 @@ def lead_source():
         data = {}
         if ready:
             data = dict(
-                ov=R.lead_source_overview(cur, f), top_agents=R.top_agents_closed(cur, f),
+                ov=R.lead_source_overview(cur, f), funnel=R.lead_funnel(cur, f), top_agents=R.top_agents_closed(cur, f),
                 stages=R.grouped_stages(R.stage_counts(cur, f)), months=R.leads_by_month(cur, f),
                 trend={"year": year,
                        "leads": [hide_future(R.monthly_series(cur, f, year, "leads"), year),
