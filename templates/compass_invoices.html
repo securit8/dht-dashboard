@@ -19,6 +19,7 @@
   .tag { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--bg); color: var(--soft); }
   .tag.inv { background: #E3F4EA; color: #1F7A48; }
   .tag.miss { background: #FFF3DC; color: #8A5A00; }
+  .tag.warn { background: #E8EEFF; color: #3E55C9; }
   table.fit { width: 100%; table-layout: fixed; }
   table.fit th, table.fit td { white-space: normal; padding-left: 6px; padding-right: 6px; }
   table.fit th:first-child, table.fit td:first-child { width: 11%; }
@@ -122,7 +123,7 @@
     <div class="card-head"><h2>Closed deals &amp; their Compass receipts &middot; {{ year }}</h2>
       <div class="seg">
         <a class="{{ 'on' if deal_filter != 'missing' }}" href="{{ url_for('compass_invoices', year=year, show=show) }}">All {{ deal_stats.total }}</a>
-        <a class="{{ 'on' if deal_filter == 'missing' }}" href="{{ url_for('compass_invoices', year=year, deals='missing', show=show) }}">No receipt {{ deal_stats.missing }}</a>
+        <a class="{{ 'on' if deal_filter == 'missing' }}" href="{{ url_for('compass_invoices', year=year, deals='missing', show=show) }}">No receipt {{ deal_stats.missing }}{% if deal_stats.typos %} ({{ deal_stats.typos }} possible typos){% endif %}</a>
       </div>
     </div>
     <div class="eyebrow" style="margin:-6px 0 10px">Closed deals from the CTE files, matched to Compass remittance emails (invoice payments and "Paid by Escrow/Title" statements) by street number and close date.
@@ -150,7 +151,14 @@
           {% else %}
             <tr><td>{{ d.close_date.strftime('%m/%d/%Y') }}</td><td><b>{{ d.address }}</b></td><td>{{ d.agent or '' }}</td>
               <td>{{ d.deal_type or '' }}</td><td class="n">{{ '${:,.0f}'.format(d.gci|float) if d.gci is not none else '' }}</td>
-              <td colspan="5"><span class="tag miss">No receipt found</span></td></tr>
+              <td colspan="5"><span class="tag miss">No receipt found</span>
+                {% for r in d.suggestions %}
+                <div style="margin-top:6px;font-size:13px"><span class="tag warn">Possible match &middot; {{ r.why }}</span>
+                  {{ r.property or r.description }} &middot; {{ (r.bill_date or r.paid_on).strftime('%m/%d/%Y') }}
+                  &middot; paid <b>{{ '${:,.2f}'.format(r.amount|float) if r.amount is not none else '--' }}</b>
+                  &middot; <a href="{{ url_for('compass_invoice_text', message_id=r.message_id) }}" target="_blank" rel="noopener">text</a>
+                  <span class="muted">&mdash; check the address / date in the CTE file</span></div>
+                {% endfor %}</td></tr>
           {% endif %}
         {% else %}
           <tr><td colspan="10" class="muted">No closed deals in {{ year }}.</td></tr>

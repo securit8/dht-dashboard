@@ -605,15 +605,32 @@ def _addr_key(text):
     return number, {w for w in words[1:] if w not in GENERIC and not w.isdigit()}
 
 
+def _digits_close(a, b):
+    """True when two street numbers look like a typo of each other: same digits in another order,
+    or one digit different (7832 / 7382, 1832 / 1831, 1607 / 1670)."""
+    if not a or not b or a == b:
+        return False
+    if sorted(a) == sorted(b):
+        return True
+    return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+
+
 def deal_receipts(cur, start, end):
     """CTE closed deals in [start, end) with the Compass receipts that match them (same street number,
-    within 120 days, sharing a street word when there is a choice), plus receipts that match no deal."""
+    within 120 days, sharing a street word when there is a choice). Deals around the period are matched
+    too, so a receipt for a deal of the next or previous year doesn't show as unmatched.
+    A deal without a receipt gets `suggestions`: unmatched receipts that look like the same deal with a
+    typo in the CTE street number (same street, close in time) or in the date (same address, farther apart).
+    Returns (deals in the period, receipts dated in the period that match no deal)."""
     ensure_tables(cur)
+    lo, hi = start - timedelta(days=150), end + timedelta(days=150)
     cur.execute("""SELECT file_year, row_num, address, close_date, gci, primary_agent, deal_type, sale_price
                    FROM cte_deals WHERE status = 'Closed' AND close_date >= %s AND close_date < %s
-                   ORDER BY close_date DESC""", (start, end))
+                   ORDER BY close_date DESC""", (lo, hi))
     deals = [dict(zip(["file_year", "row_num", "address", "close_date", "gci", "agent", "deal_type", "sale_price"], r),
-                  receipts=[]) for r in cur.fetchall()]
+                  receipts=[], suggestions=[]) for r in cur.fetchall()]
+    for d in deals:
+        d["key"] = _addr_key(d["address"])
     cur.execute("""SELECT p.message_id, p.kind, p.paid_on, p.property, i.description, i.bill_no, i.bill_date,
                           i.close_price, i.gross, i.amount, i.components
                    FROM compass_payment_items i JOIN compass_payments p ON p.message_id = i.message_id
@@ -621,14 +638,14 @@ def deal_receipts(cur, start, end):
     keys = ["message_id", "kind", "paid_on", "property", "description", "bill_no", "bill_date", "close_price",
             "gross", "amount", "components"]
     receipts = [dict(zip(keys, r)) for r in cur.fetchall()]
-    lo, hi = start - timedelta(days=150), end + timedelta(days=150)
     unmatched = []
     for rc in receipts:
         when = rc["bill_date"] or rc["paid_on"]
-        number, words = _addr_key(rc["property"] or rc["description"])
+        rc["key"] = _addr_key(rc["property"] or rc["description"])
+        number, words = rc["key"]
         best = None
         for d in deals:
-            dn, dw = _addr_key(d["address"])
+            dn, dw = d["key"]
             if not number or dn != number or not d["close_date"] or not when:
                 continue
             gap = abs((when - d["close_date"]).days)
@@ -640,9 +657,23 @@ def deal_receipts(cur, start, end):
                 best = (score, d)
         if best:
             best[1]["receipts"].append(rc)
-        elif when and lo <= when < hi:
+        elif when:
             unmatched.append(rc)
-    return deals, unmatched
+    for d in deals:
+        if d["receipts"] or not d["close_date"]:
+            continue
+        dn, dw = d["key"]
+        for rc in unmatched:
+            when = rc["bill_date"] or rc["paid_on"]
+            number, words = rc["key"]
+            gap = abs((when - d["close_date"]).days)
+            # same street: a number that looks like a typo, or any other number when it closed within two weeks
+            if words & dw and dn != number and (_digits_close(dn, number) and gap <= 120 or gap <= 14):
+                d["suggestions"].append(dict(rc, why="street number differs"))
+            elif words & dw and dn == number and 120 < gap <= 400:
+                d["suggestions"].append(dict(rc, why="close date differs"))
+    in_period = [d for d in deals if d["close_date"] and start <= d["close_date"] < end]
+    return in_period, [rc for rc in unmatched if start <= (rc["bill_date"] or rc["paid_on"]) < end]
 
 
 def monthly_vs_books(cur, year):

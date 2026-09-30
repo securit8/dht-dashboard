@@ -202,6 +202,7 @@ def compass_invoices():
     deal_filter = request.args.get("deals", "all")
     deal_stats = {"total": len(deals), "with": sum(1 for d in deals if d["receipts"])}
     deal_stats["missing"] = deal_stats["total"] - deal_stats["with"]
+    deal_stats["typos"] = sum(1 for d in deals if not d["receipts"] and d["suggestions"])
     return render_template("compass_invoices.html", configured=gmail_import.configured(), accounts=accounts,
                            payments=payments, years=sorted(years.items(), reverse=True),
                            query=gmail_import.REMITTANCE_QUERY, show=request.args.get("show"),
