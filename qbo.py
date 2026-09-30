@@ -126,7 +126,11 @@ def status(cur):
         return None
     keys = ["env", "realm_id", "company_name", "connected_at", "last_pull_at", "needs_reconnect", "last_error",
             "refresh_expires_at"]
-    return dict(zip(keys, row))
+    out = dict(zip(keys, row))
+    if out["env"] != env():  # e.g. switched from the sandbox to production keys
+        out["needs_reconnect"] = True
+        out["last_error"] = f"Connected to the {out['env']} company, but the dashboard is now set to {env()}. Reconnect."
+    return out
 
 
 def pnl_rows(cur, months=24):
