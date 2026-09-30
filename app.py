@@ -158,20 +158,25 @@ def compass_invoices():
         accounts = gmail_import.accounts(cur)
         payments = gmail_import.payments(cur)
     years = {}
-    for p in payments:
+    for p in sorted(payments, key=lambda p: (p["paid_on"] or date.min)):
         y = years.setdefault(p["paid_on"].year if p["paid_on"] else 0,
-                             {"emails": 0, "invoices": 0, "invoice_total": 0.0, "assist_total": 0.0, "missing": 0})
+                             {"emails": 0, "invoices": 0, "gross": 0.0, "net": 0.0, "assist": 0.0,
+                              "ytd_income": None, "ytd_as_of": None, "books": None})
         y["emails"] += 1
+        if p["ytd_income"] is not None:  # the latest statement of the year carries the year's total
+            y["ytd_income"], y["ytd_as_of"] = float(p["ytd_income"]), p["paid_on"]
         for it in p["items"]:
-            amt = float(it["amount"]) if it["amount"] is not None else None
+            amt = float(it["amount"] or 0)
             if it["is_assist"]:
-                y["assist_total"] += amt or 0
+                y["assist"] += amt
             else:
                 y["invoices"] += 1
-                if amt is None:
-                    y["missing"] += 1
-                else:
-                    y["invoice_total"] += amt
+                y["net"] += amt
+                y["gross"] += float(it["gross"] or amt)
+    with db() as cur:
+        for yr, v in years.items():
+            books = qbo.year_totals(cur, yr) if yr else None
+            v["books"] = books["income"] if books else None
     return render_template("compass_invoices.html", configured=gmail_import.configured(), accounts=accounts,
                            payments=payments, years=sorted(years.items(), reverse=True),
                            query=gmail_import.REMITTANCE_QUERY, show=request.args.get("show"),
@@ -208,25 +213,19 @@ def gmail_callback():
         return redirect(url_for("compass_invoices", err=f"Gmail did not connect: {request.args.get('error', 'no code')}"))
     try:
         email = gmail_import.connect(DATABASE_URL, request.args["code"], _gmail_redirect_uri())
-        new, total = gmail_import.pull(DATABASE_URL, email)
     except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
         return redirect(url_for("compass_invoices", err=str(e)))
-    except Exception as e:  # noqa: BLE001 - show it instead of a 500
-        return redirect(url_for("compass_invoices", err=f"Connected, but the first import failed: {e}"))
-    return redirect(url_for("compass_invoices", msg=f"Connected {email}. Imported {new} of {total} remittance emails."))
+    gmail_import.pull_in_background(DATABASE_URL, email)
+    return redirect(url_for("compass_invoices", msg=f"Connected {email}. Importing the remittance emails now; refresh in a minute."))
 
 
 @app.route("/gmail/refresh", methods=["POST"])
 @login_required
 def gmail_refresh():
     email, reimport = request.form.get("email", ""), request.form.get("reimport") == "1"
-    try:
-        new, total = gmail_import.pull(DATABASE_URL, email, reimport=reimport)
-    except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
-        return redirect(url_for("compass_invoices", err=str(e)))
-    except Exception as e:  # noqa: BLE001
-        return redirect(url_for("compass_invoices", err=f"Import failed: {e}"))
-    return redirect(url_for("compass_invoices", msg=f"{email}: imported {new} of {total} remittance emails."))
+    if not gmail_import.pull_in_background(DATABASE_URL, email, reimport=reimport):
+        return redirect(url_for("compass_invoices", msg="An import is already running. Refresh in a minute."))
+    return redirect(url_for("compass_invoices", msg="Import started. It reads every PDF, so give it a minute or two, then refresh."))
 
 
 @app.route("/gmail/disconnect", methods=["POST"])

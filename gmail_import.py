@@ -16,6 +16,7 @@ import hashlib
 import io
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -123,6 +124,10 @@ def ensure_tables(cur):
             source TEXT,
             PRIMARY KEY (message_id, line_no)
         )""")
+    cur.execute("ALTER TABLE compass_payments ADD COLUMN IF NOT EXISTS ytd_income NUMERIC")
+    for col, kind in (("bill_date", "DATE"), ("close_price", "NUMERIC"), ("gross", "NUMERIC"), ("components", "TEXT")):
+        cur.execute(f"ALTER TABLE compass_payment_items ADD COLUMN IF NOT EXISTS {col} {kind}")
+    cur.execute("ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS import_started_at TIMESTAMPTZ")
 
 
 def _db(database_url):
@@ -136,9 +141,10 @@ def accounts(cur):
     """Connected accounts for the page (no tokens)."""
     ensure_tables(cur)
     cur.execute("""SELECT a.email, a.connected_at, a.last_pull_at, a.needs_reconnect, a.last_error,
-                          (SELECT COUNT(*) FROM compass_payments p WHERE p.account = a.email)
+                          (SELECT COUNT(*) FROM compass_payments p WHERE p.account = a.email),
+                          a.import_started_at > now() - interval '15 minutes'
                    FROM gmail_accounts a ORDER BY a.connected_at""")
-    keys = ["email", "connected_at", "last_pull_at", "needs_reconnect", "last_error", "payments"]
+    keys = ["email", "connected_at", "last_pull_at", "needs_reconnect", "last_error", "payments", "importing"]
     return [dict(zip(keys, r)) for r in cur.fetchall()]
 
 
@@ -296,23 +302,53 @@ def body_items(body):
     return items
 
 
-def pdf_items(text):
-    """Line items from the statement text: every line with a bill number or a description and an amount.
-    The statement layout is Compass's and may change, so the raw text is kept for checking."""
-    items = []
-    for raw in text.splitlines():
-        line = " ".join(raw.split())
-        amounts = AMOUNT_RE.findall(line)
-        if not amounts or re.search(r"(?i)\b(total|balance|net pay|payment amount|amount paid)\b", line):
+MONEY_RE = re.compile(r"-?\$[\d,]+\.\d{2}")
+BILL_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})\s+Bill\s*#\s*(\d+)")
+# Reference codes in front of the description: "asc-1109-538-", "565700 - 45519 - "
+REF_RE = re.compile(r"^(asc-\d+-\d+-|\d{6}\s*-\s*\d+\s*-\s*)", re.I)
+
+
+def parse_statement(text):
+    """Compass remittance statement -> amount paid, YTD income and one item per bill.
+    Columns are either Date/Close Date, Internal Reference, Description or Property Address,
+    Final Close Price, Memo or Description, Amount (2025+) or Date, Type, Description, Memo, Amount (2024).
+    Each bill lists labeled amounts (Commission Income, Referral Income, fees as negatives)."""
+    flat = " ".join(text.split())
+    paid = re.search(r"Amount Paid\s+(-?\$[\d,]+\.\d{2})", flat)
+    ytd = re.search(r"YTD Income\s+(-?\$[\d,]+\.\d{2})", flat)
+    out = {"amount_paid": _money(paid.group(1)) if paid else None,
+           "ytd_income": _money(ytd.group(1)) if ytd else None, "items": []}
+    start = re.search(r"\bAmount\s+(?=\d{1,2}/\d{1,2}/\d{4}\s+Bill)", flat)
+    end = flat.find("Sub-total")
+    if not start:
+        return out
+    header = flat[:start.end()]
+    has_price = "Final Close Price" in header[header.rfind("Amount Paid"):]
+    body = flat[start.end():end if end > 0 else len(flat)]
+    bills = list(BILL_RE.finditer(body))
+    for i, m in enumerate(bills):
+        chunk = body[m.end():bills[i + 1].start() if i + 1 < len(bills) else len(body)]
+        tokens = list(MONEY_RE.finditer(chunk))
+        if not tokens:
             continue
-        desc = AMOUNT_RE.sub("", line)
-        bill = re.search(r"\b\d{6,8}\b", desc)
-        desc = re.sub(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", "", desc).strip(" -|:")
-        if len(desc) < 3:
-            continue
-        items.append({"bill_no": bill.group(0) if bill else None, "description": desc,
-                      "amount": _money(amounts[-1])})
-    return items
+        desc = REF_RE.sub("", chunk[:tokens[0].start()].strip()).strip()
+        close_price, prev = None, 0
+        if has_price:  # the first amount is the close price; the labeled amounts follow it
+            close_price, prev = _money(tokens[0].group(0)), tokens[0].end()
+            tokens = tokens[1:]
+        parts = []
+        for t in tokens:
+            label = REF_RE.sub("", chunk[prev:t.start()].strip()).strip() or "Amount"
+            parts.append((label, _money(t.group(0))))
+            prev = t.end()
+        gross = sum(v for k, v in parts if re.search(r"income", k, re.I))
+        out["items"].append({
+            "bill_no": m.group(2), "date": datetime.strptime(m.group(1), "%m/%d/%Y").date(), "description": desc,
+            "close_price": close_price, "gross": gross if gross else None,
+            "amount": round(sum(v for _, v in parts), 2),
+            "components": "; ".join(f"{k} {v:,.2f}" for k, v in parts),
+            "is_assist": bool(ASSIST_RE.search(desc) or any(ASSIST_RE.search(k) for k, _ in parts))})
+    return out
 
 
 def _total(subject, body, text):
@@ -353,30 +389,33 @@ def import_message(database_url, email, message_id):
                     text += pdf_text(raw)
                 except Exception as e:  # noqa: BLE001 - keep the email even if the PDF can't be read
                     text += f"[PDF could not be read: {e}]"
-    items, source = pdf_items(text), "pdf"
-    body_rows = body_items(body)
-    if body_rows and all(i["amount"] is not None for i in body_rows) or not items:
-        items, source = body_rows, "email"
+    stmt = parse_statement(text)
+    items, source = stmt["items"], "pdf"
+    if not items:  # no readable statement: fall back to the email's own table
+        items, source = body_items(body), "email"
     paid = re.search(r"sent on (\d{1,2}/\d{1,2}/\d{4})", body) or re.search(r"(\d{1,2}/\d{1,2}/\d{4})", subject)
     payment = re.search(r"#+(\d+)", subject)
     note = None if items else "No line items found; see the statement text."
+    total = stmt["amount_paid"] if stmt["amount_paid"] is not None else _total(subject, body, text)
     conn, cur = _db(database_url)
     cur.execute("""
-        INSERT INTO compass_payments (message_id, account, payment_no, paid_on, received_at, total, subject,
-                                      pdf_name, pdf_text, parse_note, pulled_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-        ON CONFLICT (message_id) DO UPDATE SET total = EXCLUDED.total, pdf_text = EXCLUDED.pdf_text,
-            parse_note = EXCLUDED.parse_note, pulled_at = now()""",
+        INSERT INTO compass_payments (message_id, account, payment_no, paid_on, received_at, total, ytd_income,
+                                      subject, pdf_name, pdf_text, parse_note, pulled_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+        ON CONFLICT (message_id) DO UPDATE SET total = EXCLUDED.total, ytd_income = EXCLUDED.ytd_income,
+            paid_on = EXCLUDED.paid_on, pdf_text = EXCLUDED.pdf_text, parse_note = EXCLUDED.parse_note,
+            pulled_at = now()""",
                 (message_id, email, payment.group(1) if payment else None,
                  datetime.strptime(paid.group(1), "%m/%d/%Y").date() if paid else received.date(),
-                 received, _total(subject, body, text), subject, pdf_name, text, note))
+                 received, total, stmt["ytd_income"], subject, pdf_name, text, note))
     cur.execute("DELETE FROM compass_payment_items WHERE message_id = %s", (message_id,))
     for n, it in enumerate(items, 1):
         cur.execute("""INSERT INTO compass_payment_items (message_id, line_no, bill_no, description, amount,
-                                                          is_assist, source)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                                                          is_assist, source, bill_date, close_price, gross, components)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (message_id, n, it["bill_no"], it["description"], it["amount"],
-                     bool(ASSIST_RE.search(it["description"] or "")), source))
+                     it.get("is_assist", bool(ASSIST_RE.search(it["description"] or ""))), source,
+                     it.get("date"), it.get("close_price"), it.get("gross"), it.get("components")))
     conn.commit()
     conn.close()
 
@@ -407,16 +446,47 @@ def pull(database_url, email, reimport=False):
     return len(todo), len(ids)
 
 
+def pull_in_background(database_url, email, reimport=False):
+    """Run pull() in a background thread so the page answers at once (a full import reads every PDF
+    and takes longer than the web server's request timeout). Returns False if one is already running."""
+    conn, cur = _db(database_url)
+    cur.execute("""UPDATE gmail_accounts SET import_started_at = now() WHERE email = %s
+                   AND (import_started_at IS NULL OR import_started_at < now() - interval '15 minutes')""", (email,))
+    started = cur.rowcount == 1
+    conn.commit()
+    conn.close()
+    if not started:
+        return False
+
+    def run():
+        try:
+            new, total = pull(database_url, email, reimport=reimport)
+            print(f"Gmail {email}: imported {new} of {total} remittance emails.")
+        except Exception as e:  # noqa: BLE001 - shown on the page
+            _mark_error(database_url, email, f"Import failed: {e}", reconnect=isinstance(e, NeedsReconnect))
+        finally:
+            c, k = _db(database_url)
+            k.execute("UPDATE gmail_accounts SET import_started_at = NULL WHERE email = %s", (email,))
+            c.commit()
+            c.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    return True
+
+
 def payments(cur):
     """Every imported payment with its line items, newest first."""
     ensure_tables(cur)
     cur.execute("""SELECT p.message_id, p.account, p.payment_no, p.paid_on, p.total, p.pdf_name, p.parse_note,
+                          p.ytd_income,
                           COALESCE(json_agg(json_build_object('bill_no', i.bill_no, 'description', i.description,
-                                   'amount', i.amount, 'is_assist', i.is_assist, 'source', i.source)
+                                   'amount', i.amount, 'is_assist', i.is_assist, 'source', i.source,
+                                   'bill_date', i.bill_date, 'close_price', i.close_price, 'gross', i.gross,
+                                   'components', i.components)
                                    ORDER BY i.line_no) FILTER (WHERE i.line_no IS NOT NULL), '[]')
                    FROM compass_payments p LEFT JOIN compass_payment_items i ON i.message_id = p.message_id
-                   GROUP BY p.message_id ORDER BY p.paid_on DESC, p.message_id""")
-    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "items"]
+                   GROUP BY p.message_id ORDER BY p.paid_on DESC, p.received_at DESC""")
+    keys = ["message_id", "account", "payment_no", "paid_on", "total", "pdf_name", "parse_note", "ytd_income", "items"]
     return [dict(zip(keys, r)) for r in cur.fetchall()]
 
 

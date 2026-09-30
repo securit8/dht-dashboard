@@ -49,10 +49,11 @@
           <b>{{ a.email }}</b>
           <span class="muted">&middot; {{ a.payments }} remittance emails imported
             {% if a.last_pull_at %}&middot; last updated {{ a.last_pull_at|fmt_date(true) }}{% endif %}</span>
+          {% if a.importing %}<div><span class="pill warn">Importing now&hellip;</span> <span class="muted">refresh in a minute</span></div>{% endif %}
           {% if a.last_error %}<div class="muted">Last problem: {{ a.last_error }}</div>{% endif %}
         </div>
         <div>
-          {% if not a.needs_reconnect %}
+          {% if not a.needs_reconnect and not a.importing %}
           <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
             <button class="btn ghost" type="submit">Update now</button></form>
           <form method="post" action="{{ url_for('gmail_refresh') }}"><input type="hidden" name="email" value="{{ a.email }}">
@@ -68,14 +69,21 @@
   {% if years %}
   <div class="card">
     <h3>By year</h3>
+    <div class="eyebrow" style="margin:-6px 0 10px">YTD Income is Compass's own running total on each statement (the latest one of the year); QuickBooks is Total Income from the books.</div>
     <div class="tbl-wrap">
       <table class="tbl">
-        <tr><th>Year</th><th class="n">Emails</th><th class="n">Invoices</th><th class="n">Invoice total</th>
-            <th class="n">Invoices without amount</th><th class="n">Assist Contr (excluded)</th></tr>
+        <tr><th>Year</th><th class="n">Compass YTD Income</th><th>As of</th><th class="n">QuickBooks income</th><th class="n">Difference</th>
+            <th class="n">Invoices in these emails</th><th class="n">Commission (gross)</th><th class="n">Paid after fees</th>
+            <th class="n">Assist Contr</th><th class="n">Emails</th></tr>
         {% for y, v in years %}
-        <tr><td>{{ y or '--' }}</td><td class="n">{{ v.emails }}</td><td class="n">{{ v.invoices }}</td>
-            <td class="n"><b>{{ '${:,.2f}'.format(v.invoice_total|float) }}</b></td><td class="n">{{ v.missing or '' }}</td>
-            <td class="n">{{ '${:,.2f}'.format(v.assist_total|float) }}</td></tr>
+        <tr><td><b>{{ y or '--' }}</b></td>
+            <td class="n"><b>{{ '${:,.2f}'.format(v.ytd_income) if v.ytd_income is not none else '--' }}</b></td>
+            <td>{{ v.ytd_as_of.strftime('%m/%d/%Y') if v.ytd_as_of else '' }}</td>
+            <td class="n">{{ '${:,.2f}'.format(v.books) if v.books is not none else '--' }}</td>
+            <td class="n">{{ '${:,.2f}'.format(v.books - v.ytd_income) if v.books is not none and v.ytd_income is not none else '' }}</td>
+            <td class="n">{{ v.invoices }}</td><td class="n">{{ '${:,.2f}'.format(v.gross) }}</td>
+            <td class="n">{{ '${:,.2f}'.format(v.net) }}</td><td class="n">{{ '${:,.2f}'.format(v.assist) }}</td>
+            <td class="n">{{ v.emails }}</td></tr>
         {% endfor %}
       </table>
     </div>
@@ -90,21 +98,28 @@
     </div>
     <div class="tbl-wrap">
       <table class="tbl">
-        <tr><th>Paid</th><th>Payment #</th><th>Bill #</th><th>Description</th><th class="n">Amount</th><th>Type</th><th>Statement</th></tr>
+        <tr><th>Paid</th><th>Payment #</th><th>Bill #</th><th>Property / description</th><th class="n">Close price</th>
+            <th class="n">Commission</th><th>Deductions</th><th class="n">Paid</th><th class="n">YTD Income</th><th>Type</th><th>Statement</th></tr>
         {% for p in payments %}
           {% set rows = p['items'] if show == 'all' else p['items']|rejectattr('is_assist')|list %}
           {% for it in rows %}
           <tr class="{{ 'assist' if it.is_assist }}">
             <td>{{ p.paid_on.strftime('%m/%d/%Y') if p.paid_on else '--' }}</td><td>{{ p.payment_no or '--' }}</td>
             <td>{{ it.bill_no or '--' }}</td><td>{{ it.description }}</td>
-            <td class="n">{{ '${:,.2f}'.format(it.amount|float) if it.amount is not none else '--' }}</td>
+            <td class="n">{{ '${:,.0f}'.format(it.close_price|float) if it.close_price else '' }}</td>
+            <td class="n">{{ '${:,.2f}'.format(it.gross|float) if it.gross is not none else '' }}</td>
+            <td class="muted" style="font-size:12px;max-width:260px">{{ (it.components or '').split('; ')[1:]|join('; ') if it.gross is not none else '' }}</td>
+            <td class="n"><b>{{ '${:,.2f}'.format(it.amount|float) if it.amount is not none else '--' }}</b></td>
+            <td class="n muted">{{ '${:,.2f}'.format(p.ytd_income|float) if p.ytd_income is not none and loop.last else '' }}</td>
             <td>{% if it.is_assist %}<span class="tag">Assist Contr</span>{% elif it.amount is none %}<span class="tag miss">No amount</span>{% else %}<span class="tag inv">Invoice</span>{% endif %}</td>
             <td><a href="{{ url_for('compass_invoice_text', message_id=p.message_id) }}" target="_blank" rel="noopener">text</a></td>
           </tr>
           {% endfor %}
           {% if not p['items'] %}
           <tr><td>{{ p.paid_on.strftime('%m/%d/%Y') if p.paid_on else '--' }}</td><td>{{ p.payment_no or '--' }}</td><td>--</td>
-            <td class="muted">{{ p.parse_note or 'No line items' }}</td><td class="n">{{ '${:,.2f}'.format(p.total|float) if p.total is not none else '--' }}</td>
+            <td class="muted">{{ p.parse_note or 'No line items' }}</td><td></td><td></td><td></td>
+            <td class="n">{{ '${:,.2f}'.format(p.total|float) if p.total is not none else '--' }}</td>
+            <td class="n muted">{{ '${:,.2f}'.format(p.ytd_income|float) if p.ytd_income is not none else '' }}</td>
             <td><span class="tag miss">Check</span></td>
             <td><a href="{{ url_for('compass_invoice_text', message_id=p.message_id) }}" target="_blank" rel="noopener">text</a></td></tr>
           {% endif %}
