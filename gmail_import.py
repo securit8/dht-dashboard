@@ -302,10 +302,30 @@ def body_items(body):
     return items
 
 
-MONEY_RE = re.compile(r"-?\$[\d,]+\.\d{2}")
+MONEY_RE = re.compile(r"\(\$[\d,]+\.\d{2}\)|-?\$[\d,]+\.\d{2}")  # ($62.50) = -62.50 on 2024 statements
+LABEL_RE = re.compile(r"\b(Commission Income|Referral Income|Compass Resource Fee|External TC Fee|Title Clearing|"
+                      r"Paid By|Flat Transaction|Bonus|Commission)\b")
 BILL_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})\s+Bill\s*#\s*(\d+)")
 # Reference codes in front of the description: "asc-1109-538-", "565700 - 45519 - "
 REF_RE = re.compile(r"^(asc-\d+-\d+-|\d{6}\s*-\s*\d+\s*-\s*)", re.I)
+
+
+def _address(lines):
+    """The property address in front of each line's label: the words all lines share, or the text
+    before the first known label when the bill has one line."""
+    texts = [MONEY_RE.split(l)[0].strip() for l in lines]
+    if len(texts) > 1:
+        words = [t.split() for t in texts]
+        common = []
+        for group in zip(*words):
+            if len(set(group)) > 1:
+                break
+            common.append(group[0])
+        shared = " ".join(common)
+        m = LABEL_RE.search(shared)  # two labels can start with the same word ("Compass ...")
+        return shared[:m.start()].strip() if m else shared
+    m = LABEL_RE.search(texts[0]) if texts else None
+    return texts[0][:m.start()].strip() if m else ""
 
 
 def parse_statement(text):
@@ -326,21 +346,34 @@ def parse_statement(text):
     has_price = "Final Close Price" in header[header.rfind("Amount Paid"):]
     body = flat[start.end():end if end > 0 else len(flat)]
     bills = list(BILL_RE.finditer(body))
+    # 2024 statements repeat "date Bill #N address" on every line of the same bill: merge them
+    groups = []
     for i, m in enumerate(bills):
-        chunk = body[m.end():bills[i + 1].start() if i + 1 < len(bills) else len(body)]
+        seg = body[m.end():bills[i + 1].start() if i + 1 < len(bills) else len(body)].strip()
+        if groups and groups[-1][0].group(2) == m.group(2):
+            groups[-1][1].append(seg)
+        else:
+            groups.append((m, [seg]))
+    for m, segs in groups:
+        chunk = " ".join(segs)
         tokens = list(MONEY_RE.finditer(chunk))
         if not tokens:
             continue
-        desc = REF_RE.sub("", chunk[:tokens[0].start()].strip()).strip()
-        close_price, prev = None, 0
+        close_price, parts = None, []
         if has_price:  # the first amount is the close price; the labeled amounts follow it
+            desc = REF_RE.sub("", chunk[:tokens[0].start()].strip()).strip()
             close_price, prev = _money(tokens[0].group(0)), tokens[0].end()
-            tokens = tokens[1:]
-        parts = []
-        for t in tokens:
-            label = REF_RE.sub("", chunk[prev:t.start()].strip()).strip() or "Amount"
-            parts.append((label, _money(t.group(0))))
-            prev = t.end()
+            for t in tokens[1:]:
+                parts.append((chunk[prev:t.start()].strip() or "Amount", _money(t.group(0))))
+                prev = t.end()
+        else:  # "address label $amount" per line: the address is what every line of the bill starts with
+            lines = [REF_RE.sub("", s).strip() for s in segs]
+            desc = _address(lines)
+            for line in lines:
+                for t in MONEY_RE.finditer(line):
+                    label = line[len(desc):t.start()].strip() if line.startswith(desc) else line[:t.start()].strip()
+                    parts.append((label or desc or "Amount", _money(t.group(0))))
+            desc = desc or (parts[0][0] if parts else "")
         gross = sum(v for k, v in parts if re.search(r"income", k, re.I))
         out["items"].append({
             "bill_no": m.group(2), "date": datetime.strptime(m.group(1), "%m/%d/%Y").date(), "description": desc,
