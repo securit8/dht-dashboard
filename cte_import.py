@@ -326,6 +326,10 @@ def import_workbook(cur, name, source, modified=None, etag=None, dry_run=False):
             file_modified = EXCLUDED.file_modified, etag = EXCLUDED.etag, imported_at = NOW(),
             activity_rows = EXCLUDED.activity_rows, deal_rows = EXCLUDED.deal_rows
     """, (name, year, modified, etag, len(activity), len(deals)))
+    # owner decisions from the dashboard (typo fixes, merged names) go on top of the file's rows
+    import decisions
+    for note in decisions.apply_fixes(cur):
+        summary += f" | {note}"
     return summary
 
 

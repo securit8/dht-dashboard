@@ -281,7 +281,7 @@ def splits_page():
     with db() as cur:
         rows = SP.deal_check(cur, date(year, 1, 1), date(year + 1, 1, 1))
         miles = SP.milestones(cur)
-    contracts = SP.contracts_table()
+        contracts = SP.contracts_table(cur)
     for c in contracts:
         m = miles.get((c["agent"], c["since"]))
         c["volume"], c["crossed"] = (m["volume"], m["crossed"]) if m else (None, None)
@@ -589,6 +589,16 @@ def dashboard():
 
 # ---------------------------------------------------------------- Decisions on Needs-attention items
 
+def _apply_saved_decisions():
+    try:
+        with db() as cur:
+            DEC.apply_fixes(cur)
+    except Exception:
+        app.logger.exception("applying saved decisions")
+
+
+_apply_saved_decisions()
+
 @app.route("/decisions/add", methods=["POST"])
 @login_required
 def decisions_add():
@@ -601,6 +611,7 @@ def decisions_add():
         with db() as cur:
             DEC.add(cur, f["key"][:300], (f.get("title") or "")[:500], (f.get("detail") or "")[:4000],
                     (f.get("choice") or "")[:200], (f.get("comment") or "").strip()[:4000], by)
+            DEC.apply_fixes(cur)
     return redirect(url_for("dashboard", saved=f.get("key")) + "#attention")
 
 

@@ -67,6 +67,12 @@ CONTRACTS = [
        "75/25 on everything after $10M career sales", bonus=25),
     _c("Jexsi Grey", None, 25, 35, 45, "Jexsi Grey.pdf", "Not signed or dated; 36-month lead ownership"),
 ]
+# The two readings of an agreement that contradicts itself, as offered on the dashboard (company %:
+# personal, zillow, database). The owners' choice on the Needs-attention item decides which is used.
+READINGS = {
+    "Ahtziri Duran": {"Split table is right": (20, 35, 40), "Cheat sheet is right": (25, 35, 40)},
+    "Darrion Jackson": {"Split table is right": (30, 40, 40), "Cheat sheet is right": (20, 35, 40)},
+}
 OWNERS = {"joe corbisiero", "maria corbisiero"}  # team owners: no agent split
 NO_CONTRACT = ["Jason Patel", "Miguel Aguirre"]  # agents with deals but no agreement in Drive
 
@@ -83,13 +89,39 @@ def lead_type(source):
     return "database"
 
 
-def _agent_contracts(agent):
-    return [c for c in CONTRACTS if c["agent"].lower() == (agent or "").strip().lower()]
+def decided_contracts(cur):
+    """CONTRACTS with the owners' answers on the dashboard applied: which reading of a contradicting
+    agreement is right, and the signing date of an unsigned one."""
+    rows = [dict(c) for c in CONTRACTS]
+    try:
+        import decisions
+        made = {k[len("contract:"):]: d for k, d in decisions.latest(cur).items() if k.startswith("contract:")}
+    except Exception:
+        return rows
+    for c in rows:
+        d = made.get(c["agent"])
+        if not d or not d["choice"]:
+            continue
+        reading = READINGS.get(c["agent"], {}).get(d["choice"])
+        if reading:
+            c["personal"], c["zillow"], c["database"] = reading
+            c["note"] = f"Owners' decision: {d['choice'].lower()} ({100 - reading[0]}/{reading[0]} personal). " + c["note"]
+        elif c["since"] is None and d["choice"].startswith("Signed"):
+            m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", d["comment"] or "")
+            if m:
+                y = int(m.group(3)) + (2000 if len(m.group(3)) == 2 else 0)
+                c["since"] = date(y, int(m.group(1)), int(m.group(2)))
+                c["note"] = f"Signed {c['since'].strftime('%m/%d/%Y')} per the owners. " + c["note"]
+    return rows
 
 
-def contract_for(agent, when, address=None):
+def _agent_contracts(agent, rows=None):
+    return [c for c in (rows if rows is not None else CONTRACTS) if c["agent"].lower() == (agent or "").strip().lower()]
+
+
+def contract_for(agent, when, address=None, rows=None):
     """The agent's agreement in force on `when` (None if none, or the deal closed before the first one)."""
-    rows = _agent_contracts(agent)
+    rows = _agent_contracts(agent, rows)
     if rows and rows[-1]["since"] is None:
         return rows[-1]
     rows = [c for c in rows if when and c["since"] <= when]
@@ -98,8 +130,8 @@ def contract_for(agent, when, address=None):
     return rows[-1] if rows else None
 
 
-def contracts_table():
-    return [dict(c) for c in CONTRACTS]
+def contracts_table(cur=None):
+    return decided_contracts(cur) if cur is not None else [dict(c) for c in CONTRACTS]
 
 
 def base(gci):
@@ -136,6 +168,7 @@ def deal_check(cur, start, end):
                    WHERE status = 'Closed' AND close_date >= %s AND close_date < %s""", (start, end))
     sources = {(a, d, g): s for a, d, g, s in cur.fetchall()}
     miles = milestones(cur)
+    rows_c = decided_contracts(cur)
     out = []
     for d in deals:
         agent = d["agent"] or ""
@@ -145,7 +178,7 @@ def deal_check(cur, start, end):
                "company": None, "expected": None, "gap": None, "status": "no_receipt"}
         company = sum(float(r["gross"] or r["amount"] or 0) for r in d["receipts"]) if d["receipts"] else None
         row["company"] = company
-        c = None if row["owner"] else contract_for(agent, d["close_date"], d["address"])
+        c = None if row["owner"] else contract_for(agent, d["close_date"], d["address"], rows_c)
         if c:
             row["contract"], row["contract_file"] = c["agent"], c["file"]
             row["expected_pct"] = c[row["lead"]]
@@ -159,7 +192,7 @@ def deal_check(cur, start, end):
         elif company is None:
             row["status"] = "no_receipt"
         elif not c:
-            row["status"] = "before_contract" if _agent_contracts(agent) else "no_contract"
+            row["status"] = "before_contract" if _agent_contracts(agent, rows_c) else "no_contract"
         else:
             row["expected"] = row["expected_pct"] / 100 * base(d["gci"])
             row["gap"] = company - row["expected"]

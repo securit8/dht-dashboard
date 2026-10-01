@@ -320,7 +320,12 @@ def _questions(cur, year):
                               "detail": "If they are, their deals and activity get counted together.",
                               "link": ("cte", {"cte_agent": b}),
                               "choices": ["Same person: count together", "Different people"]})
+    answered = {k[len("contract:"):] for k, d in (_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}).items()
+                if k.startswith("contract:") and d["choice"] and (d["choice"] in SP.READINGS.get(k[len("contract:"):], {})
+                                                                  or (d["choice"].startswith("Signed") and d["comment"]))}
     for c in SP.CONTRACTS:
+        if c["agent"] in answered:
+            continue
         if c["since"] is None:
             items.append({"level": "ask", "key": f"contract:{c['agent']}",
                           "title": f"{c['agent']}'s agreement isn't signed or dated",
