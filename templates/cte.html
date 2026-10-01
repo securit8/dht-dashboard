@@ -23,14 +23,15 @@
   <div class="card">
     <div class="band-label">Your 4 numbers &middot; <b>{{ rng.label }}</b></div>
     <div class="kpis four">
-      <div><div class="kpi-lbl">Offers Sent</div><div class="kpi-val">{{ kpi.written_offers|num }}</div>
-        <div class="kpi-sub">Written offers (Lead Gen)</div></div>
-      <div><div class="kpi-lbl">Open House Conv.</div><div class="kpi-val">{{ kpi.open_houses|num }}</div>
-        <div class="kpi-sub">Open houses held (Lead Gen)</div></div>
       <div><div class="kpi-lbl">Accepted Offers</div><div class="kpi-val">{{ kpi.accepted|num }}</div>
-        <div class="kpi-sub">Went under contract &middot; {{ kpi.fell_through|num }} later fell through</div></div>
-      <div><div class="kpi-lbl">Listings Signed</div><div class="kpi-val">{{ kpi.listing_agreements|num }}</div>
-        <div class="kpi-sub">Listing deals by Signed Date (deal log)</div></div>
+        <div class="kpi-sub">{{ kpi.buyer_accepted|num }} buyer &middot; {{ kpi.listing_accepted|num }} listing &middot;
+          {{ kpi.fell_through|num }} fell through{% if kpi.accepted %} ({{ (kpi.fell_through / kpi.accepted * 100)|round|int }}%){% endif %}</div></div>
+      <div><div class="kpi-lbl">Offer to Close</div><div class="kpi-val">{{ ((kpi.accepted_closed / kpi.accepted * 100)|round|int ~ '%') if kpi.accepted else '&mdash;'|safe }}</div>
+        <div class="kpi-sub">of those accepted offers: {{ kpi.accepted_closed|num }} closed &middot; {{ kpi.accepted_pending|num }} still pending</div></div>
+      <div><div class="kpi-lbl">Listings Taken</div><div class="kpi-val">{{ kpi.listings_taken|num }}</div>
+        <div class="kpi-sub">{{ kpi.listings_taken_uc|num }} went under contract &middot; {{ kpi.listings_taken_active|num }} still active / coming soon</div></div>
+      <div><div class="kpi-lbl">Open House Deals</div><div class="kpi-val">{{ kpi.oh_accepted|num }}</div>
+        <div class="kpi-sub">under contract from open-house leads &middot; {{ kpi.oh_closed|num }} closed, {{ kpi.oh_gci|money }} GCI</div></div>
     </div>
   </div>
 
@@ -60,6 +61,8 @@
           <div class="kpi-sub">listing {{ kpi.listing_appts_set|num }}/{{ kpi.listing_appts_held|num }} &middot; buyer {{ kpi.buyer_appts_set|num }}/{{ kpi.buyer_appts_held|num }}</div></div>
         <div><div class="kpi-lbl">Showings</div><div class="kpi-val">{{ kpi.showings|num }}</div>
           <div class="kpi-sub">{{ kpi.buyer_reps_signed|num }} buyer reps signed</div></div>
+        <div><div class="kpi-lbl">Offers written / open houses</div><div class="kpi-val">{{ kpi.written_offers|num }} / {{ kpi.open_houses|num }}</div>
+          <div class="kpi-sub">only what agents log on the Lead Gen sheet</div></div>
       </div>
     </div>
   </div>

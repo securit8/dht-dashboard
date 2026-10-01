@@ -74,8 +74,24 @@ def period(cur, start, end, cte_agent=None):
                COALESCE(AVG(d.commission_pct) FILTER (WHERE cl AND d.commission_pct > 0), 0) AS avg_pct,
                COUNT(*) FILTER (WHERE d.deal_type = 'Listing' AND d.signed_date >= %(start)s
                                 AND d.signed_date < %(end)s
-                                AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements
+                                AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements,
+               -- the 4 numbers: everything from the deal log, which every deal is entered in
+               COUNT(*) FILTER (WHERE uc AND d.deal_type = 'Buyer') AS buyer_accepted,
+               COUNT(*) FILTER (WHERE uc AND d.deal_type = 'Listing') AS listing_accepted,
+               COUNT(*) FILTER (WHERE uc AND d.status = 'Closed') AS accepted_closed,
+               COUNT(*) FILTER (WHERE uc AND d.status = 'Pending') AS accepted_pending,
+               COUNT(*) FILTER (WHERE lt) AS listings_taken,
+               COUNT(*) FILTER (WHERE lt AND d.under_contract_date IS NOT NULL) AS listings_taken_uc,
+               COUNT(*) FILTER (WHERE lt AND d.status IN ('Active', 'Coming Soon', 'Signed')) AS listings_taken_active,
+               COUNT(*) FILTER (WHERE uc AND oh) AS oh_accepted,
+               COUNT(*) FILTER (WHERE cl AND oh) AS oh_closed,
+               COALESCE(SUM(d.gci) FILTER (WHERE cl AND oh), 0) AS oh_gci
         FROM (SELECT d.*,
+                     -- listing agreement taken: signed date, or the list date when it isn't filled in
+                     (d.deal_type = 'Listing' AND COALESCE(d.signed_date, d.list_date) >= %(start)s
+                      AND COALESCE(d.signed_date, d.list_date) < %(end)s
+                      AND EXTRACT(YEAR FROM COALESCE(d.signed_date, d.list_date)) = d.file_year) AS lt,
+                     COALESCE(d.source, '') ILIKE '%%open house%%' AS oh,
                      (d.under_contract_date >= %(start)s AND d.under_contract_date < %(end)s
                       AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year) AS uc,
                      (d.status = 'Closed' AND d.close_date >= %(start)s AND d.close_date < %(end)s
