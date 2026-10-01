@@ -86,7 +86,7 @@
     </table>
     <div class="note">$10M volume = sale prices of the agent's closed CTE deals (primary or secondary agent), all years unless the agreement counts from its own date.
       All agreements: Compass fee 10% of gross shared by split, $550 TC fee paid by the agent (split for Margaryta and Sam), $1,500 onboarding fee if the agent leaves within 10 months.
-      {% if no_contract %}Jason Patel's new agreement is being made; his deals are checked once it's signed and in his Drive folder.{% endif %}
-      Miguel Aguirre is no longer with the team (his deals aren't checked).</div>
+      {% for n in pending_agents %}{{ n }}'s new agreement is being made; their deals are checked once it's signed and in their Drive folder. {% endfor %}
+      {% for n in former_agents %}{{ n }} is no longer with the team (their deals aren't checked). {% endfor %}</div>
   </div>
 {% endblock %}

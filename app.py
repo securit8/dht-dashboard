@@ -30,6 +30,10 @@ app.secret_key = os.environ["SECRET_KEY"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 DASHBOARD_USERNAME = os.environ["DASHBOARD_USERNAME"]
 DASHBOARD_PASSWORD = os.environ["DASHBOARD_PASSWORD"]
+# Demo service (demo_wsgi.py): random numbers, nobody signs in, nothing can be changed
+DEMO = os.environ.get("DEMO_MODE") == "1"
+# On the real service: the separate demo's address, for the "Try it with random numbers" button on the sign-in page
+DEMO_URL = os.environ.get("DEMO_URL", "").strip()
 
 PALETTE = ['#E8A87C', '#7B8FF0', '#8FD3C8', '#F2B84B', '#C99BE0',
            '#7ECF8B', '#E88BA0', '#8FB8E0', '#D9A066', '#9AA5B1']
@@ -56,6 +60,8 @@ NAV = [
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if DEMO:
+            session["logged_in"] = True
         if not session.get("logged_in"):
             return redirect(url_for("login", next=request.path))
         return view(*args, **kwargs)
@@ -306,7 +312,8 @@ def splits_page():
             t["gap"] += r["gap"]
     return render_template("splits.html", year=year, year_choices=list(range(today.year, 2023, -1)),
                            rows=rows, agents=sorted(agents.values(), key=lambda a: a["gap"]), total=total,
-                           contracts=contracts, bonus_volume=SP.BONUS_VOLUME, no_contract=SP.NO_CONTRACT, show=request.args.get("show"))
+                           contracts=contracts, bonus_volume=SP.BONUS_VOLUME, no_contract=SP.NO_CONTRACT, show=request.args.get("show"),
+                           pending_agents=[n.title() for n in SP.CONTRACT_PENDING], former_agents=[n.title() for n in SP.FORMER_AGENTS])
 
 
 @app.route("/version")
@@ -315,8 +322,17 @@ def version():
     return {"commit": (os.environ.get("RENDER_GIT_COMMIT") or "local")[:7]}
 
 
+@app.before_request
+def _demo_read_only():
+    """In the demo nothing can be changed or connected: every form just goes back to the page."""
+    if DEMO and request.method not in ("GET", "HEAD", "OPTIONS"):
+        return redirect((request.referrer or url_for("dashboard")).split("#")[0])
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if DEMO:
+        return redirect(url_for("dashboard"))
     error = None
     if request.method == "POST":
         username = request.form.get("username", "")
@@ -326,7 +342,7 @@ def login():
             session.permanent = True
             return redirect(request.args.get("next") or url_for("dashboard"))
         error = "Incorrect username or password."
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, demo_url=DEMO_URL)
 
 
 @app.route("/logout")
@@ -461,7 +477,7 @@ def board_item(row, key):
 
 @app.context_processor
 def layout_context():
-    return {"nav": NAV, "presets": PRESETS, "money": money,
+    return {"nav": NAV, "presets": PRESETS, "money": money, "demo": DEMO,
             "month_names": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}
 
 
