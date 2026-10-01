@@ -624,6 +624,7 @@ def decisions_add():
             DEC.add(cur, f["key"][:300], (f.get("title") or "")[:500], (f.get("detail") or "")[:4000],
                     (f.get("choice") or "")[:200], (f.get("comment") or "").strip()[:4000], by)
             DEC.apply_fixes(cur)
+        HOME.clear_cache()
     return redirect(url_for("dashboard", saved=f.get("key")) + "#attention")
 
 
@@ -645,6 +646,7 @@ def decisions_status(decision_id):
     if status in dict(DEC.STATUSES):
         with db() as cur:
             DEC.set_status(cur, decision_id, status, (request.form.get("fix_note") or "").strip()[:2000])
+        HOME.clear_cache()
     return redirect(url_for("decisions_page", status=request.form.get("back") or None))
 
 
@@ -1038,8 +1040,9 @@ def _fub_name_map(cur):
     """{CTE agent name (lowercase): FUB user id}"""
     out = {}
     if R.tables_ready(cur, "agents"):
+        cte_names = CTE.agent_options(cur)
         for uid, name in R.agent_names(cur).items():
-            cte_name = CTE.name_for(cur, name)
+            cte_name = CTE.name_for(cur, name, cte_names)
             if cte_name:
                 out[cte_name.lower()] = uid
     return out
@@ -1156,7 +1159,8 @@ def _fub_appts(cur, start, end, agent=None):
         return None
     uid = None
     if agent:
-        uid = next((u for u, n in R.agent_names(cur).items() if CTE.name_for(cur, n) == agent), None)
+        names = CTE.agent_options(cur)
+        uid = next((u for u, n in R.agent_names(cur).items() if CTE.name_for(cur, n, names) == agent), None)
         if uid is None:
             return {"missing": True}
     c = R.funnel_counts(cur, R.Filters(start, end, uid, None, TEAM_TZ_NAME))

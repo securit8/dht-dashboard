@@ -624,7 +624,29 @@ def _digits_close(a, b):
     return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
 
 
+_memo = threading.local()
+
+
+def memo_start():
+    """Reuse deal_receipts results until memo_stop (one page build asks for the same years several times)."""
+    _memo.d = {}
+
+
+def memo_stop():
+    _memo.d = None
+
+
 def deal_receipts(cur, start, end):
+    memo = getattr(_memo, "d", None)
+    if memo is not None:
+        if (start, end) not in memo:
+            memo[(start, end)] = _deal_receipts(cur, start, end)
+        deals, unmatched = memo[(start, end)]
+        return list(deals), list(unmatched)
+    return _deal_receipts(cur, start, end)
+
+
+def _deal_receipts(cur, start, end):
     """CTE closed deals in [start, end) with the Compass receipts that match them (same street number,
     within 120 days, sharing a street word when there is a choice). Deals around the period are matched
     too, so a receipt for a deal of the next or previous year doesn't show as unmatched.

@@ -229,12 +229,17 @@ def agent_deals(cur, cte_agent, limit=30):
         LIMIT {int(limit)}""", {"cte_agent": cte_agent})
 
 
-def name_for(cur, fub_name):
-    """The CTE spelling of a FUB agent's name, if they appear in CTE at all."""
-    if not fub_name or not ready(cur):
+def name_for(cur, fub_name, names=None):
+    """The CTE spelling of a FUB agent's name, if they appear in CTE at all. Pass `names`
+    (agent_options) when looking up many agents, so the CTE name list is read once."""
+    if not fub_name:
         return None
+    if names is None:
+        if not ready(cur):
+            return None
+        names = agent_options(cur)
     wanted = fub_name.strip().lower()
-    return next((n for n in agent_options(cur) if n.lower() == wanted), None)
+    return next((n for n in names if n.lower() == wanted), None)
 
 
 # ---------------------------------------------------------------- Business Overview

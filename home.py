@@ -255,7 +255,8 @@ def _data_checks(cur, year, receipts):
                                           for x in rows),
                       "link": ("cte", {})})
     if R.tables_ready(cur, "agents"):
-        fub = {(CTE.name_for(cur, n) or "").lower() for n in R.agent_names(cur).values()}
+        cte_names = CTE.agent_options(cur)
+        fub = {(CTE.name_for(cur, n, cte_names) or "").lower() for n in R.agent_names(cur).values()}
         missing = [x["name"] for x in R.fetch(cur, """SELECT DISTINCT TRIM(primary_agent) AS name FROM cte_deals
                                                       WHERE file_year = %(y)s AND status IN ('Closed', 'Pending')
                                                         AND COALESCE(TRIM(primary_agent), '') <> '' ORDER BY 1""", {"y": year})
@@ -462,7 +463,30 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
     return sorted(items, key=lambda i: order[i["level"]])
 
 
+_cache = {"at": 0.0, "key": None, "data": None}
+CACHE_SECONDS = 120
+
+
+def clear_cache():
+    """Forget the cached dashboard numbers (after a decision is saved)."""
+    _cache.update(at=0.0, key=None, data=None)
+
+
 def overview(cur, today, tz, year_totals):
+    """The dashboard home, reused for CACHE_SECONDS so reloads are instant."""
+    key = today.date()
+    if _cache["data"] is not None and _cache["key"] == key and time.monotonic() - _cache["at"] < CACHE_SECONDS:
+        return _cache["data"]
+    gmail_import.memo_start()
+    try:
+        data = _overview(cur, today, tz, year_totals)
+    finally:
+        gmail_import.memo_stop()
+    _cache.update(at=time.monotonic(), key=key, data=data)
+    return data
+
+
+def _overview(cur, today, tz, year_totals):
     """Everything on the dashboard home. `today` is midnight today in the team's timezone,
     `year_totals` is app._year_totals for this year."""
     year = today.year
