@@ -37,6 +37,38 @@
     {% endif %}
   </section>
 
+  {% if H.funnel and H.funnel.leads %}
+  <style>
+    .hf-band { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
+    .hf-steps { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 8px; }
+    .hf-steps > div { padding: 4px 18px 4px 0; margin-right: 18px; border-right: 1px solid var(--line, #E8EBF0); }
+    .hf-steps > div:last-child { border-right: 0; margin-right: 0; }
+    .hf-steps .kpi-lbl { min-height: 2.6em; }
+    .hf-bar { height: 6px; border-radius: 3px; background: var(--bg); margin: 8px 0 2px; }
+    .hf-bar div { height: 100%; border-radius: 3px; background: #3E55C9; }
+    @media (max-width: 1200px) { .hf-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 14px; }
+                                 .hf-steps > div:nth-child(4n) { border-right: 0; } }
+    @media (max-width: 700px) { .hf-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                                .hf-steps > div:nth-child(2n) { border-right: 0; } }
+  </style>
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-head"><div class="hf-band">Lead funnel &middot; how far the {{ H.funnel.leads|num }} leads created in {{ H.year }} have got</div>
+      <span class="muted"><a href="{{ url_for('lead_source') }}">Lead Source Report &rsaquo;</a></span></div>
+    <div class="hf-steps">
+      {% for s in H.funnel.steps %}
+      <div title="{{ s.at }} {{ 'lead is' if s.at == 1 else 'leads are' }} at this step right now">
+        <div class="kpi-lbl">{{ s.stage }}</div>
+        <div class="kpi-val">{{ s.reached|num }}</div>
+        <div class="kpi-sub">{{ s.pct|round|int }}% {{ 'of leads' if loop.first else 'reached' }}</div>
+        <div class="hf-bar"><div style="width: {{ s.pct }}%"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="note">Each step counts leads that reached at least that stage in Follow Up Boss today. Folded in: Attempted contact, Unresponsive and Trash count as Lead; Sphere and Past client as Nurture; Appointment set as Spoke with customer;
+      Listing agreement and Active listing as Showing homes; Under contract and Pending as Submitting offers.</div>
+  </div>
+  {% endif %}
+
   <div class="home-grid">
     <div class="card">
       <div class="card-head" id="attention"><h2>Needs attention</h2>

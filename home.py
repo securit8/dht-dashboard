@@ -653,6 +653,9 @@ def _overview(cur, today, tz, year_totals):
     has_fub = _safe(cur, "fub ready", lambda: R.tables_ready(cur, "people"), False)
     deals = _safe(cur, "deals", lambda: _deals(cur, today, tz)) if has_cte else None
     leads = _safe(cur, "leads", lambda: _leads(cur, today, tz)) if has_fub else None
+    # leads created this year: how far each has got in Follow Up Boss today (same as the Lead Source Report)
+    funnel = _safe(cur, "funnel", lambda: R.lead_funnel(cur, R.Filters(today.replace(month=1, day=1), today + timedelta(days=1),
+                                                                        None, None, tz))) if has_fub else None
     checks = _safe(cur, "splits", lambda: SP.deal_check(cur, date(year, 1, 1), date(year + 1, 1, 1))) if has_cte else None
     receipts = _safe(cur, "receipts", lambda: _receipts(cur, year)) if has_cte else None
     agents = _safe(cur, "agents", lambda: _agents(cur, today, checks), []) if has_cte else []
@@ -667,7 +670,7 @@ def _overview(cur, today, tz, year_totals):
     if checks:
         paid = [r["company"] for r in checks if r["company"] is not None]
         company = {"total": sum(paid), "deals": len(paid)}
-    return {"year": year, "money": money, "deals": deals, "leads": leads, "agents": agents, "company": company,
+    return {"year": year, "money": money, "deals": deals, "leads": leads, "funnel": funnel, "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
             "attention": _with_decisions(cur, _attention(money, deals, leads, receipts, checks, fresh, now, questions),
                                          year, checks, receipts, money)}
