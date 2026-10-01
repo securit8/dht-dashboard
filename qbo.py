@@ -421,9 +421,12 @@ def parse_income_detail(report):
 
 def pull_income_detail(database_url, start=date(2024, 1, 1)):
     """Pull every income entry since `start` into qbo_income_txns (replacing what was there)."""
-    report = api_get(database_url, "reports/ProfitAndLossDetail", {
-        "start_date": start.isoformat(), "end_date": date.today().isoformat(), "accounting_method": "Accrual"})
-    rows = parse_income_detail(report)
+    rows = []
+    for y in range(start.year, date.today().year + 1):  # a year per request keeps each report small
+        report = api_get(database_url, "reports/ProfitAndLossDetail", {
+            "start_date": max(start, date(y, 1, 1)).isoformat(), "end_date": min(date.today(), date(y, 12, 31)).isoformat(),
+            "accounting_method": "Accrual"})
+        rows += parse_income_detail(report)
     conn, cur = _db(database_url)
     cur.execute("DELETE FROM qbo_income_txns WHERE txn_date >= %s", (start,))
     for r in rows:

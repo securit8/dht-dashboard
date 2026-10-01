@@ -118,7 +118,7 @@ def quickbooks_callback():
     try:
         qbo.connect(DATABASE_URL, code, realm, _qbo_redirect_uri())
         months = qbo.pull_pnl(DATABASE_URL)
-        qbo.pull_income_detail(DATABASE_URL)
+        entries = qbo.pull_income_detail(DATABASE_URL)
     except qbo.NeedsReconnect as e:
         return redirect(url_for("quickbooks", err=str(e)))
     except Exception as e:  # noqa: BLE001 - show it instead of a 500
@@ -135,7 +135,7 @@ def quickbooks_refresh():
         return redirect(url_for("quickbooks", err=str(e)))
     except Exception as e:  # noqa: BLE001
         return redirect(url_for("quickbooks", err=f"Pull failed: {e}"))
-    return redirect(url_for("quickbooks", msg=f"Updated {months} months."))
+    return redirect(url_for("quickbooks", msg=f"Updated {months} months and {entries} income entries."))
 
 
 @app.route("/quickbooks/disconnect", methods=["GET", "POST"])
