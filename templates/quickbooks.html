@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}QuickBooks{% endblock %}
 {% block eyebrow %}QuickBooks Online{% endblock %}
-{% block heading %}Profit &amp; Loss from your books{% endblock %}
+{% block heading %}Money in, money out{% endblock %}
 {% block style %}
   .qb-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
   .qb-status form { margin: 0; }
@@ -13,7 +13,22 @@
   .flash.ok { background: #E3F4EA; color: #1F7A48; }
   .flash.err { background: #FBE7E4; color: #A33224; }
   .btn.danger { background: #D2544A; color: #fff; border: 0; }
-  .tbl td.neg { color: #A33224; }
+  .tbl td.neg, .t-val.neg { color: #A33224; }
+  .qkpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .tile { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .t-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .t-val { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 8px 0 6px; }
+  .t-sub { font-size: 12.5px; color: var(--soft); line-height: 1.5; }
+  .chg { font-weight: 600; font-size: 12px; margin-top: 0; padding: 0; background: none !important; }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); }
+  .chart-box { position: relative; height: 260px; } .chart-box.tall { height: 320px; }
+  .legend-inline { font-size: 12.5px; color: var(--soft); display: flex; gap: 6px; align-items: center; }
+  .legend-inline i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-left: 10px; }
+  .legend-inline i.line { width: 16px; height: 3px; border-radius: 2px; background: #1C2333; }
+  .capbar { height: 8px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+  .capbar span { display: block; height: 100%; border-radius: 999px; }
+  td.memo { white-space: normal; max-width: 360px; color: var(--soft); font-size: 12.5px; }
+  details.pnl summary { cursor: pointer; font-weight: 600; }
 {% endblock %}
 {% block content %}
   {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
@@ -68,9 +83,107 @@
   </div>
   {% endif %}
 
+  {% if a %}
+  {% set k = a.kpis %}
+  {% macro chg(v, good_up=True) %}{% if v is not none %}<span class="chg {{ 'up' if (v >= 0) == good_up else 'down' }}">{{ '▲' if v >= 0 else '▼' }} {{ '{:.0f}'.format(v|abs) }}%</span>{% endif %}{% endmacro %}
+  <div class="qkpis">
+    <div class="tile"><div class="t-lbl">Income · {{ k.through.year }} to date</div><div class="t-val">{{ k.ytd.income|dollars }}</div>
+      <div class="t-sub">{{ chg(k.chg.income) }} vs {{ k.last_year.income|dollars }} same days last year</div></div>
+    <div class="tile"><div class="t-lbl">Expenses · to date</div><div class="t-val">{{ k.ytd.expenses|dollars }}</div>
+      <div class="t-sub">{{ chg(k.chg.expenses, False) }} vs {{ k.last_year.expenses|dollars }} last year</div></div>
+    <div class="tile"><div class="t-lbl">Net income · to date</div><div class="t-val {{ 'neg' if k.ytd.net < 0 }}">{{ k.ytd.net|dollars }}</div>
+      <div class="t-sub">{{ chg(k.chg.net) }} vs {{ k.last_year.net|dollars }} last year</div></div>
+    <div class="tile"><div class="t-lbl">Net margin</div><div class="t-val">{{ '{:.1f}%'.format(k.ytd.margin) if k.ytd.margin is not none else '--' }}</div>
+      <div class="t-sub">of income kept · last year {{ '{:.1f}%'.format(k.last_year.margin) if k.last_year.margin is not none else '--' }}</div></div>
+    <div class="tile"><div class="t-lbl">Monthly spend · last 3 months</div><div class="t-val">{{ k.avg_spend_3m|dollars if k.avg_spend_3m is not none else '--' }}</div>
+      <div class="t-sub">average per month{% if a.caps %} · plan cap {{ a.caps[-1].cap|money }}{% endif %}</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Income, expenses and net by month · {{ k.through.year }}</h2>
+      <span class="legend-inline"><i style="background:#2a78d6"></i>Income <i style="background:#eb6834"></i>Expenses <i class="line"></i>Net income</span></div>
+    <div class="chart-box tall"><canvas id="c-flow"></canvas></div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="card">
+      <h2>Net income, this year vs last</h2>
+      <div class="chart-box"><canvas id="c-net"></canvas></div>
+      <div class="note">By month, from the Profit &amp; Loss. {{ k.through.year }} in blue, {{ k.through.year - 1 }} in grey.</div>
+    </div>
+    <div class="card">
+      <h2>Where income came from · {{ k.through.year }}</h2>
+      <div class="chart-box"><canvas id="c-sources"></canvas></div>
+      <div class="note">Sorted by the bank deposit's payer and memo: Compass payments, escrow / title wires, mobile check deposits, interest.</div>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="card">
+      <h2>Expenses by category · to date</h2>
+      <div class="chart-box tall"><canvas id="c-cats"></canvas></div>
+      <table class="tbl" style="margin-top:12px">
+        <tr><th>Category</th><th class="n">{{ k.through.year }}</th><th class="n">Share</th><th class="n">Last year</th><th class="n">Change</th></tr>
+        {% for c in a.categories %}
+        <tr><td>{{ c.category }}</td><td class="n">{{ c.ytd|dollars }}</td><td class="n">{{ '{:.0f}%'.format(c.share) }}</td>
+          <td class="n">{{ c.ly|dollars }}</td><td class="n">{{ chg(c.chg, False) }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Monthly spend by category</h2>
+      <div class="chart-box tall"><canvas id="c-catmonths"></canvas></div>
+      {% if a.caps %}
+      <h3 style="margin-top:18px">Expense cap (Oct&ndash;Mar plan)</h3>
+      <table class="tbl">
+        <tr><th>Month</th><th class="n">Spent</th><th class="n">Cap</th><th style="width:40%"></th></tr>
+        {% for c in a.caps %}
+        <tr><td>{{ c.month.strftime('%b %Y') }}</td><td class="n {{ 'neg' if c.over }}">{{ c.spent|dollars }}</td><td class="n">{{ c.cap|dollars }}</td>
+          <td><div class="capbar"><span style="width:{{ [c.spent / c.cap * 100, 100]|min }}%;background:{{ '#C0392B' if c.over else '#2a78d6' }}"></span></div></td></tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:20px">
+    <div class="card">
+      <h2>Top payees · {{ k.through.year }}</h2>
+      <table class="tbl">
+        <tr><th>Paid to</th><th>Category</th><th class="n">Times</th><th class="n">Total</th></tr>
+        {% for p in a.payees %}
+        <tr><td>{{ p.payee }}</td><td class="muted">{{ p.category or '' }}</td><td class="n">{{ p.n }}</td><td class="n"><b>{{ p.total|dollars }}</b></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="card">
+      <h2>Recurring charges</h2>
+      <div class="muted" style="margin:-6px 0 10px">Payees charged in 3 or more of the last 6 months &middot; about <b>{{ a.recurring.total|dollars }}</b> a month</div>
+      <table class="tbl">
+        <tr><th>Paid to</th><th>Category</th><th class="n">Months</th><th class="n">Per month</th><th>Last</th></tr>
+        {% for r in a.recurring.rows[:14] %}
+        <tr><td>{{ r.payee }}</td><td class="muted">{{ r.category or '' }}</td><td class="n">{{ r.months }}</td>
+          <td class="n"><b>{{ r.monthly|dollars }}</b></td><td>{{ r.last.strftime('%m/%d') }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Largest single expenses · {{ k.through.year }}</h2>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Date</th><th>Paid to</th><th>Category</th><th>Memo</th><th class="n">Amount</th></tr>
+      {% for b in a.biggest %}
+      <tr><td>{{ b.txn_date.strftime('%m/%d/%Y') }}</td><td>{{ b.name or '' }}</td><td class="muted">{{ b.category }}{% if b.account != b.category %} › {{ b.account }}{% endif %}</td>
+        <td class="memo">{{ (b.memo or '')|truncate(70, True) }}</td><td class="n"><b>{{ b.amount|dollars }}</b></td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+
   {% if rows %}
   <div class="card">
-    <h3>Profit &amp; Loss by month</h3>
+    <details class="pnl"{% if not a %} open{% endif %}><summary>Profit &amp; Loss by month (all the numbers)</summary>
     <div class="tbl-wrap"><table class="tbl">
       <tr><th>Month</th><th class="n">Income</th><th class="n">Cost of sales</th><th class="n">Gross profit</th>
           <th class="n">Expenses</th><th class="n">Net operating income</th><th class="n">Other income</th>
@@ -83,8 +196,55 @@
       {% endfor %}
     </table></div>
     <div class="note">Accrual basis, from the QuickBooks Profit and Loss report. Read-only: the dashboard never changes anything in QuickBooks.</div>
+    </details>
   </div>
   {% endif %}
 
   <p class="muted" style="font-size:13px"><a href="{{ url_for('legal_terms') }}">Terms</a> &middot; <a href="{{ url_for('legal_privacy') }}">Privacy</a></p>
 {% endblock %}
+
+{% block scripts %}{% if a %}
+  {% include "_chart.html" %}
+  <script>
+  (function () {
+    const money = v => '$' + (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : Math.abs(v) >= 1e3 ? Math.round(v / 1e3) + 'K' : Math.round(v));
+    const full = v => '$' + Math.round(v).toLocaleString();
+    const tip = { callbacks: { label: c => ' ' + c.dataset.label + ': ' + full(c.parsed.y ?? c.parsed.x) } };
+    const A = {{ {'this': a.this, 'last': a.last, 'cats': a.categories, 'catm': a.cat_months, 'src': a.sources, 'year': a.kpis.through.year}|tojson }};
+    const yAxis = { beginAtZero: true, ticks: { callback: money }, grid: { color: '#EEF0F3' }, border: { display: false } };
+    const xAxis = { grid: { display: false }, border: { display: false } };
+    // income and expenses as bars, net as a line, one dollar axis
+    new Chart(document.getElementById('c-flow'), {
+      data: { labels: MONTHS, datasets: [
+        { type: 'line', label: 'Net income', data: A.this.net, borderColor: '#1C2333', backgroundColor: '#1C2333', borderWidth: 2, pointRadius: 3, tension: 0.3, order: 0 },
+        { type: 'bar', label: 'Income', data: A.this.income, backgroundColor: '#2a78d6', borderRadius: 4, maxBarThickness: 26, order: 1 },
+        { type: 'bar', label: 'Expenses', data: A.this.expenses, backgroundColor: '#eb6834', borderRadius: 4, maxBarThickness: 26, order: 1 } ] },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: tip }, scales: { y: yAxis, x: xAxis } } });
+    new Chart(document.getElementById('c-net'), {
+      type: 'line', data: { labels: MONTHS, datasets: [
+        { label: String(A.year), data: A.this.net, borderColor: '#2a78d6', backgroundColor: '#2a78d6', borderWidth: 3, pointRadius: 3, tension: 0.3 },
+        { label: String(A.year - 1), data: A.last.net, borderColor: '#B8BDC7', backgroundColor: '#B8BDC7', borderWidth: 2, pointRadius: 2, tension: 0.3 } ] },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { tooltip: tip }, scales: { y: { ...yAxis, beginAtZero: false }, x: xAxis } } });
+    new Chart(document.getElementById('c-sources'), {
+      type: 'bar', data: { labels: A.src.map(s => s.source), datasets: [{ label: 'Income', data: A.src.map(s => s.amount),
+        backgroundColor: '#2a78d6', borderRadius: 4, maxBarThickness: 22 }] },
+      options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: c => ' ' + full(c.parsed.x) + ' (' + A.src[c.dataIndex].share.toFixed(0) + '%)' } } },
+        scales: { x: { ...yAxis, ticks: { callback: money } }, y: { grid: { display: false }, border: { display: false } } } } });
+    new Chart(document.getElementById('c-cats'), {
+      type: 'bar', data: { labels: A.cats.map(c => c.category), datasets: [
+        { label: String(A.year), data: A.cats.map(c => c.ytd), backgroundColor: '#eb6834', borderRadius: 4, maxBarThickness: 18 },
+        { label: (A.year - 1) + ' same days', data: A.cats.map(c => c.ly), backgroundColor: '#D5D8DE', borderRadius: 4, maxBarThickness: 18 } ] },
+      options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: c => ' ' + c.dataset.label + ': ' + full(c.parsed.x) } } },
+        scales: { x: { ...yAxis, ticks: { callback: money } }, y: { grid: { display: false }, border: { display: false } } } } });
+    const palette = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#B8BDC7'];
+    new Chart(document.getElementById('c-catmonths'), {
+      type: 'bar', data: { labels: A.catm.labels, datasets: Object.entries(A.catm.series).map(([label, data], i) => ({
+        label, data, backgroundColor: label === 'Other' ? '#B8BDC7' : palette[i], borderColor: '#fff', borderWidth: 1, maxBarThickness: 34 })) },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { tooltip: tip },
+        scales: { x: { ...xAxis, stacked: true }, y: { ...yAxis, stacked: true } } } });
+  })();
+  </script>
+{% endif %}{% endblock %}

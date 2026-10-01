@@ -15,6 +15,7 @@ import psycopg2
 import cte_reports as CTE
 import goals as G
 import qbo
+import qbo_reports as QR
 import gmail_import
 import cte_import
 import splits as SP
@@ -91,7 +92,8 @@ def quickbooks():
     with db() as cur:
         conn = qbo.status(cur)
         rows = qbo.pnl_rows(cur) if conn else []
-    return render_template("quickbooks.html", configured=qbo.configured(), env=qbo.env(), conn=conn, rows=rows,
+        analytics = QR.page(cur, datetime.now(TEAM_TZ).date()) if conn else None
+    return render_template("quickbooks.html", configured=qbo.configured(), env=qbo.env(), conn=conn, rows=rows, a=analytics,
                            message=request.args.get("msg"), error=request.args.get("err"))
 
 

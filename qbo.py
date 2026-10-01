@@ -1,7 +1,8 @@
 """QuickBooks Online: OAuth connection and the Profit & Loss pull.
 
 Read-only by design: the only API calls are the Profit & Loss report, the Profit & Loss Detail
-report (every income entry, to match against the Compass payments) and CompanyInfo (all GET). Tokens are encrypted in Postgres with QBO_TOKEN_KEY. Disconnecting revokes
+report (every income and expense entry: the QuickBooks page's analytics and the Compass match) and
+CompanyInfo (all GET). Tokens are encrypted in Postgres with QBO_TOKEN_KEY. Disconnecting revokes
 the token at Intuit and deletes the connection and every stored QuickBooks number.
 
 Settings (Render environment group "quickbooks"):
@@ -100,6 +101,12 @@ def ensure_tables(cur):
             connected_at TIMESTAMPTZ, last_pull_at TIMESTAMPTZ,
             needs_reconnect BOOLEAN DEFAULT false, last_error TEXT
         )""")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS qbo_txns (
+            id SERIAL PRIMARY KEY, section TEXT, category TEXT, account TEXT, txn_type TEXT, txn_date DATE,
+            doc_num TEXT, name TEXT, memo TEXT, split TEXT, amount NUMERIC, pulled_at TIMESTAMPTZ DEFAULT now()
+        )""")
+    cur.execute("CREATE INDEX IF NOT EXISTS qbo_txns_date ON qbo_txns (txn_date)")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS qbo_income_txns (
             id SERIAL PRIMARY KEY, txn_id TEXT, txn_type TEXT, txn_date DATE, doc_num TEXT, name TEXT,
@@ -312,6 +319,8 @@ def disconnect(database_url):
             pass
     cur.execute("DELETE FROM qbo_connection")
     cur.execute("DELETE FROM qbo_pnl")
+    cur.execute("DELETE FROM qbo_txns")
+    cur.execute("DELETE FROM qbo_income_txns")
     conn.commit()
     conn.close()
 
@@ -419,22 +428,69 @@ def parse_income_detail(report):
     return out
 
 
+SECTIONS = {"income": "Income", "cost of goods sold": "Cost of sales", "cost of sales": "Cost of sales",
+            "expenses": "Expenses", "expense": "Expenses", "other income": "Other income",
+            "other expenses": "Other expenses", "other expense": "Other expenses"}
+
+
+def parse_detail(report):
+    """Every entry of a Profit & Loss Detail report, with its P&L section (Income, Cost of sales, Expenses,
+    Other income, Other expenses), top-level category and account:
+    [{section, category, account, txn_type, txn_date, doc_num, name, memo, split, amount}]."""
+    cols = _cols(report)
+    out = []
+
+    def walk(rows, path):
+        for row in rows or []:
+            if row.get("type") == "Section" or "Rows" in row:
+                head = (row.get("Header", {}).get("ColData") or [{}])[0].get("value")
+                walk(row.get("Rows", {}).get("Row", []), path + ([head] if head else []))
+            elif row.get("type") == "Data":
+                v = {cols[i] if i < len(cols) else str(i): c.get("value") for i, c in enumerate(row.get("ColData", []))}
+                amount = _num(v.get("subt_nat_amount") or v.get("amount"))
+                if not v.get("tx_date") or not amount:
+                    continue
+                try:
+                    when = date.fromisoformat(v["tx_date"])
+                except ValueError:
+                    continue
+                idx = next((i for i, p in enumerate(path) if (p or "").strip().lower() in SECTIONS), None)
+                if idx is None:
+                    continue
+                section = SECTIONS[path[idx].strip().lower()]
+                rest = path[idx + 1:]
+                out.append({"section": section, "category": rest[0] if rest else path[idx], "account": rest[-1] if rest else path[idx],
+                            "txn_type": v.get("txn_type"), "txn_date": when, "doc_num": v.get("doc_num"),
+                            "name": v.get("name"), "memo": v.get("memo"), "split": v.get("split_acc"), "amount": amount})
+
+    walk(report.get("Rows", {}).get("Row", []), [])
+    return out
+
+
 def pull_income_detail(database_url, start=date(2024, 1, 1)):
-    """Pull every income entry since `start` into qbo_income_txns (replacing what was there)."""
+    """Pull every Profit & Loss entry since `start` (a year per request) into qbo_txns, and the income
+    entries into qbo_income_txns for matching against Compass. Returns the number of income entries."""
     rows = []
-    for y in range(start.year, date.today().year + 1):  # a year per request keeps each report small
+    for y in range(start.year, date.today().year + 1):
         report = api_get(database_url, "reports/ProfitAndLossDetail", {
             "start_date": max(start, date(y, 1, 1)).isoformat(), "end_date": min(date.today(), date(y, 12, 31)).isoformat(),
             "accounting_method": "Accrual"})
-        rows += parse_income_detail(report)
+        rows += parse_detail(report)
     conn, cur = _db(database_url)
+    cur.execute("DELETE FROM qbo_txns WHERE txn_date >= %s", (start,))
     cur.execute("DELETE FROM qbo_income_txns WHERE txn_date >= %s", (start,))
+    income = 0
     for r in rows:
-        cur.execute("""INSERT INTO qbo_income_txns (txn_id, txn_type, txn_date, doc_num, name, memo, account, amount)
-                       VALUES (%(txn_id)s, %(txn_type)s, %(txn_date)s, %(doc_num)s, %(name)s, %(memo)s, %(account)s, %(amount)s)""", r)
+        cur.execute("""INSERT INTO qbo_txns (section, category, account, txn_type, txn_date, doc_num, name, memo, split, amount)
+                       VALUES (%(section)s, %(category)s, %(account)s, %(txn_type)s, %(txn_date)s, %(doc_num)s, %(name)s,
+                               %(memo)s, %(split)s, %(amount)s)""", r)
+        if r["section"] in ("Income", "Other income"):
+            income += 1
+            cur.execute("""INSERT INTO qbo_income_txns (txn_type, txn_date, doc_num, name, memo, account, amount)
+                           VALUES (%(txn_type)s, %(txn_date)s, %(doc_num)s, %(name)s, %(memo)s, %(account)s, %(amount)s)""", r)
     conn.commit()
     conn.close()
-    return len(rows)
+    return income
 
 
 def cron_pull(database_url):
