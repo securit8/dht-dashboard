@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 import cte_reports as CTE
 import decisions
 import gmail_import
+import goals as G
 import qbo
 import reports as R
 import splits as SP
@@ -411,6 +412,29 @@ def _goal_items(cur, year):
     return items
 
 
+def _spend_items(cur, today):
+    """The Oct-Mar plan's expense cap: the last 3 months' average spend, and the 'over the cap 2 months in a row' gate."""
+    import qbo_reports as QR
+    caps = QR.expense_caps(cur)
+    cap = next((c["cap"] for c in reversed(caps)), None) or dict((k, v) for k, _, v, _ in G.MONTHLY)["expenses"][0]
+    k = QR.kpis(cur, today.date()) if QR._has_txns(cur) else None
+    items = []
+    if k and k["avg_spend_3m"] and k["avg_spend_3m"] > cap:
+        items.append({"level": "warn", "key": f"spend_over_cap:{today.strftime('%Y-%m')}",
+                      "title": f"Spending ${k['avg_spend_3m']:,.0f} a month, over the plan's ${cap:,.0f} cap",
+                      "detail": "Average of the last 3 full months in QuickBooks. The plan's gate: over the cap 2 months in a row means review.",
+                      "link": ("quickbooks", {"_anchor": "spend"}),
+                      "where": "QuickBooks page › Expenses by category and Recurring charges: what to cut, or raise the cap in the plan",
+                      "choices": ["Cut spending (say what in the comment)", "Raise the cap (new amount in the comment)"]})
+    over = [c for c in caps if c["over"] and c["month"] < today.date().replace(day=1)]
+    if len(over) >= 2:
+        items.append({"level": "bad", "key": f"cap_gate:{over[-1]['month']:%Y-%m}",
+                      "title": "Gate: spending over the cap 2 months in a row: review",
+                      "detail": ", ".join(f"{c['month']:%b} ${c['spent']:,.0f} vs ${c['cap']:,.0f}" for c in over[-2:]),
+                      "link": ("quickbooks", {"_anchor": "spend"})})
+    return items
+
+
 def _standing(latest):
     """The one-time questions still open (not marked Fixed)."""
     out = []
@@ -637,6 +661,7 @@ def _overview(cur, today, tz, year_totals):
     questions += _safe(cur, "data checks", lambda: _data_checks(cur, year, receipts), []) if has_cte else []
     questions += _safe(cur, "books items", lambda: _books_items(cur, year), []) or []
     questions += _safe(cur, "goal items", lambda: _goal_items(cur, year), []) if has_cte else []
+    questions += _safe(cur, "spend items", lambda: _spend_items(cur, today), []) or []
     questions += _standing(_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {})
     company = None
     if checks:
@@ -1004,5 +1029,5 @@ def add_where(cur, items, year, receipts):
             w = "OneDrive (joecorbisiero@dreamhomesteam) › the “CTE” folder next to “CTE FILES”"
         elif i["key"] == "setup:onedrive_button":
             w = "Render › dht-dashboard web service › Environment: the MS_* keys"
-        i["where"] = w
+        i["where"] = w or i.get("where")
     return items
