@@ -884,7 +884,22 @@ def _year_totals(cur, year, today):
     if net is not None:  # net as a share of gross: of total GCI (CTE) and of the company's booked income (QuickBooks)
         margin = {"of_gci": net / income["gross"] * 100 if income["gross"] else None,
                   "of_income": net / books["income"] * 100 if books["income"] else None}
-    return {"year": year, "gross": income["gross"], "pending": income["pending"], "books": books, "net": net,
+    # the Oct-Mar plan (Goals page) when no calendar-year goal is typed in: the $1M net main goal against the
+    # run rate, and the plan's monthly closing targets against closings so far
+    plan = None
+    if year == today.year:
+        main = G.main_goal(cur)
+        months = [(y, m, t) for (y, m), t in zip(G.PLAN_MONTHS, dict((k, v) for k, _, v, _ in G.MONTHLY)["closings"])
+                  if y == year]
+        if months:
+            first = date(year, months[0][1], 1)
+            closed = CTE.closed_count_since(cur, datetime.combine(first, time())) if CTE.ready(cur) else None
+            this_month = next((t for y, m, t in months if m == today.month), None)
+            closed_month = CTE.closed_count_since(cur, today.replace(day=1)) if CTE.ready(cur) and this_month else None
+            plan = {"main": main, "closings_target": sum(t for _, _, t in months), "closings": closed,
+                    "first": first, "last": date(year, months[-1][1], 1), "month_target": this_month,
+                    "month_closed": closed_month, "started": today.date() >= first}
+    return {"year": year, "gross": income["gross"], "pending": income["pending"], "books": books, "net": net, "plan": plan,
             "margin": margin,
             "goals": goals, "gross_vs": vs_goal(income["gross"], goals["gross"]), "net_vs": vs_goal(net, goals["net"]),
             "pace_pct": pace * 100}

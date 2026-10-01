@@ -105,6 +105,23 @@
       {% elif t.goals[key] is not none %}
         <div class="yval">{{ t.goals[key]|dollars }}</div>
         <div class="ysub muted">No {{ 'net income from QuickBooks' if key == 'net' else 'gross' }} yet to compare.</div>
+      {% elif t.plan and key == 'net' and t.plan.main %}
+        {% set mg = t.plan.main %}
+        <div class="yval">{{ mg.goal|dollars }}<small class="muted" style="font-size:14px"> / year</small></div>
+        {% if mg.get('annualized') is not none %}
+        <div class="ysub">Run rate <b class="{{ 'pos' if mg.annualized >= mg.goal else 'neg' }}">{{ mg.annualized|dollars }}</b>/yr &middot; {{ mg.pct|round|int }}% of goal</div>
+        <div class="ybar"><div style="width: {{ [[mg.pct, 0]|max, 100]|min }}%"></div></div>
+        <div class="ysrc">Main goal, Oct&ndash;Mar plan. Run rate = last 3 months of QuickBooks net income &times; 4{% if mg.get('ttm') is not none %}; last 12 months {{ mg.ttm|dollars }}{% endif %}.</div>
+        {% else %}
+        <div class="ysub muted">Main goal, Oct&ndash;Mar plan. Run rate needs QuickBooks.</div>
+        {% endif %}
+      {% elif t.plan and key == 'gross' and t.plan.closings is not none %}
+        {% set p = t.plan %}
+        <div class="yval">{{ p.closings_target }}<small class="muted" style="font-size:14px"> closings</small></div>
+        <div class="ysub"><b class="{{ 'pos' if p.closings >= p.closings_target else '' }}">{{ p.closings }}</b> closed since {{ p.first.strftime('%b 1') }}
+          &middot; {{ (p.closings / p.closings_target * 100)|round|int }}%{% if p.month_target %} &middot; this month {{ p.month_closed }} of {{ p.month_target }}{% endif %}</div>
+        <div class="ybar"><div style="width: {{ [p.closings / p.closings_target * 100, 100]|min }}%"></div></div>
+        <div class="ysrc">{{ p.first.strftime('%b') }}&ndash;{{ p.last.strftime('%b') }} closings target from the Oct&ndash;Mar plan (no GCI dollar goal in the plan) &middot; CTE deal log</div>
       {% else %}
         <div class="yval muted">--</div>
         <div class="ysub muted">No goal set for {{ t.year }}.</div>

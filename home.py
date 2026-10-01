@@ -336,6 +336,27 @@ def _books_items(cur, year):
     return items
 
 
+def _goal_items(cur, year):
+    """The year's GCI and net goals, when nobody has typed them in on Business Overview."""
+    goals = CTE.year_goals(cur, year)
+    items = []
+    if goals["gross"] is None:
+        items.append({"level": "ask", "key": f"goal_gross:{year}",
+                      "title": f"No {year} gross (GCI) goal is set",
+                      "detail": "The Oct-Mar plan only has closings per month (10, 10, 12 for Oct-Dec), no GCI dollar goal. "
+                                "Business Overview shows the plan's closings until a goal is typed in under \"Set goals\".",
+                      "link": ("business_overview", {"_anchor": "year-totals"}),
+                      "choices": ["Set a GCI goal (amount in the comment)", "Closings from the plan are enough"]})
+    if goals["net"] is None:
+        items.append({"level": "ask", "key": f"goal_net:{year}",
+                      "title": f"No {year} net income goal is set",
+                      "detail": "Business Overview shows the plan's $1M a year main goal against the run rate. "
+                                "For a calendar-year net goal, type it under \"Set goals\".",
+                      "link": ("business_overview", {"_anchor": "year-totals"}),
+                      "choices": ["Set a net goal for the year (amount in the comment)", "The $1M run-rate goal is enough"]})
+    return items
+
+
 def _standing(latest):
     """The one-time questions still open (not marked Fixed)."""
     out = []
@@ -555,6 +576,7 @@ def _overview(cur, today, tz, year_totals):
     questions = _safe(cur, "questions", lambda: _questions(cur, year), []) if has_cte else []
     questions += _safe(cur, "data checks", lambda: _data_checks(cur, year, receipts), []) if has_cte else []
     questions += _safe(cur, "books items", lambda: _books_items(cur, year), []) or []
+    questions += _safe(cur, "goal items", lambda: _goal_items(cur, year), []) if has_cte else []
     questions += _standing(_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {})
     company = None
     if checks:
