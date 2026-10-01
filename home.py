@@ -945,8 +945,9 @@ def add_where(cur, items, year, receipts):
             w = "Agent Splits › Every closed deal › Off contract: each deal's Compass receipt vs the agent's agreement; fix the pay with Compass, or the agreement in Drive"
             i["link"] = ("splits_page", {"_anchor": "deals"})
         elif kind == "missing_receipts":
+            y = int(arg) if arg.isdigit() else year
             w = (f"Gmail joesellssandiego@gmail.com › forward the missing Compass statements (the list shows each deal), "
-                 f"or the deal's row in {sheet} if its address or date is wrong")
+                 f"or the deal's row in OneDrive › CTE FILES › {files.get(y, f'CTE {y} workbook')} › My Business if its address or date is wrong")
         elif kind == "unmatched_receipts":
             w = f"Compass Invoices › Receipts that match no closed deal: if it's a sale, add it to {sheet}"
         elif kind == "books_vs_compass":
