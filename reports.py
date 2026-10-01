@@ -394,7 +394,7 @@ def team_overview(cur, f):
             "calls": o.get("attempt", 0), "conversations": o.get("conversation", 0),
             "texts": o.get("text", 0), "emails": o.get("email", 0),
         })
-    rows.sort(key=lambda r: r["name"].lower())
+    rows.sort(key=lambda r: (-r["total_leads"], r["name"].lower()))  # most leads first
     return rows
 
 
