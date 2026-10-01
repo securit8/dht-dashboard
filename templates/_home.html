@@ -42,7 +42,7 @@
       <div class="card-head"><h2>Needs attention</h2><span class="muted">{{ H.attention|length }} item{{ 's' if H.attention|length != 1 }}</span></div>
       {% for i in H.attention %}
         <a class="alert {{ i.level }}" href="{{ url_for(i.link[0], **i.link[1]) }}">
-          <span class="sev">{{ {'bad': 'Fix', 'warn': 'Check', 'info': 'FYI'}[i.level] }}</span>
+          <span class="sev">{{ {'bad': 'Fix', 'warn': 'Check', 'ask': 'Decide', 'info': 'FYI'}[i.level] }}</span>
           <span class="txt"><b>{{ i.title }}</b><span class="muted">{{ i.detail }}</span></span><span class="go">&rsaquo;</span>
         </a>
       {% else %}

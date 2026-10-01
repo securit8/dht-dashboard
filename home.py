@@ -5,6 +5,7 @@ and lists what needs someone's attention, each linking to the report with the de
 Every section is read on its own, so one source being down or not connected yet doesn't break the page.
 """
 import logging
+from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta
 
 import cte_reports as CTE
@@ -102,8 +103,84 @@ def _agents(cur, today, checks):
 def _receipts(cur, year):
     deals, unmatched = gmail_import.deal_receipts(cur, date(year, 1, 1), date(year + 1, 1, 1))
     missing = [d for d in deals if not d["receipts"]]
-    return {"total": len(deals), "missing": len(missing), "typos": sum(1 for d in missing if d["suggestions"]),
+    typos = []
+    for d in missing:
+        for s in d["suggestions"][:1]:
+            fix = (s.get("property") or s.get("description") or "").split(",")[0].strip()
+            what = "close date" if s.get("why") == "close date differs" else "address"
+            typos.append(f"{d['address']} ({d['close_date'].strftime('%m/%d')}) → {what}: Compass has {fix}"
+                         + (f" on {(s.get('bill_date') or s.get('paid_on')).strftime('%m/%d')}" if what == "close date" else ""))
+    return {"total": len(deals), "missing": len(missing), "typos": len(typos), "typo_list": typos,
             "unmatched": len(unmatched), "any_receipts": any(d["receipts"] for d in deals) or bool(unmatched)}
+
+
+def _questions(cur, year):
+    """Open questions found in the data for the owners to decide. Each disappears once it's fixed."""
+    items = []
+    owners = SP.OWNERS
+    # both sides of one sale in CTE: counted as 2 closings and the price twice in volume
+    rows = R.fetch(cur, """
+        SELECT MIN(address) AS address, close_date, COUNT(*) AS sides, MAX(sale_price) AS price,
+               STRING_AGG(deal_type || ' ' || COALESCE(primary_agent, '?'), ' / ' ORDER BY deal_type DESC) AS who
+        FROM cte_deals WHERE status = 'Closed' AND file_year = %(y)s AND close_date IS NOT NULL
+        GROUP BY LOWER(SPLIT_PART(TRIM(address), ' ', 1)), LOWER(SPLIT_PART(TRIM(address), ' ', 2)), close_date
+        HAVING COUNT(*) > 1 ORDER BY close_date""", {"y": year})
+    if rows:
+        extra = sum(float(r["price"] or 0) * (r["sides"] - 1) for r in rows)
+        items.append({"level": "ask", "title": f"{len(rows)} sales where we had both sides: count as 1 closing or 2?",
+                      "detail": f"Each side is a closing now, so ${extra:,.0f} of volume is counted twice. "
+                                + "; ".join(f"{r['address']} ({r['who']})" for r in rows),
+                      "link": ("cte", {})})
+    # under the 2% minimum commission the agent contracts allow without written approval
+    low = [r for r in R.fetch(cur, """
+        SELECT address, primary_agent, gci, sale_price, gci / NULLIF(sale_price, 0) * 100 AS pct
+        FROM cte_deals WHERE status = 'Closed' AND file_year = %(y)s AND sale_price > 0
+          AND gci / sale_price < 0.0199 ORDER BY primary_agent, close_date""", {"y": year})
+        if (r["primary_agent"] or "").strip().lower() not in owners]
+    if low:
+        items.append({"level": "ask", "title": f"{len(low)} agent deal{'s' if len(low) != 1 else ''} under the 2% minimum commission: approved?",
+                      "detail": "Contracts need written approval below 2% or $1,500. "
+                                + "; ".join(f"{r['address']} ({r['primary_agent']}, {float(r['pct']):.2f}%)" for r in low),
+                      "link": ("cte", {})})
+    # the same agent typed two ways in CTE
+    names = CTE.agent_options(cur)
+    pairs = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if a.lower() in owners or b.lower() in owners:
+                continue
+            fa, fb = a.lower().split(), b.lower().split()
+            first = SequenceMatcher(None, fa[0], fb[0]).ratio() >= 0.8
+            last = len(fa) > 1 and len(fb) > 1 and SequenceMatcher(None, fa[-1], fb[-1]).ratio() >= 0.8
+            if first and (last or len(fa) == 1 or len(fb) == 1 or fa[0] == fb[0]):
+                pairs.append(f"{a} / {b}")
+    if pairs:
+        items.append({"level": "ask", "title": f"{len(pairs)} agent name{'s' if len(pairs) != 1 else ''} in CTE that may be the same person",
+                      "detail": "Same person, or different? " + "; ".join(pairs), "link": ("cte", {})})
+    # agreements that contradict themselves or aren't signed
+    unclear = [c for c in SP.CONTRACTS if "but" in c["note"] or c["since"] is None]
+    if unclear:
+        items.append({"level": "ask", "title": f"{len(unclear)} agent agreement{'s' if len(unclear) != 1 else ''} to clear up",
+                      "detail": "; ".join(f"{c['agent']}: {c['note'].split(';')[0]}" for c in unclear),
+                      "link": ("splits_page", {})})
+    # QuickBooks vs Compass for earlier full years (this year is its own item)
+    qm = {}
+    q = qbo.status(cur)
+    if q and q["env"] == "production" and not q["needs_reconnect"]:
+        cur.execute("SELECT month, income FROM qbo_pnl")
+        qm = {m: float(v or 0) for m, v in cur.fetchall()}
+    if qm:
+        for y in range(min(qm).year, year):
+            if min(qm) > date(y, 1, 1):
+                continue
+            compass = _compass_ytd(cur, y)
+            books = sum(v for m, v in qm.items() if m.year == y)
+            if compass is not None and abs(books - compass) > max(1000, 0.01 * compass):
+                items.append({"level": "ask", "title": f"{y}: QuickBooks is ${books - compass:+,.0f} off from Compass",
+                              "detail": f"QuickBooks income ${books:,.0f} vs Compass YTD ${compass:,.0f}. "
+                                        "Income from outside Compass (referrals?) or a missing statement?",
+                              "link": ("compass_invoices", {"year": y})})
+    return items
 
 
 def _freshness(cur):
@@ -124,7 +201,7 @@ def _freshness(cur):
     return out
 
 
-def _attention(money, deals, leads, receipts, checks, fresh, now):
+def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None):
     """Things that need a decision or a fix, most important first. Each: level, title, detail, link."""
     items = []
     if checks:
@@ -139,6 +216,9 @@ def _attention(money, deals, leads, receipts, checks, fresh, now):
         if no_contract:
             items.append({"level": "warn", "title": "No agreement in Drive for " + ", ".join(no_contract),
                           "detail": "Their deals can't be checked against a split.", "link": ("splits_page", {})})
+    if receipts and receipts["typo_list"]:
+        items.append({"level": "ask", "title": f"{receipts['typos']} CTE deal{'s' if receipts['typos'] != 1 else ''} with a likely typo: fix in the CTE file",
+                      "detail": "; ".join(receipts["typo_list"]), "link": ("compass_invoices", {"deals": "missing"})})
     if receipts and receipts["missing"] and receipts["any_receipts"]:
         items.append({"level": "bad" if receipts["missing"] - receipts["typos"] > 2 else "warn",
                       "title": f"{receipts['missing']} closed deal{'s' if receipts['missing'] != 1 else ''} with no Compass receipt",
@@ -172,7 +252,8 @@ def _attention(money, deals, leads, receipts, checks, fresh, now):
         elif s["at"] and now - s["at"] > timedelta(hours=36):
             items.append({"level": "warn", "title": f"{s['name']} hasn't updated since {s['at'].strftime('%m/%d %I:%M %p')}",
                           "detail": "Check the daily cron job on Render.", "link": (s["link"], {})})
-    order = {"bad": 0, "warn": 1, "info": 2}
+    items += questions or []
+    order = {"bad": 0, "warn": 1, "ask": 2, "info": 3}
     return sorted(items, key=lambda i: order[i["level"]])
 
 
@@ -192,10 +273,11 @@ def overview(cur, today, tz, year_totals):
     receipts = _safe(cur, "receipts", lambda: _receipts(cur, year)) if has_cte else None
     agents = _safe(cur, "agents", lambda: _agents(cur, today, checks), []) if has_cte else []
     fresh = _safe(cur, "freshness", lambda: _freshness(cur), [])
+    questions = _safe(cur, "questions", lambda: _questions(cur, year), []) if has_cte else []
     company = None
     if checks:
         paid = [r["company"] for r in checks if r["company"] is not None]
         company = {"total": sum(paid), "deals": len(paid)}
     return {"year": year, "money": money, "deals": deals, "leads": leads, "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
-            "attention": _attention(money, deals, leads, receipts, checks, fresh, now)}
+            "attention": _attention(money, deals, leads, receipts, checks, fresh, now, questions)}
