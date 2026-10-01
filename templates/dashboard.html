@@ -7,20 +7,20 @@
   .pipe { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; align-items: center; margin-top: 18px; }
   .pipe table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .pipe td { padding: 9px 0; }
-  .pipe td.num { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 700; width: 60px; }
-  .pipe td.pct { text-align: right; color: var(--soft); font-family: 'IBM Plex Mono', monospace; width: 70px; }
+  .pipe td.num { text-align: right; font-family: 'Inter', sans-serif; font-weight: 700; width: 60px; }
+  .pipe td.pct { text-align: right; color: var(--soft); font-family: 'Inter', sans-serif; width: 70px; }
   .pie { width: 260px; height: 260px; border-radius: 50%; margin: 0 auto; }
   .callout-row { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; }
   .callout-row .callout { flex: 1; min-width: 260px; }
   .legend { display: grid; gap: 10px; font-size: 14px; }
   .legend div { display: flex; justify-content: space-between; }
-  .legend b { font-family: 'IBM Plex Mono', monospace; }
+  .legend b { font-family: 'Inter', sans-serif; }
   .src { padding: 14px 0; border-top: 1px solid var(--bg); }
   .src-head { display: flex; justify-content: space-between; font-size: 14px; gap: 12px; }
-  .src-head span { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; }
+  .src-head span { color: var(--muted); font-family: 'Inter', sans-serif; font-size: 12px; white-space: nowrap; }
   .key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--soft); margin-top: 12px; }
   .metric-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 10px 0 16px; }
-  .metric-val { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; }
+  .metric-val { font-family: 'Inter', sans-serif; font-size: 26px; font-weight: 700; }
   @media (max-width: 800px) { .pipe { grid-template-columns: 1fr; } .pie { width: 220px; height: 220px; } }
 
   /* home */
@@ -28,8 +28,8 @@
   .tile { background: #fff; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); text-decoration: none; display: block; border: 1px solid transparent; }
   .tile:hover { border-color: var(--accent); }
   .t-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-  .t-val { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; margin: 8px 0 6px; }
-  .t-val small { font-size: 13px; color: var(--soft); font-family: 'IBM Plex Sans', sans-serif; font-weight: 500; }
+  .t-val { font-family: 'Inter', sans-serif; font-size: 26px; font-weight: 700; margin: 8px 0 6px; }
+  .t-val small { font-size: 13px; color: var(--soft); font-family: 'Inter', sans-serif; font-weight: 500; }
   .t-sub { font-size: 12.5px; color: var(--soft); line-height: 1.5; }
   .up { color: var(--up); } .down { color: var(--down); }
   .dl { font-weight: 600; font-size: 12px; }
@@ -50,24 +50,24 @@
   .alert details { margin-top: 4px; }
   .alert summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--accent-ink); }
   .decide { display: grid; gap: 8px; margin-top: 8px; max-width: 560px; }
-  .decide select, .decide textarea, .decide input { font: 500 13px 'IBM Plex Sans', sans-serif; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--ink); }
+  .decide select, .decide textarea, .decide input { font: 500 13px 'Inter', sans-serif; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--ink); }
   .decide textarea { resize: vertical; min-height: 54px; }
   .decide .row { display: flex; gap: 8px; } .decide .row input { flex: 1; min-width: 0; }
   .att-list { max-height: 640px; overflow-y: auto; padding-right: 6px; margin-right: -6px; overscroll-behavior: contain; }
   .att-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
-  .att-filter button { font: 600 12px 'IBM Plex Sans', sans-serif; border: 0; border-radius: 999px; padding: 6px 12px; background: var(--bg); color: var(--soft); cursor: pointer; }
+  .att-filter button { font: 600 12px 'Inter', sans-serif; border: 0; border-radius: 999px; padding: 6px 12px; background: var(--bg); color: var(--soft); cursor: pointer; }
   .att-filter button.on { background: var(--accent); color: #fff; }
   .alert .more summary { color: var(--soft); }
   .det-wrap { overflow-x: auto; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; max-height: 320px; overflow-y: auto; }
   table.det { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   table.det th { position: sticky; top: 0; background: #F3F5FB; text-align: left; font-weight: 600; padding: 6px 8px; white-space: nowrap; border-bottom: 1px solid var(--line); }
   table.det td { padding: 6px 8px; border-bottom: 1px solid var(--bg); white-space: nowrap; }
-  table.det .n { text-align: right; font-family: 'IBM Plex Mono', monospace; }
+  table.det .n { text-align: right; font-family: 'Inter', sans-serif; }
   .decided { font-size: 12.5px; background: #EEF1FD; border-radius: 8px; padding: 6px 10px; margin-top: 4px; color: var(--ink); }
   .decided.fixed { background: #E3F4EA; } .decided.needs_info { background: #FDF6E9; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.mini td { padding: 7px 0; border-bottom: 1px solid var(--bg); }
-  table.mini td.n { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 700; padding-right: 14px; }
+  table.mini td.n { text-align: right; font-family: 'Inter', sans-serif; font-weight: 700; padding-right: 14px; }
   table.mini td:last-child { width: 70px; text-align: right; }
   .tag-off { font-size: 12px; font-weight: 600; color: #A33224; background: #FBE7E4; border-radius: 999px; padding: 2px 8px; text-decoration: none; }
   .dir { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; }
@@ -145,7 +145,7 @@
     <h2>Best Lead Source</h2>
     {% if sources %}
       {% set best = sources[0] %}
-      <p style="font-family:'Fraunces',serif; font-size:24px; font-weight:600; margin: 0 0 6px;">{{ best.name }} is the best!</p>
+      <p style="font-family:'Roboto Slab',serif; font-size:24px; font-weight:500; margin: 0 0 6px;">{{ best.name }} is the best!</p>
       <p style="font-weight:600; margin: 0 0 16px;">Which lead source is providing the best leads?</p>
       <div class="callout" style="margin-bottom:20px">{{ best.won_pct|round|int }}% of {{ best.name }} leads created {{ rng.label }} are now Active or Closed ({{ best.total|num }} leads).</div>
       <div class="card">

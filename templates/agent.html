@@ -18,7 +18,7 @@
   .st-completed { background: #2FA867; } .st-at_risk { background: #F2B84B; } .st-past_due { background: #E0685A; }
   .legend3 { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
   .chart-box { position: relative; height: 260px; }
-  .big { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; }
+  .big { font-family: 'Inter', sans-serif; font-size: 26px; font-weight: 700; }
   .goal { display: grid; grid-template-columns: 1fr 120px; gap: 6px 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--bg); }
   .goal .track { grid-column: 1 / -1; height: 8px; background: var(--bg); border-radius: 999px; overflow: hidden; }
   .goal .fill { height: 100%; border-radius: 999px; }
@@ -210,8 +210,8 @@
       {% for g in goals %}
         <div class="goal">
           <div>{{ g.label }}{% if not g.higher %} <span class="muted">(lower is better)</span>{% endif %}{% if g.detail %} <span class="muted">&middot; {{ g.detail }}</span>{% endif %}</div>
-          <div style="text-align:right;font-family:'IBM Plex Mono',monospace">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}
-            {% if g.target %}<span class="muted" style="font-family:'IBM Plex Sans',sans-serif;font-size:11px">{{ 'team' if g.origin == 'team' else 'own' }}</span>{% endif %}</div>
+          <div style="text-align:right;font-family:'Inter',sans-serif">{{ g.actual|num }}{{ g.unit }} / {{ (g.target|num ~ g.unit) if g.target else '--' }}
+            {% if g.target %}<span class="muted" style="font-family:'Inter',sans-serif;font-size:11px">{{ 'team' if g.origin == 'team' else 'own' }}</span>{% endif %}</div>
           <div class="track"><div class="fill g-{{ g.status }}" style="width: {{ g.progress if g.target else 100 }}%"></div></div>
         </div>
       {% endfor %}

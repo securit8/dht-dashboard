@@ -4,12 +4,12 @@
 {% block heading %}Actual vs target, every row of the plan{% endblock %}
 {% block style %}
   .main-goal { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 24px; align-items: center; }
-  .big { font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 700; }
+  .big { font-family: 'Inter', sans-serif; font-size: 34px; font-weight: 700; }
   .gbar { position: relative; height: 10px; border-radius: 5px; background: var(--bg); margin: 10px 0 6px; }
   .gbar div { height: 100%; border-radius: 5px; background: #2E9E62; }
   .gbar span { position: absolute; top: -4px; height: 18px; border-left: 2px dashed var(--soft); }
-  .tbl td.c { text-align: center; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
-  .tbl td.c small { color: var(--muted); font-family: 'IBM Plex Sans', sans-serif; }
+  .tbl td.c { text-align: center; white-space: nowrap; font-family: 'Inter', sans-serif; font-size: 13px; }
+  .tbl td.c small { color: var(--muted); font-family: 'Inter', sans-serif; }
   .tbl td.ok { background: #E3F4EA; color: #1F7A48; }
   .tbl td.behind { background: #FBE7E4; color: #A33224; }
   .tbl td.running { background: #FFF3DC; color: #8A5A00; }
@@ -29,7 +29,7 @@
   .mc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
   .mc-head span { font-size: 11px; color: var(--muted); text-align: right; }
   .mchart svg { display: block; width: 100%; height: auto; }
-  .mc-val { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; fill: var(--ink);
+  .mc-val { font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; fill: var(--ink);
             paint-order: stroke; stroke: var(--card, #fff); stroke-width: 3px; stroke-linejoin: round; }
   .mc-x { font-size: 10px; fill: var(--soft); }
   .mc-bar:hover rect:first-child { fill: rgba(31,42,68,.05); }
@@ -38,7 +38,7 @@
   .gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 12px; margin-top: 8px; }
   .gauge { text-align: center; }
   .gauge svg { display: block; margin: 0 auto; }
-  .g-val { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 700; fill: var(--ink); }
+  .g-val { font-family: 'Inter', sans-serif; font-size: 20px; font-weight: 700; fill: var(--ink); }
   .g-of { font-size: 10px; fill: var(--soft); }
   .g-lbl { font-size: 13px; font-weight: 600; margin-top: 4px; }
   .g-sub { font-size: 12px; color: var(--soft); }
