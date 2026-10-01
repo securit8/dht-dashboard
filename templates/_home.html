@@ -108,14 +108,14 @@
     </div>
     <div class="card">
       {% if H.deals %}
-      <h2>This month vs a year ago</h2>
+      <h2>{{ H.deals.month.label }}</h2>
       <table class="mini">
         <tr><td>Went under contract</td><td class="n">{{ H.deals.month.written }}</td><td>{{ delta(H.deals.month.chg.written, '') }}</td></tr>
         <tr><td>Closed</td><td class="n">{{ H.deals.month.closed }}</td><td>{{ delta(H.deals.month.chg.closed, '') }}</td></tr>
         <tr><td>Closed volume</td><td class="n">{{ H.deals.month.closed_vol|money }}</td><td>{{ delta(H.deals.month.chg.closed_vol, '') }}</td></tr>
         <tr><td>GCI closed</td><td class="n">{{ H.deals.month.gci|money }}</td><td>{{ delta(H.deals.month.chg.gci, '') }}</td></tr>
       </table>
-      <div class="note" style="margin-top:6px">Against the same days of the month a year ago &middot; CTE deal log</div>
+      <div class="note" style="margin-top:6px">{{ H.deals.month.note }} &middot; CTE deal log</div>
       {% endif %}
       {% if H.leads %}
       <h2 style="margin-top:22px">Leads &middot; last 30 days</h2>

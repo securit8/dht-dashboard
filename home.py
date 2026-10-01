@@ -72,7 +72,15 @@ def _deals(cur, today, tz):
         return (CTE.deal_counts(cur, start, end), CTE.deal_counts(cur, start.replace(year=start.year - 1),
                                                                    end.replace(year=end.year - 1)))
     end = today + timedelta(days=1)
-    m, m_prev = days(today.replace(day=1), end)
+    if today.day <= 7:
+        # a month only a few days old compares almost nothing: show last month in full instead
+        m_end = today.replace(day=1)
+        m_start = (m_end - timedelta(days=1)).replace(day=1)
+        m_label, m_note = f"{m_start.strftime('%B')} vs a year ago",             f"Last month in full (this month is {today.day} day{'s' if today.day != 1 else ''} old) against {m_start.strftime('%B %Y').replace(str(m_start.year), str(m_start.year - 1))}"
+    else:
+        m_start, m_end = today.replace(day=1), end
+        m_label, m_note = "This month vs a year ago", "Against the same days of the month a year ago"
+    m, m_prev = days(m_start, m_end)
     y, y_prev = days(today.replace(month=1, day=1), end)
     pending = R.one(cur, """SELECT COUNT(*) AS n, COALESCE(SUM(sale_price), 0) AS vol, COALESCE(SUM(gci), 0) AS gci
                             FROM cte_deals WHERE status = 'Pending' AND file_year = %(y)s""", {"y": today.year})
@@ -82,6 +90,7 @@ def _deals(cur, today, tz):
         out[key]["chg"] = {k: _chg(cur_[k], prev[k]) for k in ("written", "closed", "closed_vol", "gci")}
         out[key]["prev"] = prev
     out["pending"] = pending
+    out["month"].update(label=m_label, note=m_note)
     return out
 
 
