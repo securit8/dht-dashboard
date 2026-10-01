@@ -396,10 +396,9 @@ def parse_income_detail(report):
         for row in rows or []:
             if row.get("type") == "Section" or "Rows" in row:
                 head = (row.get("Header", {}).get("ColData") or [{}])[0].get("value") or account
+                # income sections: tagged by group in some reports, only named "Income" / "Other Income" in others
                 group = row.get("group") or ""
-                inc = income or group in ("Income", "OtherIncome")
-                if group and group not in ("Income", "OtherIncome") and not income:
-                    continue
+                inc = income or group in ("Income", "OtherIncome") or (head or "").strip().lower() in ("income", "other income")
                 walk(row.get("Rows", {}).get("Row", []), head, inc)
             elif row.get("type") == "Data" and income:
                 cells = row.get("ColData", [])
