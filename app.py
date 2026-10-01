@@ -17,6 +17,7 @@ import qbo
 import gmail_import
 import cte_import
 import splits as SP
+import home as HOME
 import threading
 import reports as R
 
@@ -547,7 +548,7 @@ def get_agents(start, end):
     return agents, totals
 
 
-@app.route("/")
+@app.route("/leaderboard")
 @login_required
 def leaderboard():
     rng = date_range("today")
@@ -561,6 +562,7 @@ def leaderboard():
 DASHBOARD_TABS = {"pipeline", "response", "source"}
 
 
+@app.route("/")
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -570,6 +572,7 @@ def dashboard():
     rng, f = page_filters("last30")
     data = {}
     with db() as cur:
+        overview = HOME.overview(cur, today_start(), TEAM_TZ_NAME, _year_totals)
         ready = R.tables_ready(cur, "people")
         if ready:
             data.update(filter_options(cur))
@@ -579,7 +582,7 @@ def dashboard():
                 data["response"] = R.lead_response(cur, f, min(f.end, datetime.now(TEAM_TZ)))
             else:
                 data["sources"] = R.best_sources(cur, f)
-    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, **data)
+    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, home=overview, **data)
 
 
 @app.route("/funnel")

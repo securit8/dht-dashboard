@@ -1,0 +1,125 @@
+{# Dashboard home: headline numbers from every source, what needs attention, agents, and a map of all reports #}
+{% macro delta(v, suffix='vs last year') %}{% if v is not none %}<span class="dl {{ 'up' if v >= 0 else 'down' }}">{{ '▲' if v >= 0 else '▼' }} {{ '{:.0f}'.format(v|abs) }}%</span>{% if suffix %} <span class="muted">{{ suffix }}</span>{% endif %}{% endif %}{% endmacro %}
+{% set H = home %}
+{% set M = H.money %}
+  <section class="tiles">
+    <a class="tile" href="{{ url_for('business_overview') }}">
+      <div class="t-lbl">Team GCI &middot; {{ H.year }}</div>
+      <div class="t-val">{{ M.gross|dollars if M.gross is not none else '&mdash;'|safe }}</div>
+      {% if M.gross_vs %}
+        <div class="meter" title="{{ '{:.0f}'.format(M.gross_vs.pct) }}% of the goal; the mark is where the year's pace should be"><span style="width:{{ [M.gross_vs.pct, 100]|min }}%"></span><i style="left:{{ M.pace_pct }}%"></i></div>
+        <div class="t-sub">{{ '{:.0f}'.format(M.gross_vs.pct) }}% of {{ M.gross_vs.goal|money }} goal &middot;
+          <b class="{{ 'up' if M.gross_vs.pace_diff >= 0 else 'down' }}">{{ (M.gross_vs.pace_diff|abs)|money }} {{ 'ahead of' if M.gross_vs.pace_diff >= 0 else 'behind' }} pace</b></div>
+      {% else %}<div class="t-sub">From the CTE workbooks &middot; set a goal on Business Overview</div>{% endif %}
+    </a>
+    <a class="tile" href="{{ url_for('compass_invoices') }}">
+      <div class="t-lbl">Company income &middot; Compass</div>
+      <div class="t-val">{{ M.compass|dollars if M.compass is not none else '&mdash;'|safe }}</div>
+      <div class="t-sub">{% if M.books is not none %}QuickBooks {{ M.books|dollars }}{% if M.compass is not none %} &middot;
+        <b class="{{ 'up' if (M.books - M.compass)|abs < 1000 else 'down' }}">{{ (M.books - M.compass)|dollars }} difference</b>{% endif %}{% else %}YTD Income on the latest statement{% endif %}</div>
+    </a>
+    <a class="tile" href="{{ url_for('quickbooks') }}">
+      <div class="t-lbl">Net income &middot; QuickBooks</div>
+      <div class="t-val">{{ M.net|dollars if M.net is not none else '&mdash;'|safe }}</div>
+      <div class="t-sub">{% if M.net_vs %}{{ '{:.0f}'.format(M.net_vs.pct) }}% of {{ M.net_vs.goal|money }} goal{% elif M.margin and M.margin.of_income is not none %}{{ '{:.0f}'.format(M.margin.of_income) }}% of booked income{% else %}Connect QuickBooks to see it{% endif %}</div>
+    </a>
+    {% if H.deals %}
+    <a class="tile" href="{{ url_for('cte') }}">
+      <div class="t-lbl">Closed &middot; {{ H.year }} so far</div>
+      <div class="t-val">{{ H.deals.ytd.closed }} <small>deals</small></div>
+      <div class="t-sub">{{ H.deals.ytd.closed_vol|money }} volume &middot; {{ delta(H.deals.ytd.chg.closed) }}</div>
+    </a>
+    <a class="tile" href="{{ url_for('business_overview', status='Pending') }}">
+      <div class="t-lbl">Pending pipeline</div>
+      <div class="t-val">{{ H.deals.pending.n }} <small>deals</small></div>
+      <div class="t-sub">{{ H.deals.pending.vol|money }} volume &middot; {{ H.deals.pending.gci|money }} GCI to close</div>
+    </a>
+    {% endif %}
+  </section>
+
+  <div class="home-grid">
+    <div class="card">
+      <div class="card-head"><h2>Needs attention</h2><span class="muted">{{ H.attention|length }} item{{ 's' if H.attention|length != 1 }}</span></div>
+      {% for i in H.attention %}
+        <a class="alert {{ i.level }}" href="{{ url_for(i.link[0], **i.link[1]) }}">
+          <span class="sev">{{ {'bad': 'Fix', 'warn': 'Check', 'info': 'FYI'}[i.level] }}</span>
+          <span class="txt"><b>{{ i.title }}</b><span class="muted">{{ i.detail }}</span></span><span class="go">&rsaquo;</span>
+        </a>
+      {% else %}
+        <div class="callout">Nothing needs attention right now.</div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      {% if H.deals %}
+      <h2>This month vs a year ago</h2>
+      <table class="mini">
+        <tr><td>Went under contract</td><td class="n">{{ H.deals.month.written }}</td><td>{{ delta(H.deals.month.chg.written, '') }}</td></tr>
+        <tr><td>Closed</td><td class="n">{{ H.deals.month.closed }}</td><td>{{ delta(H.deals.month.chg.closed, '') }}</td></tr>
+        <tr><td>Closed volume</td><td class="n">{{ H.deals.month.closed_vol|money }}</td><td>{{ delta(H.deals.month.chg.closed_vol, '') }}</td></tr>
+        <tr><td>GCI closed</td><td class="n">{{ H.deals.month.gci|money }}</td><td>{{ delta(H.deals.month.chg.gci, '') }}</td></tr>
+      </table>
+      <div class="note" style="margin-top:6px">Against the same days of the month a year ago &middot; CTE deal log</div>
+      {% endif %}
+      {% if H.leads %}
+      <h2 style="margin-top:22px">Leads &middot; last 30 days</h2>
+      <table class="mini">
+        <tr><td>New leads</td><td class="n">{{ H.leads.new_leads|num }}</td><td>{{ delta(H.leads.chg.new_leads, '') }}</td></tr>
+        <tr><td>Appointments set</td><td class="n">{{ H.leads.appts_set|num }}</td><td>{{ delta(H.leads.chg.appts_set, '') }}</td></tr>
+        <tr><td>Appointments held</td><td class="n">{{ H.leads.held|num }}</td><td>{{ delta(H.leads.chg.held, '') }}</td></tr>
+        <tr><td>Held rate</td><td class="n">{{ H.leads.held_rate }}%</td><td></td></tr>
+      </table>
+      <div class="note" style="margin-top:6px">Against the 30 days before &middot; Follow Up Boss</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if H.agents %}
+  <div class="card">
+    <div class="card-head"><h2>Agents &middot; {{ H.year }} so far</h2><a class="muted" href="{{ url_for('splits_page') }}">Splits deal by deal &rsaquo;</a></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Agent</th><th class="n">Closed</th><th class="n">Under contract</th><th class="n">Volume</th><th class="n">GCI</th>
+          <th class="n">Company share</th><th class="n">Appts held</th><th>Splits</th></tr>
+      {% for a in H.agents %}
+      <tr><td>{{ a.name }}</td><td class="n">{{ a.closed }}</td><td class="n">{{ a.accepted }}</td>
+        <td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
+        <td class="n">{{ a.company|money if a.company is not none else '' }}</td><td class="n">{{ a.appts|num if a.appts else '' }}</td>
+        <td>{% if a.owner %}<span class="muted">Owner</span>{% elif a.off %}<a class="tag-off" href="{{ url_for('splits_page') }}">{{ a.off }} off contract</a>{% elif a.company is not none %}<span class="muted">On contract</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table></div>
+    <div class="note">Closings, volume, GCI and appointments from the CTE workbooks; company share from the Compass receipts.</div>
+  </div>
+  {% endif %}
+
+  <div class="home-grid">
+    <div class="card">
+      <h2>All reports</h2>
+      {% set about = {
+        'business_overview': 'Year totals, goals, deals by month, top performers',
+        'call_time': 'When leads pick up the phone',
+        'cte': 'CTE workbooks year by year: activity, deals, financials',
+        'quickbooks': 'Profit & Loss from QuickBooks',
+        'compass_invoices': 'Compass receipts vs QuickBooks, deals missing a receipt',
+        'splits_page': 'Every deal against the agent contract split',
+        'goals_page': 'Oct to Mar plan: gates, weekly and monthly targets',
+        'sales_manager': 'Funnel, stages and outreach by agent',
+        'appointments': 'Appointments held and not held, stage moves',
+        'lead_source': 'Which sources bring leads and closings',
+        'leaderboard': "Today's calls, texts and emails by agent",
+        'agent_snapshot': 'One agent: funnel, deals, goals, coaching notes'} %}
+      <div class="dir">
+        {% for menu, items in nav %}
+          <div><div class="eyebrow" style="margin-bottom:6px">{{ menu }}</div>
+          {% for ep, label in items if ep != 'dashboard' %}
+            <a href="{{ url_for(ep) }}"><b>{{ label }}</b><span>{{ about.get(ep, '') }}</span></a>
+          {% endfor %}</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Data sources</h2>
+      {% for s in H.fresh %}
+        <a class="src-row" href="{{ url_for(s.link) }}"><span class="dot" style="background:{{ '#C0392B' if s.error else ('#2FA867' if s.at else '#8B93A1') }}"></span>
+          <span><b>{{ s.name }}</b><br><span class="muted">{% if s.error %}{{ s.error }}{% elif s.at %}Updated {{ s.at|fmt_date(true) }}{% else %}Not connected{% endif %}</span></span></a>
+      {% endfor %}
+    </div>
+  </div>

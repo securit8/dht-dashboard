@@ -2,7 +2,7 @@
 {% import "_macros.html" as m with context %}
 {% block title %}Dashboard{% endblock %}
 {% block eyebrow %}Dashboard{% endblock %}
-{% block heading %}Monitor your company's top line performance{% endblock %}
+{% block heading %}Everything at a glance{% endblock %}
 {% block style %}
   .pipe { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; align-items: center; margin-top: 18px; }
   .pipe table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -22,15 +22,55 @@
   .metric-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 10px 0 16px; }
   .metric-val { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; }
   @media (max-width: 800px) { .pipe { grid-template-columns: 1fr; } .pie { width: 220px; height: 220px; } }
+
+  /* home */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .tile { background: #fff; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(31,42,68,0.06); text-decoration: none; display: block; border: 1px solid transparent; }
+  .tile:hover { border-color: var(--accent); }
+  .t-lbl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .t-val { font-family: 'IBM Plex Mono', monospace; font-size: 26px; font-weight: 700; margin: 8px 0 6px; }
+  .t-val small { font-size: 13px; color: var(--soft); font-family: 'IBM Plex Sans', sans-serif; font-weight: 500; }
+  .t-sub { font-size: 12.5px; color: var(--soft); line-height: 1.5; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .dl { font-weight: 600; font-size: 12px; }
+  .meter { position: relative; height: 8px; border-radius: 999px; background: var(--bg); margin: 4px 0 8px; }
+  .meter span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .meter i { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+  .home-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-bottom: 20px; }
+  .home-grid > .card { margin-bottom: 0; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .alert { display: grid; grid-template-columns: 54px 1fr 14px; gap: 12px; align-items: center; padding: 11px 12px; border-radius: 10px; text-decoration: none; margin-bottom: 8px; background: #F7F8FB; border-left: 3px solid var(--muted); }
+  .alert:hover { background: #EEF1FD; }
+  .alert.bad { border-left-color: var(--down); } .alert.warn { border-left-color: #E0A63A; }
+  .alert .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+  .alert.bad .sev { color: var(--down); } .alert.warn .sev { color: #A86F0C; }
+  .alert .txt { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+  .alert .go { color: var(--muted); font-size: 20px; }
+  table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.mini td { padding: 7px 0; border-bottom: 1px solid var(--bg); }
+  table.mini td.n { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 700; padding-right: 14px; }
+  table.mini td:last-child { width: 70px; text-align: right; }
+  .tag-off { font-size: 12px; font-weight: 600; color: #A33224; background: #FBE7E4; border-radius: 999px; padding: 2px 8px; text-decoration: none; }
+  .dir { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; }
+  .dir a { display: block; text-decoration: none; padding: 8px 10px; border-radius: 8px; margin: 0 -10px; }
+  .dir a:hover { background: #EEF1FD; }
+  .dir a b { display: block; font-size: 14px; }
+  .dir a span { font-size: 12px; color: var(--muted); }
+  .src-row { display: flex; gap: 10px; align-items: flex-start; text-decoration: none; padding: 9px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
+  .src-row .dot { margin-top: 5px; flex: none; }
+  .section-title { margin: 34px 0 6px; }
+  @media (max-width: 900px) { .home-grid { grid-template-columns: 1fr; } }
 {% endblock %}
 
-{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
-
 {% block content %}
+  {% include "_home.html" %}
+
+  <h2 class="section-title" id="lead-health">Lead health</h2>
+  {% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}
   <div class="tabs">
-    <a class="{{ 'on' if tab == 'pipeline' }}" href="{{ qs(tab='pipeline') }}">Sales Pipeline Health</a>
-    <a class="{{ 'on' if tab == 'response' }}" href="{{ qs(tab='response') }}">Lead Response Metrics</a>
-    <a class="{{ 'on' if tab == 'source' }}" href="{{ qs(tab='source') }}">Best Lead Source</a>
+    <a class="{{ 'on' if tab == 'pipeline' }}" href="{{ qs(tab='pipeline') }}#lead-health">Sales Pipeline Health</a>
+    <a class="{{ 'on' if tab == 'response' }}" href="{{ qs(tab='response') }}#lead-health">Lead Response Metrics</a>
+    <a class="{{ 'on' if tab == 'source' }}" href="{{ qs(tab='source') }}#lead-health">Best Lead Source</a>
   </div>
 
   {% if not ready %}
