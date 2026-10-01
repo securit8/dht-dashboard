@@ -610,14 +610,23 @@ def _apply_saved_decisions():
 
 
 def _keep_dashboard_warm():
-    """Rebuild the dashboard numbers every 90 seconds (they're reused for 120), so a visit never waits."""
+    """Rebuild the dashboard numbers every 90 seconds (they're reused for 120), and every few minutes load
+    the CTE page once, so its 5-minute appointment numbers are always ready: a visit never waits."""
     import time as _t
+    _t.sleep(5)
+    n = 0
     while True:
         try:
             with db() as cur:
                 HOME.refresh(cur, today_start(), TEAM_TZ_NAME, _year_totals)
+            if n % 3 == 0:
+                client = app.test_client()
+                with client.session_transaction() as s:
+                    s["logged_in"] = True
+                client.get("/cte")
         except Exception:
             app.logger.exception("dashboard warm-up")
+        n += 1
         _t.sleep(90)
 
 
@@ -1132,7 +1141,9 @@ def _agent_extras(cur, agents, start, end):
     by_agent = R.appt_counts(cur, R.Filters(start, end, None, None, TEAM_TZ_NAME), "agent") if has_fub else {}
     activity = {}
     if R.tables_ready(cur, "agent_events"):
-        for r in R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end}):
+        rows = R._cached(("leaderboard", start.date(), end.date()), 300,
+                         lambda: R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end}))
+        for r in rows:
             activity[r["user_id"]] = r
     for a in agents:
         key = a["name"].strip().lower()

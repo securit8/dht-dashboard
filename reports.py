@@ -188,7 +188,13 @@ def source_options(cur):
 
 def appt_counts(cur, f, by):
     """Appointments set / held / not held in f's dates, grouped by year (by="year") or by FUB user
-    (by="agent"), in two queries instead of one funnel_counts per group. Same held / not-held rule."""
+    (by="agent"), in two queries instead of one funnel_counts per group. Same held / not-held rule.
+    Reused for 5 minutes (the held rule reads each appointment's stage history, which is slow)."""
+    key = ("appt_counts", by, f.start.date(), f.end.date(), f.agent, f.source)
+    return _cached(key, 300, lambda: _appt_counts(cur, f, by))
+
+
+def _appt_counts(cur, f, by):
     p = f.params()
     if by == "year":
         src, k_set, k_start = "appointments a", "EXTRACT(YEAR FROM a.created_at AT TIME ZONE %(tz)s)::int", \
@@ -268,7 +274,12 @@ def ensure_app_tables(cur):
 # ---------------------------------------------------------------- shared counts
 
 def funnel_counts(cur, f):
-    """Headline counts for a period: leads, appointments and deals."""
+    """Headline counts for a period: leads, appointments and deals. Reused for 5 minutes per period."""
+    key = ("funnel_counts", f.start.isoformat(), f.end.isoformat(), f.agent, f.source)
+    return dict(_cached(key, 300, lambda: _funnel_counts(cur, f)))
+
+
+def _funnel_counts(cur, f):
     p = f.params()
     c = one(cur, f"SELECT COUNT(*) AS new_leads FROM people p WHERE p.created_at >= %(start)s AND p.created_at < %(end)s AND {PEOPLE_F}", p)
     c.update(one(cur, f"""
