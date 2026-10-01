@@ -138,6 +138,28 @@ def quickbooks_refresh():
     return redirect(url_for("quickbooks", msg=f"Updated {months} months."))
 
 
+@app.route("/quickbooks/detail-structure")
+@login_required
+def quickbooks_detail_structure():
+    """How QuickBooks lays out the Profit & Loss Detail report (columns, sections, a few rows), to read it right."""
+    rep = qbo.api_get(DATABASE_URL, "reports/ProfitAndLossDetail", {
+        "start_date": "2026-01-01", "end_date": "2026-01-31", "accounting_method": "Accrual"})
+
+    def walk(rows, depth=0, out=None):
+        out = [] if out is None else out
+        for r in (rows or [])[:6]:
+            out.append({"depth": depth, "type": r.get("type"), "group": r.get("group"), "keys": sorted(r.keys()),
+                        "header": [c.get("value") for c in r.get("Header", {}).get("ColData", [])][:3],
+                        "coldata": [c.get("value") for c in r.get("ColData", [])][:8]})
+            if "Rows" in r and depth < 4:
+                walk(r["Rows"].get("Row", []), depth + 1, out)
+        return out
+    return {"columns": [{"title": c.get("ColTitle"), "type": c.get("ColType"), "meta": c.get("MetaData")}
+                        for c in rep.get("Columns", {}).get("Column", [])],
+            "header": rep.get("Header", {}), "rows": walk(rep.get("Rows", {}).get("Row", [])),
+            "parsed": len(qbo.parse_income_detail(rep))}
+
+
 @app.route("/quickbooks/disconnect", methods=["GET", "POST"])
 @login_required
 def quickbooks_disconnect():
