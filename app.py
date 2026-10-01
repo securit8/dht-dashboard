@@ -18,6 +18,7 @@ import gmail_import
 import cte_import
 import splits as SP
 import home as HOME
+import decisions as DEC
 import threading
 import reports as R
 
@@ -43,7 +44,7 @@ PRESET_KEYS = {k for k, _ in PRESETS}
 NAV = [
     ("Business Reports", [("dashboard", "Dashboard"), ("business_overview", "Business Overview"),
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
-                          ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("splits_page", "Agent Splits"), ("goals_page", "Goals: Oct–Mar Plan")]),
+                          ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("splits_page", "Agent Splits"), ("decisions_page", "Decisions"), ("goals_page", "Goals: Oct–Mar Plan")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
                        ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
@@ -582,7 +583,46 @@ def dashboard():
                 data["response"] = R.lead_response(cur, f, min(f.end, datetime.now(TEAM_TZ)))
             else:
                 data["sources"] = R.best_sources(cur, f)
-    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, home=overview, **data)
+    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, home=overview,
+                           decider=session.get("decider", ""), **data)
+
+
+# ---------------------------------------------------------------- Decisions on Needs-attention items
+
+@app.route("/decisions/add", methods=["POST"])
+@login_required
+def decisions_add():
+    """Joe (or the office) answers a Needs-attention item: a dropdown choice and/or a comment."""
+    f = request.form
+    by = (f.get("by") or "").strip()[:60]
+    if by:
+        session["decider"] = by
+    if f.get("key") and (f.get("choice") or (f.get("comment") or "").strip()):
+        with db() as cur:
+            DEC.add(cur, f["key"][:300], (f.get("title") or "")[:500], (f.get("detail") or "")[:4000],
+                    (f.get("choice") or "")[:200], (f.get("comment") or "").strip()[:4000], by)
+    return redirect(url_for("dashboard", saved=f.get("key")) + "#attention")
+
+
+@app.route("/decisions")
+@login_required
+def decisions_page():
+    status = request.args.get("status")
+    status = status if status in dict(DEC.STATUSES) else None
+    with db() as cur:
+        rows = DEC.all_(cur, status)
+        counts = {s: len(DEC.all_(cur, s)) for s, _ in DEC.STATUSES}
+    return render_template("decisions.html", rows=rows, status=status, statuses=DEC.STATUSES, counts=counts)
+
+
+@app.route("/decisions/<int:decision_id>/status", methods=["POST"])
+@login_required
+def decisions_status(decision_id):
+    status = request.form.get("status")
+    if status in dict(DEC.STATUSES):
+        with db() as cur:
+            DEC.set_status(cur, decision_id, status, (request.form.get("fix_note") or "").strip()[:2000])
+    return redirect(url_for("decisions_page", status=request.form.get("back") or None))
 
 
 @app.route("/funnel")
@@ -956,6 +996,7 @@ def cte():
                 agent_choices=[("", "Whole team")] + [(n, n) for n in options],
                 imported_at=CTE.last_import(cur),
                 company=_company_income(cur, rng["start"].date(), rng["end"].date(), agent),
+                focus=HOME.focus_deals(cur, request.args.get("focus"), year),
                 appts=_fub_appts(cur, rng["start"], rng["end"], agent))
     return render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
                            refresh=_cte_refresh, **data)

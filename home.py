@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta
 
 import cte_reports as CTE
+import decisions
 import gmail_import
 import qbo
 import reports as R
@@ -108,43 +109,75 @@ def _receipts(cur, year):
         for s in d["suggestions"][:1]:
             fix = (s.get("property") or s.get("description") or "").split(",")[0].strip()
             what = "close date" if s.get("why") == "close date differs" else "address"
-            typos.append(f"{d['address']} ({d['close_date'].strftime('%m/%d')}) → {what}: Compass has {fix}"
-                         + (f" on {(s.get('bill_date') or s.get('paid_on')).strftime('%m/%d')}" if what == "close date" else ""))
+            when = (s.get("bill_date") or s.get("paid_on"))
+            typos.append({"address": d["address"], "close_date": d["close_date"], "what": what, "fix": fix,
+                          "when": when, "anchor": f"deal-{d['file_year']}-{d['row_num']}", "agent": d["agent"]})
     return {"total": len(deals), "missing": len(missing), "typos": len(typos), "typo_list": typos,
             "unmatched": len(unmatched), "any_receipts": any(d["receipts"] for d in deals) or bool(unmatched)}
 
 
+def both_sides_rows(cur, year):
+    """Sales where the team had both sides: each side is its own row in CTE."""
+    return R.fetch(cur, """
+        SELECT d.* FROM cte_deals d JOIN (
+            SELECT LOWER(SPLIT_PART(TRIM(address), ' ', 1)) AS n, LOWER(SPLIT_PART(TRIM(address), ' ', 2)) AS w, close_date
+            FROM cte_deals WHERE status = 'Closed' AND file_year = %(y)s AND close_date IS NOT NULL
+            GROUP BY 1, 2, 3 HAVING COUNT(*) > 1) x
+          ON LOWER(SPLIT_PART(TRIM(d.address), ' ', 1)) = x.n AND LOWER(SPLIT_PART(TRIM(d.address), ' ', 2)) = x.w
+         AND d.close_date = x.close_date
+        WHERE d.status = 'Closed' AND d.file_year = %(y)s ORDER BY d.close_date, d.deal_type DESC""", {"y": year})
+
+
+def low_pct_rows(cur, year):
+    """Agent deals (not the owners') closed under the contracts' 2% minimum commission."""
+    return [r for r in R.fetch(cur, """
+        SELECT d.* FROM cte_deals d WHERE status = 'Closed' AND file_year = %(y)s AND sale_price > 0
+          AND gci / sale_price < 0.0199 ORDER BY primary_agent, close_date""", {"y": year})
+        if (r["primary_agent"] or "").strip().lower() not in SP.OWNERS]
+
+
+FOCUS = {"both_sides": ("Sales where we had both sides", both_sides_rows),
+         "low_pct": ("Agent deals under the 2% minimum commission", low_pct_rows)}
+
+
+def focus_deals(cur, kind, year):
+    """(title, deal rows) for the CTE page when it's opened from a Needs-attention item."""
+    if kind not in FOCUS:
+        return None
+    title, fn = FOCUS[kind]
+    return {"kind": kind, "title": title, "rows": fn(cur, year)}
+
+
+def _sides(rows):
+    return " / ".join(f"{x['deal_type']} {x['primary_agent']}" for x in rows)
+
+
 def _questions(cur, year):
-    """Open questions found in the data for the owners to decide. Each disappears once it's fixed."""
+    """Open questions found in the data for the owners to decide. Each disappears once it's fixed.
+    choices: the two answers offered in the dropdown (none = comment only)."""
     items = []
     owners = SP.OWNERS
-    # both sides of one sale in CTE: counted as 2 closings and the price twice in volume
-    rows = R.fetch(cur, """
-        SELECT MIN(address) AS address, close_date, COUNT(*) AS sides, MAX(sale_price) AS price,
-               STRING_AGG(deal_type || ' ' || COALESCE(primary_agent, '?'), ' / ' ORDER BY deal_type DESC) AS who
-        FROM cte_deals WHERE status = 'Closed' AND file_year = %(y)s AND close_date IS NOT NULL
-        GROUP BY LOWER(SPLIT_PART(TRIM(address), ' ', 1)), LOWER(SPLIT_PART(TRIM(address), ' ', 2)), close_date
-        HAVING COUNT(*) > 1 ORDER BY close_date""", {"y": year})
+    rows = both_sides_rows(cur, year)
     if rows:
-        extra = sum(float(r["price"] or 0) * (r["sides"] - 1) for r in rows)
-        items.append({"level": "ask", "title": f"{len(rows)} sales where we had both sides: count as 1 closing or 2?",
+        sales = {}
+        for r in rows:
+            sales.setdefault((r["address"].split()[0].lower(), r["close_date"]), []).append(r)
+        extra = sum(float(v[0]["sale_price"] or 0) * (len(v) - 1) for v in sales.values())
+        items.append({"level": "ask", "key": f"both_sides:{year}",
+                      "title": f"{len(sales)} sales where we had both sides: count as 1 closing or 2?",
                       "detail": f"Each side is a closing now, so ${extra:,.0f} of volume is counted twice. "
-                                + "; ".join(f"{r['address']} ({r['who']})" for r in rows),
-                      "link": ("cte", {})})
-    # under the 2% minimum commission the agent contracts allow without written approval
-    low = [r for r in R.fetch(cur, """
-        SELECT address, primary_agent, gci, sale_price, gci / NULLIF(sale_price, 0) * 100 AS pct
-        FROM cte_deals WHERE status = 'Closed' AND file_year = %(y)s AND sale_price > 0
-          AND gci / sale_price < 0.0199 ORDER BY primary_agent, close_date""", {"y": year})
-        if (r["primary_agent"] or "").strip().lower() not in owners]
+                                + "; ".join(f"{v[0]['address']} ({_sides(v)})" for v in sales.values()),
+                      "link": ("cte", {"focus": "both_sides", "_anchor": "focus"}),
+                      "choices": ["Count as 2 closings (one per side)", "Count as 1 closing (volume once)"]})
+    low = low_pct_rows(cur, year)
     if low:
-        items.append({"level": "ask", "title": f"{len(low)} agent deal{'s' if len(low) != 1 else ''} under the 2% minimum commission: approved?",
+        items.append({"level": "ask", "key": f"low_pct:{year}",
+                      "title": f"{len(low)} agent deal{'s' if len(low) != 1 else ''} under the 2% minimum commission: approved?",
                       "detail": "Contracts need written approval below 2% or $1,500. "
-                                + "; ".join(f"{r['address']} ({r['primary_agent']}, {float(r['pct']):.2f}%)" for r in low),
-                      "link": ("cte", {})})
-    # the same agent typed two ways in CTE
+                                + "; ".join(f"{r['address']} ({r['primary_agent']}, {float(r['gci']) / float(r['sale_price']) * 100:.2f}%)" for r in low),
+                      "link": ("cte", {"focus": "low_pct", "_anchor": "focus"}),
+                      "choices": ["All approved", "Not approved: talk to the agents"]})
     names = CTE.agent_options(cur)
-    pairs = []
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             if a.lower() in owners or b.lower() in owners:
@@ -153,17 +186,25 @@ def _questions(cur, year):
             first = SequenceMatcher(None, fa[0], fb[0]).ratio() >= 0.8
             last = len(fa) > 1 and len(fb) > 1 and SequenceMatcher(None, fa[-1], fb[-1]).ratio() >= 0.8
             if first and (last or len(fa) == 1 or len(fb) == 1 or fa[0] == fb[0]):
-                pairs.append(f"{a} / {b}")
-    if pairs:
-        items.append({"level": "ask", "title": f"{len(pairs)} agent name{'s' if len(pairs) != 1 else ''} in CTE that may be the same person",
-                      "detail": "Same person, or different? " + "; ".join(pairs), "link": ("cte", {})})
-    # agreements that contradict themselves or aren't signed
-    unclear = [c for c in SP.CONTRACTS if "but" in c["note"] or c["since"] is None]
-    if unclear:
-        items.append({"level": "ask", "title": f"{len(unclear)} agent agreement{'s' if len(unclear) != 1 else ''} to clear up",
-                      "detail": "; ".join(f"{c['agent']}: {c['note'].split(';')[0]}" for c in unclear),
-                      "link": ("splits_page", {})})
-    # QuickBooks vs Compass for earlier full years (this year is its own item)
+                items.append({"level": "ask", "key": f"same_person:{a}|{b}",
+                              "title": f"\"{a}\" and \"{b}\" in CTE: same person?",
+                              "detail": "If they are, their deals and activity get counted together.",
+                              "link": ("cte", {"cte_agent": b}),
+                              "choices": ["Same person: count together", "Different people"]})
+    for c in SP.CONTRACTS:
+        if c["since"] is None:
+            items.append({"level": "ask", "key": f"contract:{c['agent']}",
+                          "title": f"{c['agent']}'s agreement isn't signed or dated",
+                          "detail": f"{c['file']} in Drive. Her deals can't be checked against a split until it's in force.",
+                          "link": ("splits_page", {"_anchor": "contract-" + c["agent"].replace(" ", "-")}),
+                          "choices": ["Signed: date in the comment", "Not on the team / no agreement"]})
+        elif " but " in c["note"]:
+            split_says, sheet_says = c["note"].split(" but ", 1)
+            items.append({"level": "ask", "key": f"contract:{c['agent']}",
+                          "title": f"{c['agent']}'s agreement contradicts itself: which split is right?",
+                          "detail": f"{split_says.strip().rstrip(',')}, but {sheet_says.strip()}.",
+                          "link": ("splits_page", {"_anchor": "contract-" + c["agent"].replace(" ", "-")}),
+                          "choices": [f"Split table is right", f"Cheat sheet is right"]})
     qm = {}
     q = qbo.status(cur)
     if q and q["env"] == "production" and not q["needs_reconnect"]:
@@ -176,10 +217,11 @@ def _questions(cur, year):
             compass = _compass_ytd(cur, y)
             books = sum(v for m, v in qm.items() if m.year == y)
             if compass is not None and abs(books - compass) > max(1000, 0.01 * compass):
-                items.append({"level": "ask", "title": f"{y}: QuickBooks is ${books - compass:+,.0f} off from Compass",
-                              "detail": f"QuickBooks income ${books:,.0f} vs Compass YTD ${compass:,.0f}. "
-                                        "Income from outside Compass (referrals?) or a missing statement?",
-                              "link": ("compass_invoices", {"year": y})})
+                items.append({"level": "ask", "key": f"books_vs_compass:{y}",
+                              "title": f"{y}: QuickBooks is ${books - compass:+,.0f} off from Compass",
+                              "detail": f"QuickBooks income ${books:,.0f} vs Compass YTD ${compass:,.0f}.",
+                              "link": ("compass_invoices", {"year": y, "_anchor": "monthly"}),
+                              "choices": ["Income from outside Compass: OK", "Something is missing: look into it"]})
     return items
 
 
@@ -208,19 +250,24 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
         off = [r for r in checks if r["status"] in ("under", "over")]
         if off:
             gap = sum(r["gap"] for r in off)
-            items.append({"level": "bad" if gap < -1000 else "warn",
+            items.append({"level": "bad" if gap < -1000 else "warn", "key": f"off_contract:{now.year}",
                           "title": f"{len(off)} deal{'s' if len(off) != 1 else ''} paid off the agent's contract split",
                           "detail": f"Company got ${gap:+,.0f} against the contracts this year.",
-                          "link": ("splits_page", {})})
+                          "link": ("splits_page", {"_anchor": "deals"}),
+                          "choices": ["Paid right: update the contracts", "Paid wrong: fix with the agents"]})
         no_contract = sorted({r["agent"] for r in checks if r["status"] == "no_contract" and r["agent"]})
         if no_contract:
-            items.append({"level": "warn", "title": "No agreement in Drive for " + ", ".join(no_contract),
-                          "detail": "Their deals can't be checked against a split.", "link": ("splits_page", {})})
-    if receipts and receipts["typo_list"]:
-        items.append({"level": "ask", "title": f"{receipts['typos']} CTE deal{'s' if receipts['typos'] != 1 else ''} with a likely typo: fix in the CTE file",
-                      "detail": "; ".join(receipts["typo_list"]), "link": ("compass_invoices", {"deals": "missing"})})
+            items.append({"level": "warn", "key": "no_contract:" + ",".join(no_contract),
+                          "title": "No agreement in Drive for " + ", ".join(no_contract),
+                          "detail": "Their deals can't be checked against a split.", "link": ("splits_page", {"_anchor": "contracts"})})
+    for t in (receipts or {}).get("typo_list", []):
+        items.append({"level": "ask", "key": f"typo:{t['address']}|{t['close_date']}",
+                      "title": f"CTE typo? {t['address']} ({t['close_date'].strftime('%m/%d/%Y')}, {t['agent'] or 'no agent'})",
+                      "detail": f"The Compass receipt has {t['what']} " + (f"{t['when'].strftime('%m/%d/%Y')}" if t["what"] == "close date" and t["when"] else t["fix"]) + ".",
+                      "link": ("compass_invoices", {"deals": "missing", "_anchor": t["anchor"]}),
+                      "choices": ["Compass is right: fix the CTE file", "CTE is right"]})
     if receipts and receipts["missing"] and receipts["any_receipts"]:
-        items.append({"level": "bad" if receipts["missing"] - receipts["typos"] > 2 else "warn",
+        items.append({"level": "bad" if receipts["missing"] - receipts["typos"] > 2 else "warn", "key": f"missing_receipts:{now.year}",
                       "title": f"{receipts['missing']} closed deal{'s' if receipts['missing'] != 1 else ''} with no Compass receipt",
                       "detail": (f"{receipts['typos']} look like a typo in the CTE address or date. " if receipts["typos"] else "")
                       + f"{receipts['total'] - receipts['missing']} of {receipts['total']} closings this year are matched.",
@@ -228,32 +275,36 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
     if money and money.get("compass") is not None and money.get("books") is not None:
         diff = money["books"] - money["compass"]
         if abs(diff) > max(1000, 0.01 * money["compass"]):
-            items.append({"level": "warn", "title": f"QuickBooks and Compass differ by ${diff:+,.0f} this year",
+            items.append({"level": "warn", "key": f"books_vs_compass:{now.year}",
+                          "choices": ["Income from outside Compass: OK", "Something is missing: look into it"],
+                          "title": f"QuickBooks and Compass differ by ${diff:+,.0f} this year",
                           "detail": f"QuickBooks income ${money['books']:,.0f} vs Compass YTD ${money['compass']:,.0f}.",
-                          "link": ("compass_invoices", {})})
+                          "link": ("compass_invoices", {"_anchor": "monthly"})})
     if money and money.get("gross_vs") and money["gross_vs"]["pace_diff"] < 0:
         g = money["gross_vs"]
-        items.append({"level": "warn", "title": f"GCI is ${-g['pace_diff']:,.0f} behind the pace for the year's goal",
+        items.append({"level": "warn", "key": f"gci_pace:{now.year}", "title": f"GCI is ${-g['pace_diff']:,.0f} behind the pace for the year's goal",
                       "detail": f"${money['gross']:,.0f} of ${g['goal']:,.0f} ({g['pct']:.0f}%), "
                                 f"{money['pace_pct']:.0f}% of the year gone.", "link": ("business_overview", {})})
     if leads:
         if leads["stale_new_pct"] > 10:
-            items.append({"level": "warn", "title": f"{leads['stale_new_pct']}% of last 30 days' new leads still in \"New\" after 48h",
+            items.append({"level": "warn", "key": "stale_new", "title": f"{leads['stale_new_pct']}% of last 30 days' new leads still in \"New\" after 48h",
                           "detail": "Get them contacted and staged.", "link": ("dashboard", {"tab": "pipeline", "_anchor": "lead-health"})})
         if leads["held_rate"] is not None and leads["held"] + leads["not_held"] and leads["held_rate"] < 50:
-            items.append({"level": "warn", "title": f"Only {leads['held_rate']}% of appointments held in the last 30 days",
+            items.append({"level": "warn", "key": "held_rate", "title": f"Only {leads['held_rate']}% of appointments held in the last 30 days",
                           "detail": f"{leads['held']} held, {leads['not_held']} not held.", "link": ("appointments", {"period": "last30"})})
     if deals and deals["ytd"]["cancelled"]:
-        items.append({"level": "info", "title": f"{deals['ytd']['cancelled']} deal{'s' if deals['ytd']['cancelled'] != 1 else ''} fell through this year",
+        items.append({"level": "info", "key": f"fell_through:{now.year}", "title": f"{deals['ytd']['cancelled']} deal{'s' if deals['ytd']['cancelled'] != 1 else ''} fell through this year",
                       "detail": "Went under contract and then cancelled.", "link": ("business_overview", {})})
     for s in fresh or []:
         if s["error"]:
-            items.append({"level": "bad", "title": f"{s['name']} needs attention", "detail": s["error"], "link": (s["link"], {})})
+            items.append({"level": "bad", "key": f"source:{s['name']}", "title": f"{s['name']} needs attention", "detail": s["error"], "link": (s["link"], {})})
         elif s["at"] and now - s["at"] > timedelta(hours=36):
-            items.append({"level": "warn", "title": f"{s['name']} hasn't updated since {s['at'].strftime('%m/%d %I:%M %p')}",
+            items.append({"level": "warn", "key": f"source:{s['name']}", "title": f"{s['name']} hasn't updated since {s['at'].strftime('%m/%d %I:%M %p')}",
                           "detail": "Check the daily cron job on Render.", "link": (s["link"], {})})
     items += questions or []
     order = {"bad": 0, "warn": 1, "ask": 2, "info": 3}
+    for i in items:
+        i.setdefault("choices", [])
     return sorted(items, key=lambda i: order[i["level"]])
 
 
@@ -280,4 +331,12 @@ def overview(cur, today, tz, year_totals):
         company = {"total": sum(paid), "deals": len(paid)}
     return {"year": year, "money": money, "deals": deals, "leads": leads, "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
-            "attention": _attention(money, deals, leads, receipts, checks, fresh, now, questions)}
+            "attention": _with_decisions(cur, _attention(money, deals, leads, receipts, checks, fresh, now, questions))}
+
+
+def _with_decisions(cur, items):
+    """Attach the latest owner decision (dropdown choice + comment) to each item."""
+    latest = _safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}
+    for i in items:
+        i["decision"] = latest.get(i["key"])
+    return items

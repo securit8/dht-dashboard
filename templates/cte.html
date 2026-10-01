@@ -21,6 +21,22 @@
 {% if not ready %}
   <div class="card empty">No CTE data yet.<br><span class="muted">It loads from OneDrive on the next cron run (needs the Microsoft app keys in Render).</span></div>
 {% else %}
+  {% if focus %}
+  <div class="card" id="focus">
+    <div class="card-head"><h3 style="margin:0">{{ focus.title }} &middot; {{ focus.rows|length }}</h3>
+      <a class="muted" href="{{ url_for('dashboard') }}#attention">&lsaquo; Back to Needs attention</a></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Closed</th><th>Address</th><th>Side</th><th>Agent</th><th>Lead source</th><th class="n">Price</th><th class="n">GCI</th><th class="n">Commission</th><th>CTE file</th></tr>
+      {% for r in focus.rows %}
+      <tr><td>{{ r.close_date.strftime('%m/%d/%Y') if r.close_date else '' }}</td><td><b>{{ r.address }}</b></td><td>{{ r.deal_type or '' }}</td>
+        <td>{{ r.primary_agent or '' }}</td><td>{{ r.source or '' }}</td><td class="n">{{ r.sale_price|money }}</td><td class="n">{{ r.gci|dollars }}</td>
+        <td class="n">{{ '{:.2f}%'.format(r.gci / r.sale_price * 100) if r.sale_price and r.gci is not none else '' }}</td>
+        <td class="muted">{{ r.source_file }}, row {{ r.row_num }}</td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <div class="band-label">Your 4 numbers &middot; <b>{{ rng.label }}</b></div>
     <div class="kpis four">

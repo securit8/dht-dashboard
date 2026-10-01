@@ -96,7 +96,7 @@
     </table>
   </div>
 
-  <div class="card">
+  <div class="card" id="monthly">
     <div class="card-head"><h2>Month by month &middot; {{ year }}</h2>
       <div class="seg">{% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ url_for('compass_invoices', year=y, deals=deal_filter, show=show) }}">{{ y }}</a>{% endfor %}</div>
     </div>
@@ -149,7 +149,7 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td>{{ d.close_date.strftime('%m/%d/%Y') }}</td><td><b>{{ d.address }}</b></td><td>{{ d.agent or '' }}</td>
+            <tr id="deal-{{ d.file_year }}-{{ d.row_num }}"><td>{{ d.close_date.strftime('%m/%d/%Y') }}</td><td><b>{{ d.address }}</b></td><td>{{ d.agent or '' }}</td>
               <td>{{ d.deal_type or '' }}</td><td class="n">{{ '${:,.0f}'.format(d.gci|float) if d.gci is not none else '' }}</td>
               <td colspan="5"><span class="tag miss">No receipt found</span>
                 {% for r in d.suggestions %}

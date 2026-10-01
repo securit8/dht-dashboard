@@ -41,7 +41,7 @@
       Sphere, Personal, Client Referral, Past Clients, Family, Friends = personal; Zillow = Zillow; everything else (open house, Realtor.com, Google PPC, team past client&hellip;) = team / database.</div>
   </div>
 
-  <div class="card">
+  <div class="card" id="deals">
     <div class="card-head"><h2>Every closed deal &middot; {{ year }}</h2>
       <div class="seg">
         <a class="{{ 'on' if show != 'all' }}" href="{{ url_for('splits_page', year=year) }}">Off contract ({{ total.under + total.over }})</a>
@@ -71,12 +71,12 @@
     </table>
   </div>
 
-  <div class="card">
+  <div class="card" id="contracts">
     <h3>Contract terms &middot; company share</h3>
     <table class="tbl fit">
       <tr><th style="width:17%">Agent</th><th style="width:10%">Signed</th><th class="n" style="width:9%">Personal</th><th class="n" style="width:8%">Zillow</th><th class="n" style="width:10%">Team / database</th><th class="n" style="width:9%">After $10M</th><th>Notes</th></tr>
       {% for c in contracts %}
-      <tr><td><b>{{ c.agent }}</b><div class="sub">{{ c.file }}</div></td><td>{{ c.since.strftime('%m/%d/%Y') if c.since else 'not signed' }}</td>
+      <tr id="contract-{{ c.agent|replace(' ', '-') }}"><td><b>{{ c.agent }}</b><div class="sub">{{ c.file }}</div></td><td>{{ c.since.strftime('%m/%d/%Y') if c.since else 'not signed' }}</td>
         <td class="n">{{ c.personal }}%</td><td class="n">{{ c.zillow }}%</td><td class="n">{{ c.database }}%</td>
         <td class="n">{% if c.bonus %}{{ c.bonus }}%<div class="sub">{% if c.crossed %}reached {{ c.crossed.close_date.strftime('%m/%d/%Y') }}{% else %}${{ '{:,.1f}'.format((c.volume or 0) / 1000000) }}M of $10M{% endif %}</div>{% endif %}</td>
         <td class="muted" style="font-size:13px">{{ c.note }}{% if c.crossed %}<br><b>Passed $10M with {{ c.crossed.address }} ({{ c.crossed.close_date.strftime('%m/%d/%Y') }}{% if c.bonus_from %}, counting from {{ c.bonus_from.strftime('%m/%d/%Y') }}{% endif %}); every later deal is on {{ 100 - c.bonus }}/{{ c.bonus }}.</b>{% endif %}</td></tr>

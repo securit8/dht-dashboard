@@ -39,14 +39,22 @@
   .home-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-bottom: 20px; }
   .home-grid > .card { margin-bottom: 0; }
   .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-  .alert { display: grid; grid-template-columns: 54px 1fr 14px; gap: 12px; align-items: center; padding: 11px 12px; border-radius: 10px; text-decoration: none; margin-bottom: 8px; background: #F7F8FB; border-left: 3px solid var(--muted); }
-  .alert:hover { background: #EEF1FD; }
+  .alert { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 11px 12px; border-radius: 10px; margin-bottom: 8px; background: #F7F8FB; border-left: 3px solid var(--muted); }
   .alert.bad { border-left-color: var(--down); } .alert.warn { border-left-color: #E0A63A; }
-  .alert .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+  .alert .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); padding-top: 2px; }
   .alert.bad .sev { color: var(--down); } .alert.warn .sev { color: #A86F0C; }
   .alert.ask { border-left-color: var(--accent); } .alert.ask .sev { color: var(--accent-ink); }
-  .alert .txt { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
-  .alert .go { color: var(--muted); font-size: 20px; }
+  .alert .txt { display: flex; flex-direction: column; gap: 3px; font-size: 14px; min-width: 0; }
+  .alert .ttl { text-decoration: none; } .alert .ttl:hover b { text-decoration: underline; }
+  .alert .go { font-size: 12.5px; font-weight: 600; color: var(--accent-ink); text-decoration: none; white-space: nowrap; padding-top: 2px; }
+  .alert details { margin-top: 4px; }
+  .alert summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--accent-ink); }
+  .decide { display: grid; gap: 8px; margin-top: 8px; max-width: 560px; }
+  .decide select, .decide textarea, .decide input { font: 500 13px 'IBM Plex Sans', sans-serif; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--ink); }
+  .decide textarea { resize: vertical; min-height: 54px; }
+  .decide .row { display: flex; gap: 8px; } .decide .row input { flex: 1; min-width: 0; }
+  .decided { font-size: 12.5px; background: #EEF1FD; border-radius: 8px; padding: 6px 10px; margin-top: 4px; color: var(--ink); }
+  .decided.fixed { background: #E3F4EA; } .decided.needs_info { background: #FDF6E9; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.mini td { padding: 7px 0; border-bottom: 1px solid var(--bg); }
   table.mini td.n { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 700; padding-right: 14px; }

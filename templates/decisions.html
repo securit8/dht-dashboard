@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Decisions{% endblock %}
+{% block eyebrow %}Needs attention &middot; owner decisions{% endblock %}
+{% block heading %}Decisions to fix{% endblock %}
+{% block style %}
+  .dec { border-top: 1px solid var(--bg); padding: 14px 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
+  .dec:first-of-type { border-top: 0; }
+  .dec .q { font-size: 13px; color: var(--soft); margin: 2px 0 8px; }
+  .dec .a { font-size: 14px; }
+  .dec .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .st { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 9px; }
+  .st.new { background: #EEF1FD; color: var(--accent-ink); } .st.fixed { background: #E3F4EA; color: #1F7A48; }
+  .st.needs_info { background: #FDF6E9; color: #8A5A00; }
+  .upd { display: grid; gap: 6px; }
+  .upd select, .upd textarea { font: 500 13px 'IBM Plex Sans', sans-serif; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  @media (max-width: 800px) { .dec { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block content %}
+  <div class="card">
+    <div class="card-head">
+      <div class="seg">
+        <a class="{{ 'on' if not status }}" href="{{ url_for('decisions_page') }}">All</a>
+        {% for s, label in statuses %}<a class="{{ 'on' if status == s }}" href="{{ url_for('decisions_page', status=s) }}">{{ label }} ({{ counts[s] }})</a>{% endfor %}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="muted" id="copied"></span>
+        <button class="btn ghost" type="button" onclick="copyAll()">Copy all</button>
+        <a class="btn ghost" href="{{ url_for('dashboard') }}#attention">Needs attention</a>
+      </div>
+    </div>
+    {% for r in rows %}
+    <div class="dec">
+      <div>
+        <span class="st {{ r.status }}">{{ dict(statuses)[r.status] }}</span>
+        <div style="margin-top:6px"><b>{{ r.item_title }}</b></div>
+        {% if r.item_detail %}<div class="q">{{ r.item_detail }}</div>{% endif %}
+        <div class="a">{% if r.choice %}<b>{{ r.choice }}</b>{% endif %}{% if r.choice and r.comment %} &mdash; {% endif %}{% if r.comment %}&ldquo;{{ r.comment }}&rdquo;{% endif %}</div>
+        <div class="meta">{{ r.decided_by or 'Someone' }} &middot; {{ r.decided_at|fmt_date(true) }}{% if r.fixed_at %} &middot; fixed {{ r.fixed_at|fmt_date }}{% endif %}</div>
+        {% if r.fix_note %}<div class="meta" style="color:var(--ink)">Fix: {{ r.fix_note }}</div>{% endif %}
+      </div>
+      <form class="upd" method="post" action="{{ url_for('decisions_status', decision_id=r.id) }}">
+        <input type="hidden" name="back" value="{{ status or '' }}">
+        <select name="status">{% for s, label in statuses %}<option value="{{ s }}"{% if r.status == s %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <textarea name="fix_note" rows="2" placeholder="What was done / what's still needed">{{ r.fix_note or '' }}</textarea>
+        <button class="btn ghost" type="submit">Update</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="muted" style="padding:14px 0">No decisions yet. Open an item on the dashboard's Needs attention list to decide or comment.</div>
+    {% endfor %}
+  </div>
+  <textarea id="all-text" style="position:absolute;left:-9999px" aria-hidden="true">{% for r in rows %}#{{ r.id }} [{{ dict(statuses)[r.status] }}] {{ r.item_title }}
+  Item: {{ r.item_key }}
+  {% if r.item_detail %}Detail: {{ r.item_detail }}
+  {% endif %}Decision: {{ r.choice or '-' }}{% if r.comment %} | Comment: {{ r.comment }}{% endif %}
+  By {{ r.decided_by or 'someone' }}, {{ r.decided_at|fmt_date(true) }}{% if r.fix_note %} | Fix: {{ r.fix_note }}{% endif %}
+
+{% endfor %}</textarea>
+{% endblock %}
+{% block scripts %}
+<script>
+function copyAll() {
+  var t = document.getElementById('all-text');
+  var done = function () { document.getElementById('copied').textContent = 'Copied'; };
+  if (navigator.clipboard) { navigator.clipboard.writeText(t.value).then(done, function () { t.select(); document.execCommand('copy'); done(); }); }
+  else { t.select(); document.execCommand('copy'); done(); }
+}
+</script>
+{% endblock %}
