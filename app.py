@@ -118,6 +118,7 @@ def quickbooks_callback():
     try:
         qbo.connect(DATABASE_URL, code, realm, _qbo_redirect_uri())
         months = qbo.pull_pnl(DATABASE_URL)
+        qbo.pull_income_detail(DATABASE_URL)
     except qbo.NeedsReconnect as e:
         return redirect(url_for("quickbooks", err=str(e)))
     except Exception as e:  # noqa: BLE001 - show it instead of a 500
@@ -202,6 +203,7 @@ def compass_invoices():
             books = qbo.year_totals(cur, yr) if yr else None
             v["books"] = books["income"] if books else None
         monthly = gmail_import.monthly_vs_books(cur, year)
+        match = gmail_import.books_match(cur, year)
         deals, unmatched = gmail_import.deal_receipts(cur, date(year, 1, 1), date(year + 1, 1, 1))
     deal_filter = request.args.get("deals", "all")
     deal_stats = {"total": len(deals), "with": sum(1 for d in deals if d["receipts"])}
@@ -210,7 +212,7 @@ def compass_invoices():
     return render_template("compass_invoices.html", configured=gmail_import.configured(), accounts=accounts,
                            payments=payments, years=sorted(years.items(), reverse=True),
                            query=gmail_import.REMITTANCE_QUERY, show=request.args.get("show"),
-                           year=year, year_choices=list(range(today.year, 2023, -1)), monthly=monthly,
+                           year=year, year_choices=list(range(today.year, 2023, -1)), monthly=monthly, match=match,
                            deals=[d for d in deals if deal_filter != "missing" or not d["receipts"]],
                            deal_filter=deal_filter, deal_stats=deal_stats, unmatched=unmatched,
                            message=request.args.get("msg"), error=request.args.get("err"))

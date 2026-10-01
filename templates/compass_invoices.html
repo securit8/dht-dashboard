@@ -96,6 +96,38 @@
     </table>
   </div>
 
+  <div class="card" id="books-match">
+    <div class="card-head"><h2>QuickBooks vs Compass, entry by entry &middot; {{ year }}</h2></div>
+    {% if not match %}
+      <div class="muted">No QuickBooks income entries pulled yet: press <b>Update now</b> on the QuickBooks page (or wait for the daily run).</div>
+    {% else %}
+      <div class="muted" style="margin-bottom:12px">{{ match.matched }} of {{ match.qb_count }} QuickBooks income entries match a Compass payment
+        (same amount, within 3 weeks). QuickBooks entries {{ '${:,.2f}'.format(match.qb_total) }} &middot; Compass payments {{ '${:,.2f}'.format(match.compass_total) }}.</div>
+      <h3>In QuickBooks, no matching Compass payment ({{ match.qb_only|length }}{% if match.qb_only %} &middot; {{ '${:,.2f}'.format(match.qb_only_total) }}{% endif %})</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Date</th><th>Type</th><th>No.</th><th>From / name</th><th>Memo</th><th>Income account</th><th class="n">Amount</th></tr>
+        {% for r in match.qb_only %}
+        <tr><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ r.type or '' }}</td><td>{{ r.doc or '' }}</td><td>{{ r.name or '' }}</td>
+          <td style="white-space:normal;max-width:320px">{{ r.memo or '' }}</td><td>{{ r.account or '' }}</td><td class="n"><b>{{ '${:,.2f}'.format(r.amount) }}</b></td></tr>
+        {% else %}<tr><td colspan="7" class="muted">Every QuickBooks income entry has a Compass payment.</td></tr>{% endfor %}
+      </table></div>
+      <h3 style="margin-top:18px">Compass payment, not in QuickBooks ({{ match.compass_only|length }}{% if match.compass_only %} &middot; {{ '${:,.2f}'.format(match.compass_only_total) }}{% endif %})</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>Paid</th><th>Statement</th><th>Payment #</th><th>Property</th><th class="n">Amount</th><th></th></tr>
+        {% for r in match.compass_only %}
+        <tr><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ 'Escrow statement' if r.kind == 'escrow' else 'Upcoming Payment' }}</td><td>{{ r.payment_no or '' }}</td>
+          <td>{{ r.property or '' }}</td><td class="n"><b>{{ '${:,.2f}'.format(r.amount) }}</b></td>
+          <td><a href="{{ url_for('compass_invoice_text', message_id=r.id) }}" target="_blank" rel="noopener">text</a></td></tr>
+        {% else %}<tr><td colspan="6" class="muted">Every Compass payment is in QuickBooks.</td></tr>{% endfor %}
+      </table></div>
+      <h3 style="margin-top:18px">QuickBooks income by account &middot; {{ year }}</h3>
+      <table class="tbl" style="max-width:520px">
+        {% for acct, amt in match.by_account %}<tr><td>{{ acct }}</td><td class="n">{{ '${:,.2f}'.format(amt) }}</td></tr>{% endfor %}
+      </table>
+      <div class="note">Matching is by amount and date only. QuickBooks books money when it arrives, so a payment near the end of a month or year can land in the next one.</div>
+    {% endif %}
+  </div>
+
   <div class="card" id="monthly">
     <div class="card-head"><h2>Month by month &middot; {{ year }}</h2>
       <div class="seg">{% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ url_for('compass_invoices', year=y, deals=deal_filter, show=show) }}">{{ y }}</a>{% endfor %}</div>

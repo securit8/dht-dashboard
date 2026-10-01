@@ -740,3 +740,63 @@ def monthly_vs_books(cur, year):
         if c_ytd is not None:
             prev_c = c_ytd
     return rows
+
+
+def books_match(cur, year):
+    """Every QuickBooks income entry in `year` matched to a Compass payment (same amount within $1,
+    within 3 weeks; or two payments booked as one deposit, or one payment split in two). What's left on
+    either side is what makes QuickBooks and Compass differ."""
+    cur.execute("SELECT to_regclass('qbo_income_txns') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return None
+    lo, hi = date(year - 1, 12, 1), date(year + 1, 1, 31)
+    cur.execute("""SELECT id, txn_date, txn_type, doc_num, name, memo, account, amount FROM qbo_income_txns
+                   WHERE txn_date >= %s AND txn_date <= %s ORDER BY txn_date""", (lo, hi))
+    qb = [dict(zip(["id", "date", "type", "doc", "name", "memo", "account", "amount"], r)) for r in cur.fetchall()]
+    if not qb:
+        return None
+    cur.execute("""SELECT message_id, COALESCE(paid_on, (received_at AT TIME ZONE 'America/Los_Angeles')::date), total,
+                          kind, property, payment_no, subject
+                   FROM compass_payments WHERE total IS NOT NULL
+                     AND COALESCE(paid_on, (received_at AT TIME ZONE 'America/Los_Angeles')::date) BETWEEN %s AND %s""", (lo, hi))
+    cp = [dict(zip(["id", "date", "amount", "kind", "property", "payment_no", "subject"], r)) for r in cur.fetchall()]
+    for x in qb + cp:
+        x["amount"] = float(x["amount"])
+        x["match"] = None
+    days = lambda a, b: abs((a - b).days)
+    # one to one: same amount, nearest date
+    for t in qb:
+        best = None
+        for p in cp:
+            if p["match"] is None and abs(p["amount"] - t["amount"]) <= 1.0 and days(p["date"], t["date"]) <= 21:
+                if best is None or days(p["date"], t["date"]) < days(best["date"], t["date"]):
+                    best = p
+        if best:
+            t["match"], best["match"] = [best], [t]
+    # two Compass payments booked as one QuickBooks entry, or one payment booked as two entries
+    for big, small in ((qb, cp), (cp, qb)):
+        for t in big:
+            if t["match"]:
+                continue
+            free = [p for p in small if p["match"] is None and days(p["date"], t["date"]) <= 21]
+            pair = next(((a, b) for i, a in enumerate(free) for b in free[i + 1:]
+                         if abs(a["amount"] + b["amount"] - t["amount"]) <= 1.0), None)
+            if pair:
+                t["match"] = list(pair)
+                for p in pair:
+                    p["match"] = [t]
+    inyear = lambda x: x["date"].year == year
+    qb_y, cp_y = [t for t in qb if inyear(t)], [p for p in cp if inyear(p)]
+    return {"qb_only": [t for t in qb_y if not t["match"]], "compass_only": [p for p in cp_y if not p["match"]],
+            "matched": sum(1 for t in qb_y if t["match"]), "qb_count": len(qb_y), "compass_count": len(cp_y),
+            "qb_total": sum(t["amount"] for t in qb_y), "compass_total": sum(p["amount"] for p in cp_y),
+            "qb_only_total": sum(t["amount"] for t in qb_y if not t["match"]),
+            "compass_only_total": sum(p["amount"] for p in cp_y if not p["match"]),
+            "by_account": _by_account(qb_y)}
+
+
+def _by_account(rows):
+    out = {}
+    for t in rows:
+        out[t["account"] or "(no account)"] = out.get(t["account"] or "(no account)", 0.0) + t["amount"]
+    return sorted(out.items(), key=lambda x: -x[1])

@@ -384,7 +384,7 @@ def _questions(cur, year):
                 items.append({"level": "ask", "key": f"books_vs_compass:{y}",
                               "title": f"{y}: QuickBooks is ${books - compass:+,.0f} off from Compass",
                               "detail": f"QuickBooks income ${books:,.0f} vs Compass YTD ${compass:,.0f}.",
-                              "link": ("compass_invoices", {"year": y, "_anchor": "monthly"}),
+                              "link": ("compass_invoices", {"year": y, "_anchor": "books-match"}),
                               "choices": ["Income from outside Compass: OK", "Something is missing: look into it"]})
     return items
 
@@ -443,7 +443,7 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
                           "choices": ["Income from outside Compass: OK", "Something is missing: look into it"],
                           "title": f"QuickBooks and Compass differ by ${diff:+,.0f} this year",
                           "detail": f"QuickBooks income ${money['books']:,.0f} vs Compass YTD ${money['compass']:,.0f}.",
-                          "link": ("compass_invoices", {"_anchor": "monthly"})})
+                          "link": ("compass_invoices", {"_anchor": "books-match"})})
     if money and money.get("gross_vs") and money["gross_vs"]["pace_diff"] < 0:
         g = money["gross_vs"]
         items.append({"level": "warn", "key": f"gci_pace:{now.year}", "title": f"GCI is ${-g['pace_diff']:,.0f} behind the pace for the year's goal",

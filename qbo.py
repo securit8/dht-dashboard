@@ -1,7 +1,7 @@
 """QuickBooks Online: OAuth connection and the Profit & Loss pull.
 
-Read-only by design: the only API calls are the Profit & Loss report and CompanyInfo
-(both GET). Tokens are encrypted in Postgres with QBO_TOKEN_KEY. Disconnecting revokes
+Read-only by design: the only API calls are the Profit & Loss report, the Profit & Loss Detail
+report (every income entry, to match against the Compass payments) and CompanyInfo (all GET). Tokens are encrypted in Postgres with QBO_TOKEN_KEY. Disconnecting revokes
 the token at Intuit and deletes the connection and every stored QuickBooks number.
 
 Settings (Render environment group "quickbooks"):
@@ -99,6 +99,11 @@ def ensure_tables(cur):
             refresh_token TEXT, refresh_expires_at TIMESTAMPTZ,
             connected_at TIMESTAMPTZ, last_pull_at TIMESTAMPTZ,
             needs_reconnect BOOLEAN DEFAULT false, last_error TEXT
+        )""")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS qbo_income_txns (
+            id SERIAL PRIMARY KEY, txn_id TEXT, txn_type TEXT, txn_date DATE, doc_num TEXT, name TEXT,
+            memo TEXT, account TEXT, amount NUMERIC, pulled_at TIMESTAMPTZ DEFAULT now()
         )""")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS qbo_pnl (
@@ -372,6 +377,64 @@ def pull_pnl(database_url, months=PNL_MONTHS):
     return len(data)
 
 
+def _cols(report):
+    """Column keys of a QuickBooks report (tx_date, txn_type, name, memo, subt_nat_amount, ...)."""
+    out = []
+    for c in report.get("Columns", {}).get("Column", []):
+        key = next((m.get("Value") for m in c.get("MetaData", []) if m.get("Name") == "ColKey"), None)
+        out.append(key or (c.get("ColTitle") or "").lower())
+    return out
+
+
+def parse_income_detail(report):
+    """Every entry on the income accounts of a Profit & Loss Detail report:
+    [{txn_id, txn_type, txn_date, doc_num, name, memo, account, amount}]."""
+    cols = _cols(report)
+    out = []
+
+    def walk(rows, account, income):
+        for row in rows or []:
+            if row.get("type") == "Section" or "Rows" in row:
+                head = (row.get("Header", {}).get("ColData") or [{}])[0].get("value") or account
+                group = row.get("group") or ""
+                inc = income or group in ("Income", "OtherIncome")
+                if group and group not in ("Income", "OtherIncome") and not income:
+                    continue
+                walk(row.get("Rows", {}).get("Row", []), head, inc)
+            elif row.get("type") == "Data" and income:
+                cells = row.get("ColData", [])
+                v = {cols[i] if i < len(cols) else str(i): c.get("value") for i, c in enumerate(cells)}
+                ids = {cols[i] if i < len(cols) else str(i): c.get("id") for i, c in enumerate(cells)}
+                amount = _num(v.get("subt_nat_amount") or v.get("amount"))
+                if not v.get("tx_date") or not amount:
+                    continue
+                try:
+                    when = date.fromisoformat(v["tx_date"])
+                except ValueError:
+                    continue
+                out.append({"txn_id": ids.get("txn_type") or ids.get("tx_date"), "txn_type": v.get("txn_type"),
+                            "txn_date": when, "doc_num": v.get("doc_num"), "name": v.get("name"),
+                            "memo": v.get("memo"), "account": account, "amount": amount})
+
+    walk(report.get("Rows", {}).get("Row", []), None, False)
+    return out
+
+
+def pull_income_detail(database_url, start=date(2024, 1, 1)):
+    """Pull every income entry since `start` into qbo_income_txns (replacing what was there)."""
+    report = api_get(database_url, "reports/ProfitAndLossDetail", {
+        "start_date": start.isoformat(), "end_date": date.today().isoformat(), "accounting_method": "Accrual"})
+    rows = parse_income_detail(report)
+    conn, cur = _db(database_url)
+    cur.execute("DELETE FROM qbo_income_txns WHERE txn_date >= %s", (start,))
+    for r in rows:
+        cur.execute("""INSERT INTO qbo_income_txns (txn_id, txn_type, txn_date, doc_num, name, memo, account, amount)
+                       VALUES (%(txn_id)s, %(txn_type)s, %(txn_date)s, %(doc_num)s, %(name)s, %(memo)s, %(account)s, %(amount)s)""", r)
+    conn.commit()
+    conn.close()
+    return len(rows)
+
+
 def cron_pull(database_url):
     """Called from the cron job: pull if connected, never raise."""
     if not configured():
@@ -387,6 +450,7 @@ def cron_pull(database_url):
         return
     try:
         print(f"QuickBooks ({env()}): pulled {pull_pnl(database_url)} months of Profit & Loss.")
+        print(f"QuickBooks: pulled {pull_income_detail(database_url)} income entries (for matching to Compass).")
     except NeedsReconnect as e:
         print(f"QuickBooks needs reconnecting: {e}")
     except Exception as e:  # noqa: BLE001 - report and carry on
