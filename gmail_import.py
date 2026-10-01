@@ -34,8 +34,12 @@ API = "https://gmail.googleapis.com/gmail/v1/users/me"
 # The only emails the dashboard opens
 # Compass remittances: "Upcoming Payment ..." (Compass pays the team directly) and
 # "Agent Remittance Paid by Escrow/Title #address - date" (escrow paid at closing; one per deal)
-REMITTANCE_QUERY = ('from:DoNotReply@compass.com (subject:"Upcoming Payment Compass Agent Remittance" '
-                    'OR subject:"Agent Remittance Paid by Escrow")')
+# A remittance that went to another inbox can be forwarded here and given the Gmail label "DHT receipt";
+# it's read only if its subject is still a Compass remittance subject, and skipped if the original is already in.
+REMITTANCE_QUERY = ('{label:dht-receipt (from:DoNotReply@compass.com (subject:"Upcoming Payment Compass Agent Remittance" '
+                    'OR subject:"Agent Remittance Paid by Escrow"))}')
+REMITTANCE_SUBJECT = re.compile(r"^(Upcoming Payment Compass Agent Remittance|Agent Remittance Paid by Escrow)", re.I)
+FORWARD_PREFIX = re.compile(r"^\s*((fwd?|fw)\s*:\s*)+", re.I)
 # Assistant contribution payments, not invoices: "Assist Contr Sep 30", "Jul 25 Asst Cont 1 of 2"
 ASSIST_RE = re.compile(r"\b(assist\s*contr?|asst\.?\s*cont)", re.I)
 AMOUNT_RE = re.compile(r"\(?-?\$\s?[\d,]+\.\d{2}\)?")
@@ -421,7 +425,15 @@ def _header(msg, name):
 
 def import_message(database_url, email, message_id):
     msg = _get(database_url, email, f"messages/{message_id}", {"format": "full"})
-    subject = _header(msg, "subject")
+    subject = FORWARD_PREFIX.sub("", _header(msg, "subject") or "")
+    if not REMITTANCE_SUBJECT.match(subject):
+        return  # labeled "DHT receipt" but not a Compass remittance
+    conn, cur = _db(database_url)
+    cur.execute("SELECT 1 FROM compass_payments WHERE subject = %s AND message_id <> %s", (subject, message_id))
+    duplicate = cur.fetchone()
+    conn.close()
+    if duplicate:
+        return  # a forwarded copy of a remittance that's already imported
     try:
         received = parsedate_to_datetime(_header(msg, "date"))
     except (TypeError, ValueError):
