@@ -631,8 +631,16 @@ def _keep_dashboard_warm():
 
 
 _apply_saved_decisions()
-if os.environ.get("DATABASE_URL") and os.environ.get("DASHBOARD_WARM", "1") == "1":
-    threading.Thread(target=_keep_dashboard_warm, name="dashboard-warm", daemon=True).start()
+_warm = {"pid": None}
+
+
+@app.before_request
+def _start_warm_thread():
+    """Start the background refresh in each server process (a thread started before the server forks
+    its worker processes doesn't carry over, so it's started on the first visit instead)."""
+    if _warm["pid"] != os.getpid() and os.environ.get("DASHBOARD_WARM", "1") == "1":
+        _warm["pid"] = os.getpid()
+        threading.Thread(target=_keep_dashboard_warm, name="dashboard-warm", daemon=True).start()
 
 
 @app.route("/decisions/add", methods=["POST"])
