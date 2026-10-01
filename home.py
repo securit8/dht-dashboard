@@ -111,8 +111,10 @@ def _receipts(cur, year):
             what = "close date" if s.get("why") == "close date differs" else "address"
             when = (s.get("bill_date") or s.get("paid_on"))
             typos.append({"address": d["address"], "close_date": d["close_date"], "what": what, "fix": fix,
-                          "when": when, "anchor": f"deal-{d['file_year']}-{d['row_num']}", "agent": d["agent"]})
+                          "when": when, "anchor": f"deal-{d['file_year']}-{d['row_num']}", "agent": d["agent"],
+                          "gci": d["gci"], "deal_type": d["deal_type"], "receipt": s})
     return {"total": len(deals), "missing": len(missing), "typos": len(typos), "typo_list": typos,
+            "missing_list": missing, "unmatched_list": unmatched,
             "unmatched": len(unmatched), "any_receipts": any(d["receipts"] for d in deals) or bool(unmatched)}
 
 
@@ -460,12 +462,212 @@ def overview(cur, today, tz, year_totals):
         company = {"total": sum(paid), "deals": len(paid)}
     return {"year": year, "money": money, "deals": deals, "leads": leads, "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
-            "attention": _with_decisions(cur, _attention(money, deals, leads, receipts, checks, fresh, now, questions))}
+            "attention": _with_decisions(cur, _attention(money, deals, leads, receipts, checks, fresh, now, questions),
+                                         year, checks, receipts, money)}
 
 
-def _with_decisions(cur, items):
-    """Attach the latest owner decision (dropdown choice + comment) to each item."""
+def _with_decisions(cur, items, year=None, checks=None, receipts=None, money=None):
+    """Attach the latest owner decision (dropdown choice + comment) and the detail table to each item."""
     latest = _safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}
     for i in items:
         i["decision"] = latest.get(i["key"])
+        i["table"] = _safe(cur, f"details {i['key']}", lambda: details(cur, i, year, checks, receipts, money or {}))
     return items
+
+
+# ---------------------------------------------------------------- detail tables for the Needs-attention items
+
+def _m(v):
+    return "" if v is None else f"${float(v):,.0f}"
+
+
+def _d(v):
+    return v.strftime("%m/%d/%Y") if v else ""
+
+
+def _p(v):
+    return "" if v is None else f"{float(v):.1f}%"
+
+
+def _tbl(cols, rows, num=()):
+    """A small table for an item's details: column names, rows of strings, and which columns are numbers."""
+    return {"cols": cols, "rows": rows, "num": set(num)} if rows else None
+
+
+def _check_rows(rows):
+    return _tbl(["Closed", "Address", "Agent", "Lead (CTE source)", "GCI", "Company got", "Actual %", "Contract %", "Difference"],
+                [[_d(r["close_date"]), r["address"], r["agent"] or "", r["source"] or "", _m(r["gci"]), _m(r["company"]),
+                  _p(r["actual_pct"]), _p(r["expected_pct"]) + (" (after $10M)" if r.get("bonus") else ""),
+                  (f"{r['gap']:+,.0f}" if r.get("gap") is not None else "")] for r in rows],
+                num=(4, 5, 6, 7, 8))
+
+
+def _what_if(rows, readings):
+    """Company share on an agent's deals under each reading of an unclear agreement."""
+    out = []
+    for r in rows:
+        if not r["gci"]:
+            continue
+        b = SP.base(r["gci"])
+        line = [_d(r["close_date"]), r["address"], r["source"] or "",
+                _m(r["company"]) if r["company"] is not None else "no receipt", _p(r["actual_pct"])]
+        for label, pers, zil, db in readings:
+            pct = {"personal": pers, "zillow": zil, "database": db}[r["lead"]]
+            line.append(f"{pct}% = {_m(b * pct / 100)}")
+        out.append(line)
+    return _tbl(["Closed", "Address", "Lead", "Company got", "Actual %"] + [x[0] for x in readings], out, num=(3, 4, 5, 6))
+
+
+def details(cur, item, year, checks, receipts, money):
+    """Rows behind an item, to compare side by side (None when there's nothing to list)."""
+    key = item["key"]
+    kind, _, arg = key.partition(":")
+    checks = checks or []
+    if kind == "off_contract":
+        return _check_rows([r for r in checks if r["status"] in ("under", "over")])
+    if kind == "no_contract":
+        return _check_rows([r for r in checks if r["status"] == "no_contract"])
+    if kind == "typo":
+        t = next((t for t in (receipts or {}).get("typo_list", []) if f"{t['address']}|{t['close_date']}" == arg), None)
+        if t:
+            s = t["receipt"]
+            return _tbl(["", "CTE file", "Compass receipt"], [
+                ["Address", t["address"], s.get("property") or s.get("description") or ""],
+                ["Close / bill date", _d(t["close_date"]), _d(s.get("bill_date") or s.get("paid_on"))],
+                ["Agent / side", f"{t['agent'] or ''} · {t['deal_type'] or ''}", ""],
+                ["GCI / commission", _m(t["gci"]), _m(s.get("close_price")) and f"close price {_m(s.get('close_price'))}"],
+                ["Company got", "", f"{_m(s.get('gross'))} gross · {_m(s.get('amount'))} paid"]])
+    if kind == "missing_receipts":
+        y = int(arg)
+        miss = (receipts or {}).get("missing_list", []) if y == year else \
+            [d for d in gmail_import.deal_receipts(cur, date(y, 1, 1), date(y + 1, 1, 1))[0] if not d["receipts"]]
+        return _tbl(["Closed", "Address", "Agent", "Side", "GCI", "Possible match"],
+                    [[_d(d["close_date"]), d["address"], d["agent"] or "", d["deal_type"] or "", _m(d["gci"]),
+                      "; ".join(f"{s.get('property') or s.get('description')} ({s['why']})" for s in d["suggestions"][:1])]
+                     for d in miss], num=(4,))
+    if kind == "books_vs_compass":
+        rows = gmail_import.monthly_vs_books(cur, int(arg))
+        return _tbl(["Month", "Compass this month", "QuickBooks this month", "Compass YTD", "QuickBooks YTD", "Difference"],
+                    [[r["month"].strftime("%b %Y"), _m(r["compass_month"]), _m(r["books_month"]), _m(r["compass_ytd"]),
+                      _m(r["books_ytd"]),
+                      (f"{r['books_ytd'] - r['compass_ytd']:+,.0f}" if r["books_ytd"] is not None and r["compass_ytd"] is not None else "")]
+                     for r in rows], num=(1, 2, 3, 4, 5))
+    if kind == "gci_pace" and money.get("gross_vs"):
+        g = money["gross_vs"]
+        return _tbl(["Goal", "GCI so far", "Should be by today", "Behind", "Year gone"],
+                    [[_m(g["goal"]), _m(money["gross"]), _m(g["pace_target"]), _m(-g["pace_diff"]), f"{money['pace_pct']:.0f}%"]],
+                    num=(0, 1, 2, 3, 4))
+    if kind == "fell_through":
+        rows = R.fetch(cur, """SELECT under_contract_date, address, primary_agent, deal_type, sale_price, source, status
+                               FROM cte_deals WHERE file_year = %(y)s AND status IN ('Cancelled', 'Sale Failed')
+                                 AND EXTRACT(YEAR FROM under_contract_date) = %(y)s ORDER BY under_contract_date""", {"y": int(arg)})
+        return _tbl(["Under contract", "Address", "Agent", "Side", "Price", "Lead source", "Status"],
+                    [[_d(r["under_contract_date"]), r["address"], r["primary_agent"] or "", r["deal_type"] or "",
+                      _m(r["sale_price"]), r["source"] or "", r["status"]] for r in rows], num=(4,))
+    if kind == "both_sides":
+        return _tbl(["Closed", "Address", "Side", "Agent", "Price", "GCI", "Lead source"],
+                    [[_d(r["close_date"]), r["address"], r["deal_type"], r["primary_agent"] or "", _m(r["sale_price"]),
+                      _m(r["gci"]), r["source"] or ""] for r in both_sides_rows(cur, int(arg))], num=(4, 5))
+    if kind == "low_pct":
+        out = []
+        for r in low_pct_rows(cur, int(arg)):
+            price, gci = float(r["sale_price"]), float(r["gci"] or 0)
+            minimum = max(0.02 * price, 1500)
+            out.append([_d(r["close_date"]), r["address"], r["primary_agent"] or "", r["deal_type"] or "", _m(price),
+                        _m(gci), f"{gci / price * 100:.2f}%", _m(minimum), _m(minimum - gci), r["source"] or ""])
+        return _tbl(["Closed", "Address", "Agent", "Side", "Price", "GCI", "Commission", "2% minimum", "Short by", "Lead source"],
+                    out, num=(4, 5, 6, 7, 8))
+    if kind == "same_person":
+        names = arg.split("|")
+        out = []
+        for n in names:
+            r = R.fetch(cur, """SELECT COUNT(*) FILTER (WHERE status = 'Closed') AS closed, COALESCE(SUM(gci) FILTER (WHERE status = 'Closed'), 0) AS gci,
+                                       MIN(file_year) AS first, MAX(file_year) AS last
+                                FROM cte_deals WHERE LOWER(TRIM(primary_agent)) = LOWER(%(n)s)""", {"n": n})[0]
+            a = R.fetch(cur, """SELECT COUNT(*) AS rows, MIN(file_year) AS first, MAX(file_year) AS last
+                                FROM cte_activity WHERE LOWER(TRIM(agent_name)) = LOWER(%(n)s)""", {"n": n})[0]
+            years = sorted({y for y in (r["first"], r["last"], a["first"], a["last"]) if y})
+            out.append([n, str(r["closed"]), _m(r["gci"]), str(a["rows"]),
+                        f"{years[0]}–{years[-1]}" if len(years) > 1 else (str(years[0]) if years else "")])
+        return _tbl(["Name in CTE", "Closed deals", "GCI", "Lead Gen rows", "Years"], out, num=(1, 2, 3))
+    if kind == "contract":
+        rows = [r for r in checks if (r["agent"] or "").lower() == arg.lower()]
+        c = next((c for c in SP.CONTRACTS if c["agent"] == arg), None)
+        readings = {"Ahtziri Duran": [("Split table (80/20)", 20, 35, 40), ("Cheat sheet (75/25)", 25, 35, 40)],
+                    "Darrion Jackson": [("Split table (70/60/60)", 30, 40, 40), ("Cheat sheet (80/65/60)", 20, 35, 40)]}.get(arg)
+        if readings:
+            return _what_if(rows, readings)
+        if c:
+            return _what_if(rows, [("If signed as written", c["personal"], c["zillow"], c["database"])])
+    if key == "setup:open_house_leads":
+        rows = [r for r in checks if "open house" in (r["source"] or "").lower()]
+        out = []
+        for r in rows:
+            cs = SP.contract_for(r["agent"], r["close_date"], r["address"])
+            if not cs:
+                continue
+            b = SP.base(r["gci"])
+            out.append([_d(r["close_date"]), r["address"], r["agent"],
+                        _m(r["company"]) if r["company"] is not None else "no receipt", _p(r["actual_pct"]),
+                        f"{cs['database']}% = {_m(b * cs['database'] / 100)}", f"{cs['personal']}% = {_m(b * cs['personal'] / 100)}"])
+        return _tbl(["Closed", "Address", "Agent", "Company got", "Actual %", "As team lead", "As agent's own"], out, num=(3, 4, 5, 6))
+    if key == "setup:team_past_client":
+        rows = [r for r in checks if "team past client" in (r["source"] or "").lower()]
+        return _check_rows(rows)
+    if key == "setup:margaryta_agreements":
+        return _check_rows([r for r in checks if (r["agent"] or "").lower().startswith("margaryta")])
+    if key == "setup:escrow_statements":
+        cur.execute("""SELECT EXTRACT(YEAR FROM p.paid_on)::int, p.kind, COUNT(DISTINCT p.message_id), COALESCE(SUM(i.amount), 0)
+                       FROM compass_payments p JOIN compass_payment_items i ON i.message_id = p.message_id
+                       WHERE NOT i.is_assist GROUP BY 1, 2 ORDER BY 1 DESC, 2""")
+        by = {}
+        for y, k, n, amt in cur.fetchall():
+            by.setdefault(y, {})[k] = (n, float(amt))
+        return _tbl(["Year", "Upcoming Payment emails", "Paid", "Escrow statements", "Paid"],
+                    [[str(y), str(v.get("payment", (0, 0))[0]), _m(v.get("payment", (0, 0))[1]),
+                      str(v.get("escrow", (0, 0))[0]), _m(v.get("escrow", (0, 0))[1])] for y, v in by.items()], num=(1, 2, 3, 4))
+    if kind == "lead_gen_empty":
+        rows = R.fetch(cur, """
+            SELECT COALESCE(a.name, d.name) AS name, COALESCE(a.rows, 0) AS rows, COALESCE(a.dials, 0) AS dials,
+                   COALESCE(a.offers, 0) AS offers, COALESCE(d.closed, 0) AS closed
+            FROM (SELECT TRIM(agent_name) AS name, COUNT(*) AS rows, SUM(dials) AS dials, SUM(written_offers) AS offers
+                  FROM cte_activity WHERE file_year = %(y)s GROUP BY 1) a
+            FULL JOIN (SELECT TRIM(primary_agent) AS name, COUNT(*) AS closed FROM cte_deals
+                       WHERE file_year = %(y)s AND status = 'Closed' GROUP BY 1) d ON LOWER(a.name) = LOWER(d.name)
+            ORDER BY 5 DESC, 2 DESC""", {"y": int(arg)})
+        return _tbl(["Agent", "Lead Gen rows", "Dials logged", "Offers logged", "Deals closed"],
+                    [[r["name"], str(r["rows"]), f"{float(r['dials']):,.0f}", f"{float(r['offers']):,.0f}", str(r["closed"])] for r in rows],
+                    num=(1, 2, 3, 4))
+    if kind == "no_signed_date":
+        rows = R.fetch(cur, """SELECT address, primary_agent, status, list_date, under_contract_date FROM cte_deals
+                               WHERE file_year = %(y)s AND deal_type = 'Listing' AND signed_date IS NULL
+                                 AND status NOT IN ('Cancelled', 'Sale Failed', 'Expired') ORDER BY list_date""", {"y": int(arg)})
+        return _tbl(["Address", "Agent", "Status", "List date", "Under contract"],
+                    [[r["address"], r["primary_agent"] or "", r["status"], _d(r["list_date"]), _d(r["under_contract_date"])] for r in rows])
+    if kind == "no_split_pct":
+        rows = R.fetch(cur, """SELECT close_date, address, primary_agent, gci FROM cte_deals WHERE file_year = %(y)s
+                               AND status = 'Closed' AND primary_pct IS NULL AND primary_gci IS NULL ORDER BY close_date""", {"y": int(arg)})
+        return _tbl(["Closed", "Address", "Agent", "GCI"], [[_d(r["close_date"]), r["address"], r["primary_agent"] or "", _m(r["gci"])] for r in rows], num=(3,))
+    if kind == "missing_fields":
+        rows = R.fetch(cur, """SELECT close_date, address, primary_agent, source, commission_pct, sale_price, gci FROM cte_deals
+                               WHERE file_year = %(y)s AND status = 'Closed'
+                                 AND (source IS NULL OR TRIM(source) = '' OR commission_pct IS NULL) ORDER BY close_date""", {"y": int(arg)})
+        return _tbl(["Closed", "Address", "Agent", "Lead source", "Commission %", "GCI ÷ price"],
+                    [[_d(r["close_date"]), r["address"], r["primary_agent"] or "", r["source"] or "(blank)",
+                      f"{float(r['commission_pct']) * 100:.2f}%" if r["commission_pct"] is not None else "(blank)",
+                      f"{float(r['gci']) / float(r['sale_price']) * 100:.2f}%" if r["sale_price"] and r["gci"] else ""] for r in rows])
+    if kind == "cte_not_in_fub":
+        fub_names = list(R.agent_names(cur).values())
+        out = []
+        for n in arg.split(","):
+            best = max(fub_names, key=lambda f: SequenceMatcher(None, n.lower(), f.lower()).ratio(), default="")
+            r = R.fetch(cur, """SELECT COUNT(*) FILTER (WHERE status = 'Closed') AS closed, COUNT(*) FILTER (WHERE status = 'Pending') AS pending
+                                FROM cte_deals WHERE file_year = %(y)s AND LOWER(TRIM(primary_agent)) = LOWER(%(n)s)""", {"y": year, "n": n})[0]
+            out.append([n, str(r["closed"]), str(r["pending"]), best])
+        return _tbl(["Name in CTE", "Closed", "Pending", "Closest name in Follow Up Boss"], out, num=(1, 2))
+    if kind == "unmatched_receipts":
+        return _tbl(["Date", "Compass says", "Statement", "Gross", "Paid"],
+                    [[_d(r.get("bill_date") or r.get("paid_on")), r.get("property") or r.get("description") or "",
+                      "Escrow" if r.get("kind") == "escrow" else "Upcoming Payment", _m(r.get("gross")), _m(r.get("amount"))]
+                     for r in (receipts or {}).get("unmatched_list", [])], num=(3, 4))
+    return None

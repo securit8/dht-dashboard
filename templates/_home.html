@@ -40,11 +40,19 @@
   <div class="home-grid">
     <div class="card">
       <div class="card-head" id="attention"><h2>Needs attention</h2>
-        <span class="muted">{{ H.attention|length }} item{{ 's' if H.attention|length != 1 }} &middot; <a href="{{ url_for('decisions_page') }}">Decisions</a></span></div>
+        <span class="muted"><a href="{{ url_for('decisions_page') }}">Decisions</a></span></div>
+      {% set lv = {'bad': 'Fix', 'warn': 'Check', 'ask': 'Decide', 'info': 'FYI'} %}
+      <div class="att-filter" role="group" aria-label="Filter">
+        <button type="button" class="on" data-lv="">All {{ H.attention|length }}</button>
+        {% for k, label in lv.items() %}{% set n = H.attention|selectattr('level', 'equalto', k)|list|length %}{% if n %}
+        <button type="button" data-lv="{{ k }}">{{ label }} {{ n }}</button>{% endif %}{% endfor %}
+        <button type="button" data-lv="open">Not decided {{ H.attention|rejectattr('decision')|list|length }}</button>
+      </div>
+      <div class="att-list">
       {% for i in H.attention %}
         {% set d = i.decision %}
         {% set href = url_for(i.link[0], **i.link[1]) %}
-        <div class="alert {{ i.level }}">
+        <div class="alert {{ i.level }}" data-lv="{{ i.level }}" data-open="{{ '0' if d else '1' }}">
           <span class="sev">{{ {'bad': 'Fix', 'warn': 'Check', 'ask': 'Decide', 'info': 'FYI'}[i.level] }}</span>
           <div class="txt">
             <a class="ttl" href="{{ href }}"><b>{{ i.title }}</b></a><span class="muted">{{ i.detail }}</span>
@@ -52,6 +60,14 @@
               {{ {'new': 'Decided', 'needs_info': 'Needs more info', 'fixed': 'Fixed'}[d.status] }}{% if d.decided_by %} by {{ d.decided_by }}{% endif %}, {{ d.decided_at|fmt_date }}:
               {% if d.choice %}<b>{{ d.choice }}</b>{% endif %}{% if d.choice and d.comment %} &mdash; {% endif %}{% if d.comment %}&ldquo;{{ d.comment }}&rdquo;{% endif %}
               {% if d.fix_note %}<div>Fix: {{ d.fix_note }}</div>{% endif %}</div>{% endif %}
+            {% if i.table %}
+            <details class="more"><summary>Show details ({{ i.table.rows|length }})</summary>
+              <div class="det-wrap"><table class="det">
+                <tr>{% for c in i.table.cols %}<th class="{{ 'n' if loop.index0 in i.table.num }}">{{ c }}</th>{% endfor %}</tr>
+                {% for r in i.table.rows %}<tr>{% for v in r %}<td class="{{ 'n' if loop.index0 in i.table.num }}">{{ v }}</td>{% endfor %}</tr>{% endfor %}
+              </table></div>
+            </details>
+            {% endif %}
             <details{% if request.args.get('saved') == i.key %} open{% endif %}>
               <summary>{{ 'Change decision / add a comment' if d else ('Decide / comment' if i.choices else 'Add a comment') }}</summary>
               <form class="decide" method="post" action="{{ url_for('decisions_add') }}">
@@ -72,6 +88,23 @@
       {% else %}
         <div class="callout">Nothing needs attention right now.</div>
       {% endfor %}
+      </div>
+      <script>
+        (function () {
+          var box = document.currentScript.parentNode;
+          box.querySelectorAll('.att-filter button').forEach(function (b) {
+            b.addEventListener('click', function () {
+              box.querySelectorAll('.att-filter button').forEach(function (x) { x.classList.toggle('on', x === b); });
+              var lv = b.getAttribute('data-lv');
+              box.querySelectorAll('.att-list .alert').forEach(function (a) {
+                a.style.display = !lv || (lv === 'open' ? a.getAttribute('data-open') === '1' : a.getAttribute('data-lv') === lv) ? '' : 'none';
+              });
+            });
+          });
+          var saved = box.querySelector('details[open] form.decide');
+          if (saved) saved.closest('.alert').scrollIntoView({block: 'nearest'});
+        })();
+      </script>
     </div>
     <div class="card">
       {% if H.deals %}

@@ -53,6 +53,16 @@
   .decide select, .decide textarea, .decide input { font: 500 13px 'IBM Plex Sans', sans-serif; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--ink); }
   .decide textarea { resize: vertical; min-height: 54px; }
   .decide .row { display: flex; gap: 8px; } .decide .row input { flex: 1; min-width: 0; }
+  .att-list { max-height: 640px; overflow-y: auto; padding-right: 6px; margin-right: -6px; overscroll-behavior: contain; }
+  .att-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+  .att-filter button { font: 600 12px 'IBM Plex Sans', sans-serif; border: 0; border-radius: 999px; padding: 6px 12px; background: var(--bg); color: var(--soft); cursor: pointer; }
+  .att-filter button.on { background: var(--accent); color: #fff; }
+  .alert .more summary { color: var(--soft); }
+  .det-wrap { overflow-x: auto; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; max-height: 320px; overflow-y: auto; }
+  table.det { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.det th { position: sticky; top: 0; background: #F3F5FB; text-align: left; font-weight: 600; padding: 6px 8px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  table.det td { padding: 6px 8px; border-bottom: 1px solid var(--bg); white-space: nowrap; }
+  table.det .n { text-align: right; font-family: 'IBM Plex Mono', monospace; }
   .decided { font-size: 12.5px; background: #EEF1FD; border-radius: 8px; padding: 6px 10px; margin-top: 4px; color: var(--ink); }
   .decided.fixed { background: #E3F4EA; } .decided.needs_info { background: #FDF6E9; }
   table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
