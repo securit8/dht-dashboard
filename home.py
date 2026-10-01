@@ -530,6 +530,12 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
                           "detail": f"Company got ${gap:+,.0f} against the contracts this year.",
                           "link": ("splits_page", {"_anchor": "deals"}),
                           "choices": ["Paid right: update the contracts", "Paid wrong: fix with the agents"]})
+        pending = sorted({r["agent"] for r in checks if r["status"] == "contract_pending" and r["agent"]})
+        for a in pending:
+            items.append({"level": "info", "key": f"contract_pending:{a}",
+                          "title": f"{a}'s new agreement: put it in Drive once signed",
+                          "detail": f"{SP.CONTRACT_PENDING.get(a.lower(), '')}. Until then his deals aren't checked against a split.",
+                          "link": ("splits_page", {"_anchor": "contracts"})})
         no_contract = sorted({r["agent"] for r in checks if r["status"] == "no_contract" and r["agent"]})
         if no_contract:
             items.append({"level": "warn", "key": "no_contract:" + ",".join(no_contract),
@@ -939,6 +945,8 @@ def add_where(cur, items, year, receipts):
                 w = (f"Google Drive › {c['agent']} folder › {c['file']}: "
                      + ("needs the agent's signature and date" if c["since"] is None
                         else "section 3 split table vs the Quick Reference cheat sheet on the last page"))
+        elif kind == "contract_pending":
+            w = f"Google Drive › {arg} folder (shared by sandiegospecialist619): add the signed agreement PDF; then tell me and I'll add his splits"
         elif kind == "no_contract":
             w = "Google Drive › each agent's folder: add the signed agreement (a PDF with “contract” or “agreement” in the name)"
         elif kind == "off_contract":

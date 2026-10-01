@@ -74,7 +74,10 @@ READINGS = {
     "Darrion Jackson": {"Split table is right": (30, 40, 40), "Cheat sheet is right": (20, 35, 40)},
 }
 OWNERS = {"joe corbisiero", "maria corbisiero"}  # team owners: no agent split
-NO_CONTRACT = ["Jason Patel", "Miguel Aguirre"]  # agents with deals but no agreement in Drive
+NO_CONTRACT = ["Jason Patel"]  # agents with deals but no agreement in Drive
+# owners' answers on the dashboard (10/01/2026)
+FORMER_AGENTS = {"miguel aguirre": "No longer with the team"}
+CONTRACT_PENDING = {"jason patel": "New agreement being made"}
 
 LEAD_TYPES = [("personal", "Personal / sphere"), ("zillow", "Zillow"), ("database", "Team / database")]
 
@@ -192,7 +195,10 @@ def deal_check(cur, start, end):
         elif company is None:
             row["status"] = "no_receipt"
         elif not c:
-            row["status"] = "before_contract" if _agent_contracts(agent, rows_c) else "no_contract"
+            key = agent.strip().lower()
+            row["status"] = ("before_contract" if _agent_contracts(agent, rows_c)
+                             else "former_agent" if key in FORMER_AGENTS
+                             else "contract_pending" if key in CONTRACT_PENDING else "no_contract")
         else:
             row["expected"] = row["expected_pct"] / 100 * base(d["gci"])
             row["gap"] = company - row["expected"]
