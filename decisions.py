@@ -67,6 +67,15 @@ def set_status(cur, decision_id, status, fix_note=None):
 
 COMPASS_RIGHT = "Compass is right: fix the CTE file"
 SAME_PERSON = "Same person: count together"
+APPLY = "Apply"
+# One CTE cell corrected on the dashboard: key "fix:<address>|<close date>|<field>|<old>|<new>" (old may be empty)
+FIELD_FIXES = {"sale_price": float, "gci": float, "commission_pct": float, "address": str, "source": str,
+               "signed_date": lambda s: datetime.strptime(s, "%Y-%m-%d").date(),
+               "close_date": lambda s: datetime.strptime(s, "%Y-%m-%d").date()}
+
+
+def field_fix_key(address, close_date, field, old, new):
+    return f"fix:{address}|{close_date}|{field}|{'' if old is None else old}|{new}"
 
 
 def _typo_fix(dec):
@@ -95,9 +104,24 @@ def apply_fixes(cur):
     if not cur.fetchone()[0]:
         return []
     done = []
-    for dec in latest(cur).values():
+    # typo and name fixes first: a field fix names the deal by its corrected address
+    decided = sorted(latest(cur).values(), key=lambda d: (d["item_key"] or "").startswith("fix:"))
+    for dec in decided:
         key = dec["item_key"] or ""
-        if key.startswith("typo:") and dec["choice"] == COMPASS_RIGHT:
+        if key.startswith("fix:") and dec["choice"] == APPLY:
+            parts = key[len("fix:"):].split("|")
+            if len(parts) != 5 or parts[2] not in FIELD_FIXES:
+                continue
+            address, close, field, old, new = parts
+            conv = FIELD_FIXES[field]
+            cur.execute(f"""UPDATE cte_deals SET {field} = %s
+                            WHERE TRIM(address) = %s AND close_date = %s AND {field} IS NOT DISTINCT FROM %s""",
+                        (conv(new), address, close, conv(old) if old else None))
+            if cur.rowcount:
+                done.append((dec["id"], f"Applied on the dashboard: {address} {field.replace('_', ' ')} "
+                                        f"{old or '(empty)'} -> {new} (the CTE file itself is unchanged; "
+                                        "a corrected upload takes over)."))
+        elif key.startswith("typo:") and dec["choice"] == COMPASS_RIGHT:
             fix = _typo_fix(dec)
             if not fix:
                 continue
