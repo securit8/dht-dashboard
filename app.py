@@ -739,8 +739,7 @@ def sales_manager():
             if has_cte:
                 # CTE deal numbers next to the FUB ones (the owner asked for both)
                 cte_agent = cte_agent_for(cur, f.agent)
-                y = R.ytd(f, today)
-                for band, ff, prev in (("period", f, f.previous()), ("ytd", y, y.year_earlier())):
+                for band, ff, prev in (("period", f, f.previous()),):
                     c = CTE.deal_counts(cur, ff.start, ff.end, cte_agent, f.source)
                     pc = CTE.deal_counts(cur, prev.start, prev.end, cte_agent, f.source)
                     c["chg_written"] = R.change(c["written"], pc["written"])

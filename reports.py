@@ -334,9 +334,7 @@ def ytd(f, today):
 # ---------------------------------------------------------------- Sales Manager
 
 def sales_manager_kpis(cur, f, today):
-    y = ytd(f, today)
-    return {"period": _kpi_block(cur, f, f.previous()),
-            "ytd": _kpi_block(cur, y, y.year_earlier()), "ytd_year": y.start.year}
+    return {"period": _kpi_block(cur, f, f.previous())}
 
 
 def _per_agent(cur, sql, p):

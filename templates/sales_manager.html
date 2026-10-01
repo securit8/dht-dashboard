@@ -75,7 +75,6 @@
   {{ m.empty() }}
 {% else %}
   {{ kpi_band(kpis.period, 'Selected timeframe', rng.label, 'vs prev. period') }}
-  {{ kpi_band(kpis.ytd, 'Year to date totals', kpis.ytd_year, 'vs ' ~ (kpis.ytd_year - 1)) }}
 
   <div class="card">
     <div class="card-head">
