@@ -2,6 +2,7 @@ import csv
 import io
 import os
 import secrets
+import time as time_mod
 from contextlib import contextmanager
 from functools import wraps
 from datetime import date, datetime, time, timedelta
@@ -572,8 +573,11 @@ def dashboard():
         tab = "pipeline"
     rng, f = page_filters("last30")
     data = {}
+    started = time_mod.perf_counter()
+    HOME.reset_timings()
     with db() as cur:
         overview = HOME.overview(cur, today_start(), TEAM_TZ_NAME, _year_totals)
+        t_overview = time_mod.perf_counter()
         ready = R.tables_ready(cur, "people")
         if ready:
             data.update(filter_options(cur))
@@ -583,8 +587,16 @@ def dashboard():
                 data["response"] = R.lead_response(cur, f, min(f.end, datetime.now(TEAM_TZ)))
             else:
                 data["sources"] = R.best_sources(cur, f)
-    return render_template("dashboard.html", tab=tab, ready=ready, rng=rng, home=overview,
+    t_lead = time_mod.perf_counter()
+    html = render_template("dashboard.html", tab=tab, ready=ready, rng=rng, home=overview,
                            decider=session.get("decider", ""), **data)
+    # how long each part took, to find what makes the page slow (browser dev tools > Network > Timing)
+    parts = {**HOME.timings(), "lead_health": t_lead - t_overview, "render": time_mod.perf_counter() - t_lead,
+             "total": time_mod.perf_counter() - started}
+    app.logger.warning("dashboard timing: %s", ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1])))
+    resp = Response(html + "\n<!-- timing: " + ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1])) + " -->")
+    resp.headers["Server-Timing"] = ", ".join(f"{k.replace(' ', '_')};dur={v * 1000:.0f}" for k, v in parts.items())
+    return resp
 
 
 # ---------------------------------------------------------------- Decisions on Needs-attention items

@@ -5,6 +5,8 @@ and lists what needs someone's attention, each linking to the report with the de
 Every section is read on its own, so one source being down or not connected yet doesn't break the page.
 """
 import logging
+import threading
+import time
 from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta
 
@@ -18,8 +20,21 @@ import splits as SP
 log = logging.getLogger(__name__)
 
 
+_timing = threading.local()
+
+
+def timings():
+    """{section: seconds} for the sections run so far in this request (see reset_timings)."""
+    return dict(getattr(_timing, "t", {}))
+
+
+def reset_timings():
+    _timing.t = {}
+
+
 def _safe(cur, name, fn, default=None):
-    """Run one section inside a savepoint; on error log it and return the default."""
+    """Run one section inside a savepoint; on error log it and return the default. Its time is recorded."""
+    started = time.perf_counter()
     cur.execute("SAVEPOINT home_section")
     try:
         out = fn()
@@ -29,6 +44,11 @@ def _safe(cur, name, fn, default=None):
         log.exception("dashboard home: %s failed", name)
         cur.execute("ROLLBACK TO SAVEPOINT home_section")
         return default
+    finally:
+        t = getattr(_timing, "t", None)
+        if t is not None:
+            key = name.split(" ")[0] if name.startswith("details") else name
+            t[key] = t.get(key, 0.0) + time.perf_counter() - started
 
 
 def _chg(now, before):
