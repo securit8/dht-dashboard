@@ -468,8 +468,8 @@ CACHE_SECONDS = 120
 
 
 def clear_cache():
-    """Forget the cached dashboard numbers (after a decision is saved)."""
-    _cache.update(at=0.0, key=None, data=None)
+    """Mark the cached dashboard numbers stale (after a decision is saved): the next visit rebuilds them."""
+    _cache["at"] = 0.0
 
 
 def overview(cur, today, tz, year_totals):
@@ -477,12 +477,17 @@ def overview(cur, today, tz, year_totals):
     key = today.date()
     if _cache["data"] is not None and _cache["key"] == key and time.monotonic() - _cache["at"] < CACHE_SECONDS:
         return _cache["data"]
+    return refresh(cur, today, tz, year_totals)
+
+
+def refresh(cur, today, tz, year_totals):
+    """Rebuild the dashboard numbers now and keep them for the next visits."""
     gmail_import.memo_start()
     try:
         data = _overview(cur, today, tz, year_totals)
     finally:
         gmail_import.memo_stop()
-    _cache.update(at=time.monotonic(), key=key, data=data)
+    _cache.update(at=time.monotonic(), key=today.date(), data=data)
     return data
 
 

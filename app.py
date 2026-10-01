@@ -609,7 +609,22 @@ def _apply_saved_decisions():
         app.logger.exception("applying saved decisions")
 
 
+def _keep_dashboard_warm():
+    """Rebuild the dashboard numbers every 90 seconds (they're reused for 120), so a visit never waits."""
+    import time as _t
+    while True:
+        try:
+            with db() as cur:
+                HOME.refresh(cur, today_start(), TEAM_TZ_NAME, _year_totals)
+        except Exception:
+            app.logger.exception("dashboard warm-up")
+        _t.sleep(90)
+
+
 _apply_saved_decisions()
+if os.environ.get("DATABASE_URL") and os.environ.get("DASHBOARD_WARM", "1") == "1":
+    threading.Thread(target=_keep_dashboard_warm, name="dashboard-warm", daemon=True).start()
+
 
 @app.route("/decisions/add", methods=["POST"])
 @login_required
@@ -1003,28 +1018,41 @@ def cte():
     rng = date_range("year")
     agent = request.args.get("cte_agent") or None
     year = (rng["end"] - timedelta(days=1)).year
-    with db() as cur:
-        ready = CTE.ready(cur)
-        data = {}
-        if ready:
-            options = CTE.agent_options(cur)
-            if agent and agent not in options:
-                agent = None
-            years = CTE.by_year(cur, agent)
-            _year_extras(cur, years, agent)
-            agents = [] if agent else CTE.by_agent(cur, rng["start"], rng["end"])
-            _agent_extras(cur, agents, rng["start"], rng["end"])
-            data = dict(
-                kpi=CTE.period(cur, rng["start"], rng["end"], agent),
-                years=years, agents=agents,
-                trend=_cte_trend(cur, year, agent),
-                agent_choices=[("", "Whole team")] + [(n, n) for n in options],
-                imported_at=CTE.last_import(cur),
-                company=_company_income(cur, rng["start"].date(), rng["end"].date(), agent),
-                focus=HOME.focus_deals(cur, request.args.get("focus"), year),
-                appts=_fub_appts(cur, rng["start"], rng["end"], agent))
-    return render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
+    parts, started = {}, time_mod.perf_counter()
+
+    def timed(name, fn):
+        t = time_mod.perf_counter()
+        out = fn()
+        parts[name] = time_mod.perf_counter() - t
+        return out
+    gmail_import.memo_start()
+    try:
+        with db() as cur:
+            ready = CTE.ready(cur)
+            data = {}
+            if ready:
+                options = CTE.agent_options(cur)
+                if agent and agent not in options:
+                    agent = None
+                years = timed("by_year", lambda: CTE.by_year(cur, agent))
+                timed("year_extras", lambda: _year_extras(cur, years, agent))
+                agents = timed("by_agent", lambda: [] if agent else CTE.by_agent(cur, rng["start"], rng["end"]))
+                timed("agent_extras", lambda: _agent_extras(cur, agents, rng["start"], rng["end"]))
+                data = dict(
+                    kpi=timed("kpi", lambda: CTE.period(cur, rng["start"], rng["end"], agent)),
+                    years=years, agents=agents,
+                    trend=timed("trend", lambda: _cte_trend(cur, year, agent)),
+                    agent_choices=[("", "Whole team")] + [(n, n) for n in options],
+                    imported_at=CTE.last_import(cur),
+                    company=timed("company", lambda: _company_income(cur, rng["start"].date(), rng["end"].date(), agent)),
+                    focus=HOME.focus_deals(cur, request.args.get("focus"), year),
+                    appts=timed("appts", lambda: _fub_appts(cur, rng["start"], rng["end"], agent)))
+    finally:
+        gmail_import.memo_stop()
+    html = render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
                            refresh=_cte_refresh, **data)
+    parts["total"] = time_mod.perf_counter() - started
+    return html + "\n<!-- timing: " + ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1])) + " -->"
 
 
 def _qbo_months(cur):
