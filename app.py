@@ -952,9 +952,48 @@ def cte():
                 trend={"year": year, "this": hide_future(CTE.monthly_gci(cur, year, agent), year),
                        "last": CTE.monthly_gci(cur, year - 1, agent)},
                 agent_choices=[("", "Whole team")] + [(n, n) for n in options],
-                imported_at=CTE.last_import(cur))
+                imported_at=CTE.last_import(cur),
+                company=_company_income(cur, rng["start"].date(), rng["end"].date(), agent),
+                appts=_fub_appts(cur, rng["start"], rng["end"], agent))
     return render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
                            refresh=_cte_refresh, **data)
+
+
+def _company_income(cur, start, end, agent=None):
+    """What the company actually received from Compass for the deals that closed in [start, end):
+    the team's share after the agent's split and Compass's fees (net), from the remittance statements.
+    For the whole team, receipts in the period that match no CTE deal (referrals etc.) are added."""
+    try:
+        deals, unmatched = gmail_import.deal_receipts(cur, start, end)
+    except Exception:
+        app.logger.exception("company income")
+        return None
+    if agent:
+        deals = [d for d in deals if (d["agent"] or "").strip().lower() == agent.strip().lower()]
+    paid = [r for d in deals for r in d["receipts"]]
+    if not paid and not unmatched:
+        return None
+    other = [] if agent else unmatched
+    return {"net": sum(float(r["amount"] or 0) for r in paid + other),
+            "gross": sum(float(r["gross"] or r["amount"] or 0) for r in paid + other),
+            "other": sum(float(r["amount"] or 0) for r in other),
+            "deals": len(deals), "with": sum(1 for d in deals if d["receipts"])}
+
+
+def _fub_appts(cur, start, end, agent=None):
+    """Appointments from Follow Up Boss with the held / not-held rule (reports.APPT_CLASS):
+    set = created in the period; held / not held = took place in the period."""
+    if not R.tables_ready(cur, "people", "appointments"):
+        return None
+    uid = None
+    if agent:
+        uid = next((u for u, n in R.agent_names(cur).items() if CTE.name_for(cur, n) == agent), None)
+        if uid is None:
+            return {"missing": True}
+    c = R.funnel_counts(cur, R.Filters(start, end, uid, None, TEAM_TZ_NAME))
+    decided = c["held"] + c["not_held"]
+    return {"set": c["appts_set"], "sched": c["appts_sched"], "held": c["held"], "not_held": c["not_held"],
+            "held_rate": R.pct(c["held"], decided, 0) if decided else None}
 
 
 # One OneDrive import at a time, in the background (downloading the workbooks can take longer

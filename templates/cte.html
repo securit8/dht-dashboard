@@ -45,20 +45,24 @@
           <div class="kpi-sub">avg {{ kpi.avg_price|money }}</div></div>
         <div><div class="kpi-lbl">GCI (deals)</div><div class="kpi-val">{{ kpi.gci|money }}</div>
           <div class="kpi-sub">avg commission {{ pctf(kpi.avg_pct) }}</div></div>
-        {% if not agent %}
-        <div><div class="kpi-lbl">Total Income</div><div class="kpi-val">{{ kpi.income|money }}</div>
-          <div class="kpi-sub">Financial Statement, incl. referrals</div></div>
-        {% endif %}
+        <div><div class="kpi-lbl">Company Income</div>
+          {% if company %}<div class="kpi-val">{{ company.net|money }}</div>
+          <div class="kpi-sub">paid by Compass after agent splits &amp; fees &middot; {{ company.with }} of {{ company.deals }} deals have a receipt{% if company.other %} &middot; incl. {{ company.other|money }} not matched to a deal{% endif %}</div>
+          {% else %}<div class="kpi-val">&mdash;</div><div class="kpi-sub">no Compass receipts for these dates</div>{% endif %}</div>
       </div>
     </div>
     <div class="card">
-      <h3>Lead gen activity <span class="muted" style="font-weight:400">&middot; hand-entered in CTE; the FUB pages are the main source for activity</span></h3>
+      <h3>Lead gen activity <span class="muted" style="font-weight:400">&middot; appointments from Follow Up Boss; the rest hand-entered in CTE</span></h3>
       <div class="kpis">
         <div><div class="kpi-lbl">Dials</div><div class="kpi-val">{{ kpi.dials|num }}</div></div>
         <div><div class="kpi-lbl">Contacts</div><div class="kpi-val">{{ kpi.contacts|num }}</div></div>
         <div><div class="kpi-lbl">Appts set / held</div>
-          <div class="kpi-val">{{ (kpi.listing_appts_set + kpi.buyer_appts_set)|num }} / {{ (kpi.listing_appts_held + kpi.buyer_appts_held)|num }}</div>
-          <div class="kpi-sub">listing {{ kpi.listing_appts_set|num }}/{{ kpi.listing_appts_held|num }} &middot; buyer {{ kpi.buyer_appts_set|num }}/{{ kpi.buyer_appts_held|num }}</div></div>
+          {% if appts and not appts.missing %}
+          <div class="kpi-val">{{ appts.set|num }} / {{ appts.held|num }}</div>
+          <div class="kpi-sub">Follow Up Boss &middot; {{ appts.not_held|num }} not held{% if appts.held_rate is not none %} &middot; {{ appts.held_rate }}% held{% endif %}</div>
+          {% elif appts and appts.missing %}<div class="kpi-val">&mdash;</div><div class="kpi-sub">this agent isn't in Follow Up Boss</div>
+          {% else %}<div class="kpi-val">{{ (kpi.listing_appts_set + kpi.buyer_appts_set)|num }} / {{ (kpi.listing_appts_held + kpi.buyer_appts_held)|num }}</div>
+          <div class="kpi-sub">as typed in CTE</div>{% endif %}</div>
         <div><div class="kpi-lbl">Showings</div><div class="kpi-val">{{ kpi.showings|num }}</div>
           <div class="kpi-sub">{{ kpi.buyer_reps_signed|num }} buyer reps signed</div></div>
         <div><div class="kpi-lbl">Offers written / open houses</div><div class="kpi-val">{{ kpi.written_offers|num }} / {{ kpi.open_houses|num }}</div>
