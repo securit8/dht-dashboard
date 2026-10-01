@@ -945,18 +945,123 @@ def cte():
             options = CTE.agent_options(cur)
             if agent and agent not in options:
                 agent = None
+            years = CTE.by_year(cur, agent)
+            _year_extras(cur, years, agent)
+            agents = [] if agent else CTE.by_agent(cur, rng["start"], rng["end"])
+            _agent_extras(cur, agents, rng["start"], rng["end"])
             data = dict(
                 kpi=CTE.period(cur, rng["start"], rng["end"], agent),
-                years=CTE.by_year(cur, agent),
-                agents=[] if agent else CTE.by_agent(cur, rng["start"], rng["end"]),
-                trend={"year": year, "this": hide_future(CTE.monthly_gci(cur, year, agent), year),
-                       "last": CTE.monthly_gci(cur, year - 1, agent)},
+                years=years, agents=agents,
+                trend=_cte_trend(cur, year, agent),
                 agent_choices=[("", "Whole team")] + [(n, n) for n in options],
                 imported_at=CTE.last_import(cur),
                 company=_company_income(cur, rng["start"].date(), rng["end"].date(), agent),
                 appts=_fub_appts(cur, rng["start"], rng["end"], agent))
     return render_template("cte.html", ready=ready, rng=rng, agent=agent, onedrive=cte_import.graph_configured(),
                            refresh=_cte_refresh, **data)
+
+
+def _qbo_months(cur):
+    """{first-of-month date: (income, net income)} pulled from QuickBooks, or {} when not connected."""
+    conn = qbo.status(cur)
+    if not conn or conn["env"] != "production" or conn["needs_reconnect"]:
+        return {}
+    cur.execute("SELECT month, income, net_income FROM qbo_pnl")
+    return {m: (float(i or 0), float(n or 0)) for m, i, n in cur.fetchall()}
+
+
+def _fub_name_map(cur):
+    """{CTE agent name (lowercase): FUB user id}"""
+    out = {}
+    if R.tables_ready(cur, "agents"):
+        for uid, name in R.agent_names(cur).items():
+            cte_name = CTE.name_for(cur, name)
+            if cte_name:
+                out[cte_name.lower()] = uid
+    return out
+
+
+def _year_extras(cur, years, agent=None):
+    """Add to each CTE year: what the company really got (Compass YTD Income; QuickBooks income and net
+    income for full years in the books) and Follow Up Boss appointments set / held."""
+    qm = _qbo_months(cur)
+    first_qbo = min(qm) if qm else None
+    has_fub = R.tables_ready(cur, "people", "appointments")
+    fub_from = None
+    if has_fub:
+        cur.execute("SELECT MIN(start_at) FROM appointments")
+        fub_from = cur.fetchone()[0]
+    uid = None
+    if agent:
+        uid = _fub_name_map(cur).get(agent.lower())
+    for y in years:
+        yr = y["year"]
+        y["compass"] = None if agent else HOME._safe(cur, "compass ytd", lambda: HOME._compass_ytd(cur, yr))
+        full_books = first_qbo is not None and first_qbo <= date(yr, 1, 1)
+        if qm and full_books and not agent:
+            months = [v for m, v in qm.items() if m.year == yr]
+            y["qbo_income"], y["qbo_net"] = sum(v[0] for v in months), sum(v[1] for v in months)
+        else:
+            y["qbo_income"] = y["qbo_net"] = None
+        # CTE's own Financial Statement only counts as company income while agent splits were entered there
+        cos, inc = (float(v) if v is not None else None for v in (y.get("cost_of_sales"), y.get("income")))
+        y["cte_company"] = (inc - cos) if (inc and cos and cos > 0.15 * inc) else None
+        y["appts"] = None
+        if has_fub and fub_from and fub_from.year <= yr and (not agent or uid):
+            start = datetime(yr, 1, 1, tzinfo=TEAM_TZ)
+            c = R.funnel_counts(cur, R.Filters(start, start.replace(year=yr + 1), uid, None, TEAM_TZ_NAME))
+            y["appts"] = {"set": c["appts_set"], "held": c["held"], "not_held": c["not_held"],
+                          "partial": fub_from.year == yr}
+    return years
+
+
+def _agent_extras(cur, agents, start, end):
+    """Add to each CTE agent row: the company's share from the Compass receipts for their deals closed in the
+    period, and Follow Up Boss appointments and calls."""
+    if not agents:
+        return agents
+    try:
+        deals, _ = gmail_import.deal_receipts(cur, start.date(), end.date())
+    except Exception:
+        app.logger.exception("agent company share")
+        deals = []
+    share = {}
+    for d in deals:
+        if d["receipts"] and d["agent"]:
+            share[d["agent"].strip().lower()] = share.get(d["agent"].strip().lower(), 0.0) + \
+                sum(float(r["amount"] or 0) for r in d["receipts"])
+    uids = _fub_name_map(cur)
+    has_fub = R.tables_ready(cur, "people", "appointments")
+    activity = {}
+    if R.tables_ready(cur, "agent_events"):
+        for r in R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end}):
+            activity[r["user_id"]] = r
+    for a in agents:
+        key = a["name"].strip().lower()
+        a["company"] = share.get(key)
+        uid = uids.get(key)
+        a["fub"] = uid is not None
+        a["appts"] = None
+        if uid is not None and has_fub:
+            c = R.funnel_counts(cur, R.Filters(start, end, uid, None, TEAM_TZ_NAME))
+            a["appts"] = {"set": c["appts_set"], "held": c["held"], "not_held": c["not_held"]}
+        ev = activity.get(uid) if uid is not None else None
+        a["calls"] = ((ev["attempts"] or 0) + (ev["conversations"] or 0)) if ev else (0 if uid is not None else None)
+        a["conversations"] = (ev["conversations"] or 0) if ev else (0 if uid is not None else None)
+    return agents
+
+
+def _cte_trend(cur, year, agent=None):
+    """Monthly chart, this year vs last: company income from QuickBooks for the team when both years are in
+    the books, otherwise closed GCI from the CTE deal log."""
+    qm = {} if agent else _qbo_months(cur)
+    if qm and min(qm) <= date(year - 1, 1, 1):
+        def series(y):
+            return [qm.get(date(y, m, 1), (0.0, 0.0))[0] for m in range(1, 13)]
+        return {"year": year, "this": hide_future(series(year), year), "last": series(year - 1),
+                "label": "Company income by month (QuickBooks)"}
+    return {"year": year, "this": hide_future(CTE.monthly_gci(cur, year, agent), year),
+            "last": CTE.monthly_gci(cur, year - 1, agent), "label": "Closed GCI by month (CTE deal log)"}
 
 
 def _company_income(cur, start, end, agent=None):

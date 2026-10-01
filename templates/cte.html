@@ -4,6 +4,7 @@
 {% block eyebrow %}CTE Year by Year{% endblock %}
 {% block heading %}{{ agent ~ "'s" if agent else "Team" }} numbers from the CTE workbooks{% endblock %}
 {% block style %}
+  .tbl .sub { font-size: 10.5px; color: var(--muted); font-family: 'IBM Plex Sans', sans-serif; }
   .kpis.four .kpi-val { font-size: 34px; }
   .chart-box { position: relative; height: 280px; }
   .tbl td.y { font-weight: 700; }
@@ -74,35 +75,38 @@
   <div class="card">
     <h3>Year by year{% if agent %} &middot; {{ agent }}{% endif %}</h3>
     <div class="tbl-wrap"><table class="tbl">
-      <tr><th>Year</th><th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Accepted</th>
-          <th class="n">Listings Signed</th><th class="n sep">Closed</th><th class="n">Buyer / Listing</th>
-          <th class="n">Volume</th><th class="n">Avg Price</th><th class="n">GCI (deals)</th><th class="n">Avg %</th>
-          {% if not agent %}<th class="n sep">Total Income</th><th class="n">Cost of Sales</th><th class="n">Expenses</th>
-          <th class="n">Net Profit</th><th class="n">Net After Taxes</th>{% endif %}
-          <th class="n sep">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
+      <tr><th>Year</th><th class="n">Accepted</th><th class="n">Buyer / Listing</th><th class="n">Fell through</th>
+          <th class="n">Listings Taken</th><th class="n">Open House Deals</th>
+          <th class="n sep">Closed</th><th class="n">Buyer / Listing</th>
+          <th class="n">Volume</th><th class="n">Avg Price</th><th class="n">GCI</th><th class="n">Avg %</th>
+          {% if not agent %}<th class="n sep">Company Income</th><th class="n">QuickBooks Income</th><th class="n">Net Income</th>{% endif %}
+          <th class="n sep">Appts Set / Held</th><th class="n">Dials (CTE)</th></tr>
       {% for y in years %}
       <tr><td class="y">{{ y.year }}</td>
-          <td class="n">{{ y.written_offers|num }}</td><td class="n">{{ y.open_houses|num }}</td>
-          <td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.listing_agreements|num }}</td>
+          <td class="n">{{ y.accepted|num }}</td><td class="n">{{ y.buyer_accepted }} / {{ y.listing_accepted }}</td>
+          <td class="n">{{ y.fell_through|num }}{% if y.accepted %} <span class="muted">({{ (y.fell_through / y.accepted * 100)|round|int }}%)</span>{% endif %}</td>
+          <td class="n">{{ y.listings_taken|num }}</td><td class="n">{{ y.oh_accepted|num }}</td>
           <td class="n sep">{{ y.closed_deals|num }}</td><td class="n">{{ y.buyer_closed }} / {{ y.listing_closed }}</td>
           <td class="n">{{ y.volume|money }}</td><td class="n">{{ y.avg_price|money }}</td>
           <td class="n">{{ y.gci|money }}</td><td class="n">{{ pctf(y.avg_pct) }}</td>
           {% if not agent %}
-          <td class="n sep">{{ y.income|money if y.income is not none else '--' }}</td>
-          <td class="n">{{ y.cost_of_sales|money if y.cost_of_sales is not none else '--' }}</td>
-          <td class="n">{{ y.expenses|money if y.expenses is not none else '--' }}</td>
-          <td class="n">{{ y.net_profit|money if y.net_profit is not none else '--' }}</td>
-          <td class="n">{{ y.net_after_taxes|money if y.net_after_taxes is not none else '--' }}</td>
+          <td class="n sep">{% if y.compass is not none %}{{ y.compass|money }}<div class="sub">Compass</div>{% elif y.cte_company is not none %}{{ y.cte_company|money }}<div class="sub">CTE statement</div>{% else %}--{% endif %}</td>
+          <td class="n">{{ y.qbo_income|money if y.qbo_income is not none else '--' }}</td>
+          <td class="n">{{ y.qbo_net|money if y.qbo_net is not none else '--' }}</td>
           {% endif %}
-          <td class="n sep">{{ y.dials|num }}</td><td class="n">{{ y.contacts|num }}</td>
-          <td class="n">{{ (y.listing_appts_set + y.buyer_appts_set)|num }}</td></tr>
+          <td class="n sep">{% if y.appts %}{{ y.appts.set|num }} / {{ y.appts.held|num }}{% if y.appts.partial %}<div class="sub">partial year</div>{% endif %}{% else %}--{% endif %}</td>
+          <td class="n">{{ y.dials|num if y.dials else '--' }}</td></tr>
       {% endfor %}
     </table></div>
-    <div class="note">Each year comes from that year's CTE file. Lead Gen activity was only logged from 2022 on.</div>
+    <div class="note">Deals come from each year's CTE deal log. Accepted = went under contract that year; fell through = of those, later cancelled.
+      Listings Taken uses the listing's signed date, or its list date when the signed date is blank. Open House Deals = accepted offers whose lead source is an open house.
+      Avg % = GCI &divide; volume. Company Income = the highest YTD Income on that year's Compass statements (what the team kept after agent splits and Compass fees);
+      before the Compass emails, the CTE Financial Statement is used only for years where agent splits were entered in it.
+      QuickBooks columns show only years fully in the books. Appointments come from Follow Up Boss with the held / not-held rule; dials are what agents typed into CTE.</div>
   </div>
 
   <div class="card">
-    <h3>{{ 'Total Income' if not agent else 'Closed GCI' }} by month, year over year</h3>
+    <h3>{{ trend.label }}, year over year</h3>
     <div class="chart-box"><canvas id="c-gci"></canvas></div>
   </div>
 
@@ -110,20 +114,23 @@
   <div class="card">
     <h3>By agent &middot; {{ rng.label }}</h3>
     <div class="tbl-wrap"><table class="tbl">
-      <tr><th>Agent</th><th class="n">Offers Sent</th><th class="n">Open Houses</th><th class="n">Accepted</th>
-          <th class="n">Listings Signed</th><th class="n">Closed</th><th class="n">Volume</th><th class="n">GCI</th>
-          <th class="n">Avg Commission %</th><th class="n">Dials</th><th class="n">Contacts</th><th class="n">Appts Set</th></tr>
+      <tr><th>Agent</th><th class="n">Accepted</th><th class="n">Fell through</th><th class="n">Listings Taken</th><th class="n">Open House Deals</th>
+          <th class="n sep">Closed</th><th class="n">Volume</th><th class="n">GCI</th><th class="n">Avg %</th><th class="n">Company Share</th>
+          <th class="n sep">Appts Set / Held</th><th class="n">Calls</th><th class="n">Conversations</th></tr>
       {% for a in agents %}
       <tr><td><a href="{{ qs(cte_agent=a.name) }}">{{ a.name }}</a></td>
-          <td class="n">{{ a.written_offers|num }}</td><td class="n">{{ a.open_houses|num }}</td>
-          <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.listing_agreements|num }}</td>
-          <td class="n">{{ a.closed_deals|num }}</td><td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
-          <td class="n">{{ pctf(a.avg_pct) }}</td>
-          <td class="n">{{ a.dials|num }}</td><td class="n">{{ a.contacts|num }}</td>
-          <td class="n">{{ (a.listing_appts_set + a.buyer_appts_set)|num }}</td></tr>
-      {% else %}<tr><td colspan="12" class="muted">Nothing in these dates.</td></tr>{% endfor %}
+          <td class="n">{{ a.accepted|num }}</td><td class="n">{{ a.fell_through|num if a.fell_through else '' }}</td>
+          <td class="n">{{ a.listings_taken|num if a.listings_taken else '' }}</td><td class="n">{{ a.oh_accepted|num if a.oh_accepted else '' }}</td>
+          <td class="n sep">{{ a.closed_deals|num }}</td><td class="n">{{ a.volume|money }}</td><td class="n">{{ a.gci|money }}</td>
+          <td class="n">{{ pctf(a.avg_pct) if a.volume else '' }}</td>
+          <td class="n">{{ a.company|money if a.company is not none else '' }}</td>
+          {% if a.fub %}
+          <td class="n sep">{{ a.appts.set|num }} / {{ a.appts.held|num }}</td><td class="n">{{ a.calls|num }}</td><td class="n">{{ a.conversations|num }}</td>
+          {% else %}<td class="n sep muted" colspan="3">not in Follow Up Boss</td>{% endif %}</tr>
+      {% else %}<tr><td colspan="13" class="muted">Nothing in these dates.</td></tr>{% endfor %}
     </table></div>
-    <div class="note">GCI and commission % come from the CTE deal log and are credited to the deal's Primary Agent.</div>
+    <div class="note">Deals, GCI and commission % come from the CTE deal log and are credited to the deal's Primary Agent.
+      Company Share = what Compass paid the team for that agent's deals closed in these dates. Appointments, calls and conversations come from Follow Up Boss.</div>
   </div>
   {% endif %}
 

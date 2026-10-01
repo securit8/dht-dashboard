@@ -98,6 +98,7 @@ def period(cur, start, end, cte_agent=None):
                       AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl
               FROM cte_deals d WHERE {DEAL_AGENT_MATCH}) d""", {**p, "fell": FELL_THROUGH}))
     out["avg_price"] = _num(out["volume"]) / out["closed_deals"] if out["closed_deals"] else 0
+    out["avg_pct"] = _num(out["gci"]) / _num(out["volume"]) if _num(out["volume"]) else 0
     if not cte_agent:  # team income from the Financial Statement, whole months in the range
         out.update(one(cur, """
             SELECT COALESCE(SUM(amount) FILTER (WHERE LOWER(TRIM(label)) = 'total income'), 0) AS income,
@@ -106,6 +107,14 @@ def period(cur, start, end, cte_agent=None):
             WHERE make_date(file_year, month, 1) >= date_trunc('month', %(start)s::date)
               AND make_date(file_year, month, 1) < %(end)s""", p))
     return out
+
+
+# A deal row counts in the year of its CTE file: went under contract (uc), listing agreement taken (lt:
+# signed date, or the list date when the signed date is blank), closed (cl), and lead from an open house (oh)
+_FLAGS_YEAR = """(EXTRACT(YEAR FROM d.under_contract_date) = d.file_year) AS uc,
+                 (d.deal_type = 'Listing' AND EXTRACT(YEAR FROM COALESCE(d.signed_date, d.list_date)) = d.file_year) AS lt,
+                 (d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl,
+                 COALESCE(d.source, '') ILIKE '%%open house%%' AS oh"""
 
 
 def by_year(cur, cte_agent=None):
@@ -118,18 +127,18 @@ def by_year(cur, cte_agent=None):
         years.setdefault(r["year"], {}).update(r)
     for r in fetch(cur, f"""
             SELECT d.file_year AS year,
-                   COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM d.under_contract_date) = d.file_year) AS accepted,
-                   COUNT(*) FILTER (WHERE d.status IN %(fell)s) AS fell_through,
+                   COUNT(*) FILTER (WHERE uc) AS accepted,
+                   COUNT(*) FILTER (WHERE uc AND d.deal_type = 'Buyer') AS buyer_accepted,
+                   COUNT(*) FILTER (WHERE uc AND d.deal_type = 'Listing') AS listing_accepted,
+                   COUNT(*) FILTER (WHERE uc AND d.status IN %(fell)s) AS fell_through,
+                   COUNT(*) FILTER (WHERE lt) AS listings_taken,
+                   COUNT(*) FILTER (WHERE uc AND oh) AS oh_accepted,
                    COUNT(*) FILTER (WHERE cl) AS closed_deals,
                    COUNT(*) FILTER (WHERE cl AND d.deal_type = 'Buyer') AS buyer_closed,
                    COUNT(*) FILTER (WHERE cl AND d.deal_type = 'Listing') AS listing_closed,
                    COALESCE(SUM(d.sale_price) FILTER (WHERE cl), 0) AS volume,
-                   COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci,
-                   COALESCE(AVG(d.commission_pct) FILTER (WHERE cl AND d.commission_pct > 0), 0) AS avg_pct,
-                   COUNT(*) FILTER (WHERE d.deal_type = 'Listing'
-                                    AND EXTRACT(YEAR FROM d.signed_date) = d.file_year) AS listing_agreements
-            FROM (SELECT d.*, (d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl
-                  FROM cte_deals d WHERE {DEAL_AGENT_MATCH}) d GROUP BY 1""", p):
+                   COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci
+            FROM (SELECT d.*, {_FLAGS_YEAR} FROM cte_deals d WHERE {DEAL_AGENT_MATCH}) d GROUP BY 1""", p):
         years.setdefault(r["year"], {}).update(r)
     if not cte_agent:
         wanted = {label: key for key, label in FIN_LINES}
@@ -139,12 +148,14 @@ def by_year(cur, cte_agent=None):
                 years.setdefault(r["year"], {})[wanted[r["label"]]] = r["total"]
     out = []
     for y in sorted(years, reverse=True):
-        row = {"year": y, "accepted": 0, "fell_through": 0, "closed_deals": 0, "buyer_closed": 0,
-               "listing_agreements": 0,
-               "listing_closed": 0, "volume": 0, "gci": 0, "avg_pct": 0, **{c: 0 for c in ACTIVITY},
+        row = {"year": y, "accepted": 0, "buyer_accepted": 0, "listing_accepted": 0, "fell_through": 0,
+               "listings_taken": 0, "oh_accepted": 0, "closed_deals": 0, "buyer_closed": 0,
+               "listing_closed": 0, "volume": 0, "gci": 0, **{c: 0 for c in ACTIVITY},
                **{k: None for k, _ in FIN_LINES}}
         row.update({k: v for k, v in years[y].items() if v is not None})
         row["avg_price"] = _num(row["volume"]) / row["closed_deals"] if row["closed_deals"] else 0
+        # commission % weighted by price (GCI / volume): counts deals with no % typed in, too
+        row["avg_pct"] = _num(row["gci"]) / _num(row["volume"]) if _num(row["volume"]) else 0
         out.append(row)
     return out
 
@@ -161,6 +172,16 @@ def by_agent(cur, start, end):
             SELECT TRIM(d.primary_agent) AS name,
                    COUNT(*) FILTER (WHERE d.under_contract_date >= %(start)s AND d.under_contract_date < %(end)s
                                     AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year) AS accepted,
+                   COUNT(*) FILTER (WHERE d.under_contract_date >= %(start)s AND d.under_contract_date < %(end)s
+                                    AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year
+                                    AND d.status IN ('Cancelled', 'Sale Failed')) AS fell_through,
+                   COUNT(*) FILTER (WHERE d.deal_type = 'Listing'
+                                    AND COALESCE(d.signed_date, d.list_date) >= %(start)s
+                                    AND COALESCE(d.signed_date, d.list_date) < %(end)s
+                                    AND EXTRACT(YEAR FROM COALESCE(d.signed_date, d.list_date)) = d.file_year) AS listings_taken,
+                   COUNT(*) FILTER (WHERE d.under_contract_date >= %(start)s AND d.under_contract_date < %(end)s
+                                    AND EXTRACT(YEAR FROM d.under_contract_date) = d.file_year
+                                    AND COALESCE(d.source, '') ILIKE '%%open house%%') AS oh_accepted,
                    COUNT(*) FILTER (WHERE cl) AS closed_deals,
                    COALESCE(SUM(d.sale_price) FILTER (WHERE cl), 0) AS volume,
                    COALESCE(SUM(d.gci) FILTER (WHERE cl), 0) AS gci,
@@ -176,8 +197,10 @@ def by_agent(cur, start, end):
         entry.update({k: v for k, v in r.items() if k != "name"})
     rows = []
     for a in agents.values():
-        for k in ACTIVITY + ["accepted", "closed_deals", "volume", "gci", "agent_gci", "listing_agreements", "avg_pct"]:
+        for k in ACTIVITY + ["accepted", "fell_through", "listings_taken", "oh_accepted", "closed_deals", "volume",
+                             "gci", "agent_gci", "listing_agreements", "avg_pct"]:
             a[k] = a.get(k) or 0
+        a["avg_pct"] = _num(a["gci"]) / _num(a["volume"]) if _num(a["volume"]) else 0
         if any(a[k] for k in ACTIVITY + ["accepted", "closed_deals"]):
             rows.append(a)
     rows.sort(key=lambda a: (-_num(a["gci"]), a["name"].lower()))
@@ -185,16 +208,12 @@ def by_agent(cur, start, end):
 
 
 def monthly_gci(cur, year, cte_agent=None):
-    """12 monthly values: team Total Income (Financial Statement), or an agent's closed GCI."""
-    if cte_agent:
-        rows = fetch(cur, f"""
-            SELECT EXTRACT(MONTH FROM d.close_date)::int AS m, SUM(d.gci) AS v FROM cte_deals d
-            WHERE d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = %(y)s AND d.file_year = %(y)s
-              AND {DEAL_AGENT_MATCH} GROUP BY 1""", {"y": year, "cte_agent": cte_agent})
-    else:
-        rows = fetch(cur, """SELECT month AS m, SUM(amount) AS v FROM cte_financials
-                             WHERE file_year = %(y)s AND LOWER(TRIM(label)) = 'total income' GROUP BY 1""",
-                     {"y": year})
+    """12 monthly values: closed GCI from the deal log, for the team or one agent. (The Financial Statement's
+    Total Income stopped being filled in properly from 2023, so it isn't used here.)"""
+    rows = fetch(cur, f"""
+        SELECT EXTRACT(MONTH FROM d.close_date)::int AS m, SUM(d.gci) AS v FROM cte_deals d
+        WHERE d.status = 'Closed' AND EXTRACT(YEAR FROM d.close_date) = %(y)s AND d.file_year = %(y)s
+          AND {DEAL_AGENT_MATCH} GROUP BY 1""", {"y": year, "cte_agent": cte_agent})
     vals = [0.0] * 12
     for r in rows:
         vals[r["m"] - 1] = _num(r["v"])
