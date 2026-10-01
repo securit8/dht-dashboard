@@ -152,6 +152,133 @@ def _sides(rows):
     return " / ".join(f"{x['deal_type']} {x['primary_agent']}" for x in rows)
 
 
+# One-time questions that the data can't answer by itself; each leaves the list once its decision is
+# marked Fixed on the Decisions page. (key, title, detail, link, choices)
+STANDING = [
+    ("setup:open_house_leads", "Open-house leads: team lead or the agent's own?",
+     "Splits count them as team/database leads (higher company share). Compass has paid most of Margaryta's open-house "
+     "deals at her personal rate, so they show as under contract.",
+     ("splits_page", {"_anchor": "deals"}),
+     ["Team / database lead", "Agent's own (personal) lead"]),
+    ("setup:team_past_client", "\"Team Past Client\" leads: team lead or the agent's own?",
+     "Donna's 856 Elm Ave is marked Team Past Client and was paid at her personal rate (20%) instead of team (40%).",
+     ("splits_page", {"_anchor": "deals"}),
+     ["Team lead (database split)", "Agent's own (personal split)"]),
+    ("setup:margaryta_agreements", "Margaryta has 3 agreements: which one is in force now?",
+     "10/2025 contract (70/30 sphere, 50/50 rest), 2/23/2026 12-month amendment (75/25 all, 80/20 after $10M), "
+     "4/18/2026 agreement (25/35/35, 80/20 after $10M career). Splits use the newest signed one. "
+     "Since she passed $10M on 6/2, Diamond St (~$2,300) and Old Bridgeport (~$600) look owed to her.",
+     ("splits_page", {"_anchor": "contract-Margaryta-Gvritishvili"}),
+     ["Newest (4/18) agreement is in force", "The 2/23 amendment runs its 12 months"]),
+    ("setup:compass_fee_wording", "Agreements say Compass takes 10%, but Compass keeps 7.5% + about $150",
+     "Every agreement's example math nets out 10%. The real Compass statements take 7.5% plus a ~$150 fee, "
+     "so actual numbers come out a little higher than the contract examples.",
+     ("splits_page", {"_anchor": "contracts"}),
+     ["Update the agreement wording", "Leave it as is"]),
+    ("setup:escrow_statements", "Keep the Compass escrow statements in the totals?",
+     "\"Agent Remittance Paid by Escrow\" emails are imported along with the Upcoming Payment ones; you said you'd "
+     "decide later whether to keep them.",
+     ("compass_invoices", {}),
+     ["Keep them", "Remove them"]),
+    ("setup:onedrive_duplicate_folder", "OneDrive has a duplicate \"CTE\" folder next to \"CTE FILES\"",
+     "Only CTE FILES is imported. An edit made in the other folder (it happened once) never reaches the dashboard.",
+     ("cte", {}),
+     ["Rename or remove the duplicate folder", "Keep it"]),
+    ("setup:onedrive_button", "The \"Update from OneDrive now\" button is hidden",
+     "The Microsoft keys are only on the cron job, so CTE changes show up after the daily run. "
+     "Adding the same MS_* keys to the web service in Render shows the button.",
+     ("cte", {}),
+     ["Add the keys to the web service", "Daily update is enough"]),
+]
+
+
+def _data_checks(cur, year, receipts):
+    """Data problems in the CTE file and the connections, found from the data (gone once fixed)."""
+    items = []
+    one = lambda sql, p=None: R.fetch(cur, sql, p or {"y": year})[0]
+    r = one("""SELECT COUNT(*) AS rows, COUNT(DISTINCT agent_name) AS agents FROM cte_activity
+               WHERE file_year = %(y)s AND EXTRACT(YEAR FROM activity_date) = %(y)s""")
+    deal_agents = one("""SELECT COUNT(DISTINCT TRIM(primary_agent)) AS n FROM cte_deals
+                         WHERE file_year = %(y)s AND status = 'Closed'""")["n"]
+    if r["rows"] < 5 * max(deal_agents, 1) * 4:
+        items.append({"level": "warn", "key": f"lead_gen_empty:{year}",
+                      "title": f"Agents barely log in the CTE Lead Gen sheet: {r['rows']} rows all year",
+                      "detail": f"{r['agents']} people logged anything; {deal_agents} agents closed deals. Offers written, "
+                                "open houses held and dials can't be counted until it's filled daily (the agreements require it).",
+                      "link": ("cte", {}), "choices": ["Remind agents to log daily", "Stop using the Lead Gen sheet"]})
+    r = one("""SELECT COUNT(*) AS n FROM cte_deals WHERE file_year = %(y)s AND deal_type = 'Listing'
+               AND signed_date IS NULL AND status NOT IN ('Cancelled', 'Sale Failed', 'Expired')""")
+    if r["n"]:
+        items.append({"level": "info", "key": f"no_signed_date:{year}",
+                      "title": f"{r['n']} listings in the CTE file have no Signed Date",
+                      "detail": "Listings Taken uses the list date instead. Fill Signed Date to count listings when they're signed.",
+                      "link": ("cte", {})})
+    r = one("""SELECT COUNT(*) AS n FROM cte_deals WHERE file_year = %(y)s AND status = 'Closed'
+               AND primary_pct IS NULL AND primary_gci IS NULL""")
+    if r["n"]:
+        items.append({"level": "info", "key": f"no_split_pct:{year}",
+                      "title": f"{r['n']} closed deals have no agent split in CTE (Primary % / Primary GCI empty)",
+                      "detail": "With the split filled in, CTE can be checked against Compass and the contracts deal by deal.",
+                      "link": ("splits_page", {"_anchor": "deals"}),
+                      "choices": ["Start filling the split in CTE", "Not needed: Compass receipts are enough"]})
+    rows = R.fetch(cur, """SELECT address, primary_agent, source IS NULL OR TRIM(source) = '' AS no_src,
+                                  commission_pct IS NULL AS no_pct
+                           FROM cte_deals WHERE file_year = %(y)s AND status = 'Closed'
+                             AND (source IS NULL OR TRIM(source) = '' OR commission_pct IS NULL)""", {"y": year})
+    if rows:
+        items.append({"level": "info", "key": f"missing_fields:{year}",
+                      "title": f"{len(rows)} closed deals are missing a lead source or commission % in CTE",
+                      "detail": "; ".join(f"{x['address']} ({x['primary_agent']}: "
+                                          + ", ".join(w for w, on in (("no source", x["no_src"]), ("no %", x["no_pct"])) if on) + ")"
+                                          for x in rows),
+                      "link": ("cte", {})})
+    if R.tables_ready(cur, "agents"):
+        fub = {(CTE.name_for(cur, n) or "").lower() for n in R.agent_names(cur).values()}
+        missing = [x["name"] for x in R.fetch(cur, """SELECT DISTINCT TRIM(primary_agent) AS name FROM cte_deals
+                                                      WHERE file_year = %(y)s AND status IN ('Closed', 'Pending')
+                                                        AND COALESCE(TRIM(primary_agent), '') <> '' ORDER BY 1""", {"y": year})
+                   if x["name"].lower() not in fub]
+        if missing:
+            items.append({"level": "info", "key": "cte_not_in_fub:" + ",".join(missing),
+                          "title": f"{len(missing)} agent{'s' if len(missing) != 1 else ''} with deals in CTE not found in Follow Up Boss",
+                          "detail": "Their appointments and calls can't be shown next to their deals: " + ", ".join(missing)
+                                    + ". Different spelling, or not set up in FUB?",
+                          "link": ("cte", {"_anchor": "agents"}),
+                          "choices": ["Spelled differently: I'll say how in the comment", "Not in FUB: that's fine"]})
+    if receipts and receipts.get("unmatched"):
+        items.append({"level": "info", "key": f"unmatched_receipts:{year}",
+                      "title": f"{receipts['unmatched']} Compass receipt{'s' if receipts['unmatched'] != 1 else ''} this year match no deal in CTE",
+                      "detail": "Referral or other income, or a deal missing from the CTE file?",
+                      "link": ("compass_invoices", {"_anchor": "unmatched"}),
+                      "choices": ["Not deals (referrals etc.): OK", "Deals missing from CTE: add them"]})
+    # last year's closings with no receipt (the mailbox has no escrow emails before 08/2025)
+    try:
+        deals, _ = gmail_import.deal_receipts(cur, date(year - 1, 1, 1), date(year, 1, 1))
+    except Exception:
+        deals = []
+    if deals and any(d["receipts"] for d in deals):
+        miss = [d for d in deals if not d["receipts"]]
+        if miss:
+            items.append({"level": "info", "key": f"missing_receipts:{year - 1}",
+                          "title": f"{year - 1}: {len(miss)} of {len(deals)} closed deals have no Compass receipt",
+                          "detail": "The mailbox has no \"Paid by Escrow\" emails before August 2025, so most of these are "
+                                    "from the first half. Forward the old statements to the connected Gmail, or accept the gap.",
+                          "link": ("compass_invoices", {"year": year - 1, "deals": "missing"}),
+                          "choices": ["Find and forward the old statements", "OK: not needed for that year"]})
+    return items
+
+
+def _standing(latest):
+    """The one-time questions still open (not marked Fixed)."""
+    out = []
+    for key, title, detail, link, choices in STANDING:
+        d = latest.get(key)
+        if d and d["status"] == "fixed":
+            continue
+        out.append({"level": "ask", "key": key, "title": title, "detail": detail, "link": link, "choices": choices})
+    return out
+
+
 def _questions(cur, year):
     """Open questions found in the data for the owners to decide. Each disappears once it's fixed.
     choices: the two answers offered in the dropdown (none = comment only)."""
@@ -325,6 +452,8 @@ def overview(cur, today, tz, year_totals):
     agents = _safe(cur, "agents", lambda: _agents(cur, today, checks), []) if has_cte else []
     fresh = _safe(cur, "freshness", lambda: _freshness(cur), [])
     questions = _safe(cur, "questions", lambda: _questions(cur, year), []) if has_cte else []
+    questions += _safe(cur, "data checks", lambda: _data_checks(cur, year, receipts), []) if has_cte else []
+    questions += _standing(_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {})
     company = None
     if checks:
         paid = [r["company"] for r in checks if r["company"] is not None]
