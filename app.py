@@ -1033,7 +1033,19 @@ def business_overview():
                          "options": [("", "All sources")] + [(s, s) for s in opts["source_options"]]},
                         {"name": "year", "label": "Year", "default": str(year),
                          "options": [(str(y), str(y)) for y in range(today.year, today.year - 4, -1)]}])
-    return render_template("business_overview.html", ready=ready, year=year, **data)
+    # command-center strip: spend vs the plan's cap from QuickBooks
+    cc = None
+    try:
+        with db() as cur:
+            if QR._has_txns(cur):
+                k = QR.kpis(cur, today.date())
+                caps = QR.expense_caps(cur)
+                cap = caps[-1]["cap"] if caps else dict((x, v) for x, _, v, _ in G.MONTHLY)["expenses"][0]
+                cc = {"spend": k["avg_spend_3m"], "cap": cap, "income": k["ytd"]["income"], "net": k["ytd"]["net"],
+                      "margin": k["ytd"]["margin"], "chg": k["chg"]}
+    except Exception:
+        app.logger.exception("business overview strip")
+    return render_template("business_overview.html", ready=ready, year=year, cc=cc, **data)
 
 
 # ---------------------------------------------------------------- Best Call Time
