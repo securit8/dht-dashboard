@@ -76,6 +76,16 @@
 {% else %}
   {{ kpi_band(kpis.period, 'Selected timeframe', rng.label, 'vs prev. period') }}
 
+  <h2>Top Performers</h2>
+  <div class="grid3" style="margin-bottom:20px">
+    {% if has_cte %}{{ m.board('Top 5 Closers (CTE)', 'Year to date', top.cte_closers) }}{% endif %}
+    {{ m.board('Top 5 Closers' ~ (' (FUB)' if has_cte else ''), 'Year to date', top.closers) }}
+    {{ m.board('Top 5 Appointment Bookers', 'Year to date', top.bookers) }}
+    {% if has_cte %}{{ m.board('Top 5 Written (CTE)', 'Last 90 days', top.cte_written) }}{% endif %}
+    {{ m.board('Top 5 Written' ~ (' (FUB)' if has_cte else ''), 'Last 90 days', top.written) }}
+    {{ m.board('Top 5 Contact Attempts', 'Last 30 days', top.attempts) }}
+  </div>
+
   <div class="card">
     <div class="card-head">
       <h2>Team Overview</h2>
@@ -126,14 +136,5 @@
     <div class="note">Leads = new leads assigned in these dates. Appointments = set in these dates; held = scheduled in these dates with a "held" outcome. Accepted = deals written in these dates.{% if has_cte %} Deal columns show CTE (from the deal log, credited to the Primary Agent) / FUB (Follow Up Boss deals).{% endif %}</div>
   </div>
 
-  <h2>Top Performers</h2>
-  <div class="grid3">
-    {% if has_cte %}{{ m.board('Top 5 Closers (CTE)', 'Year to date', top.cte_closers) }}{% endif %}
-    {{ m.board('Top 5 Closers' ~ (' (FUB)' if has_cte else ''), 'Year to date', top.closers) }}
-    {{ m.board('Top 5 Appointment Bookers', 'Year to date', top.bookers) }}
-    {% if has_cte %}{{ m.board('Top 5 Written (CTE)', 'Last 90 days', top.cte_written) }}{% endif %}
-    {{ m.board('Top 5 Written' ~ (' (FUB)' if has_cte else ''), 'Last 90 days', top.written) }}
-    {{ m.board('Top 5 Contact Attempts', 'Last 30 days', top.attempts) }}
-  </div>
 {% endif %}
 {% endblock %}
