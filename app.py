@@ -304,6 +304,12 @@ def splits_page():
                            contracts=contracts, bonus_volume=SP.BONUS_VOLUME, no_contract=SP.NO_CONTRACT, show=request.args.get("show"))
 
 
+@app.route("/version")
+def version():
+    """Which commit is running (Render sets RENDER_GIT_COMMIT), to tell when a deploy is live."""
+    return {"commit": (os.environ.get("RENDER_GIT_COMMIT") or "local")[:7]}
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
