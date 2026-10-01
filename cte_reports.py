@@ -229,6 +229,12 @@ def agent_deals(cur, cte_agent, limit=30):
         LIMIT {int(limit)}""", {"cte_agent": cte_agent})
 
 
+# Follow Up Boss name -> CTE name, for agents spelled differently in the two (owners' decisions)
+FUB_TO_CTE = {
+    "samuel foote": "sam foote",  # decided 10/01/2026 on the dashboard
+}
+
+
 def name_for(cur, fub_name, names=None):
     """The CTE spelling of a FUB agent's name, if they appear in CTE at all. Pass `names`
     (agent_options) when looking up many agents, so the CTE name list is read once."""
@@ -239,6 +245,7 @@ def name_for(cur, fub_name, names=None):
             return None
         names = agent_options(cur)
     wanted = fub_name.strip().lower()
+    wanted = FUB_TO_CTE.get(wanted, wanted)
     return next((n for n in names if n.lower() == wanted), None)
 
 

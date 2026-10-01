@@ -956,7 +956,7 @@ def business_overview():
             months = CTE.business_months(cur, year, agent, source)
             # FUB deals as extra rows under the CTE ones (the owner asked for both)
             fub_uid = next((uid for uid, name in R.agent_names(cur).items()
-                            if agent and name.lower() == agent.lower()), None)
+                            if agent and (CTE.name_for(cur, name, options) or "").lower() == agent.lower()), None)
             if agent and not fub_uid:
                 fub_uid = -1  # agent isn't in FUB: show zeros
             fub = R.business_months(cur, R.Filters(today, today, fub_uid, source, TEAM_TZ_NAME), year) \
