@@ -131,6 +131,7 @@ def quickbooks_callback():
 def quickbooks_refresh():
     try:
         months = qbo.pull_pnl(DATABASE_URL)
+        entries = qbo.pull_income_detail(DATABASE_URL)
     except qbo.NeedsReconnect as e:
         return redirect(url_for("quickbooks", err=str(e)))
     except Exception as e:  # noqa: BLE001
