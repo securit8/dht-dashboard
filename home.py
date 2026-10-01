@@ -300,6 +300,42 @@ def _data_checks(cur, year, receipts):
     return items
 
 
+def _books_items(cur, year):
+    """One item per QuickBooks income entry with no Compass payment, and per Compass payment that isn't in
+    QuickBooks (from gmail_import.books_match). Bank interest is grouped into one line."""
+    m = gmail_import.books_match(cur, year)
+    if not m:
+        return []
+    items = []
+    interest = [t for t in m["qb_only"] if "interest" in (t["account"] or "").lower()]
+    for t in m["qb_only"]:
+        if t in interest:
+            continue
+        memo = " ".join((t["memo"] or "").split())
+        items.append({"level": "ask", "key": f"qb_only:{t['date']}|{t['amount']:.2f}",
+                      "title": f"QuickBooks {t['type'] or 'entry'} {t['date'].strftime('%m/%d/%Y')} ${t['amount']:,.2f}: no Compass payment matches",
+                      "detail": f"Booked to {t['account'] or 'income'}" + (f" from {t['name']}" if t["name"] else "")
+                                + (f". Bank memo: {memo[:140]}" if memo else "") + ". What is it?",
+                      "link": ("compass_invoices", {"year": year, "_anchor": "books-match"}),
+                      "choices": ["Not from Compass: real income, OK (say what in the comment)",
+                                  "Should match a Compass payment: look into it"],
+                      "_row": t})
+    if interest:
+        items.append({"level": "info", "key": f"qb_interest:{year}",
+                      "title": f"QuickBooks bank interest {year}: ${sum(t['amount'] for t in interest):,.2f}",
+                      "detail": "Counted as income in QuickBooks but isn't a Compass payment, so it's part of the difference.",
+                      "link": ("compass_invoices", {"year": year, "_anchor": "books-match"})})
+    for p in m["compass_only"]:
+        what = "Paid by escrow" if p["kind"] == "escrow" else "Compass payment"
+        items.append({"level": "ask", "key": f"compass_only:{p['id']}",
+                      "title": f"{what} {p['date'].strftime('%m/%d/%Y')} ${p['amount']:,.2f} ({(p['property'] or '').split(',')[0]}): not found in QuickBooks",
+                      "detail": "No QuickBooks income entry with this amount within 3 weeks. Check the bank deposits around this date.",
+                      "link": ("compass_invoices", {"year": year, "_anchor": "books-match"}),
+                      "choices": ["Found: deposited as a different amount or combined", "Missing: never deposited, follow up"],
+                      "_row": p})
+    return items
+
+
 def _standing(latest):
     """The one-time questions still open (not marked Fixed)."""
     out = []
@@ -518,6 +554,7 @@ def _overview(cur, today, tz, year_totals):
     fresh = _safe(cur, "freshness", lambda: _freshness(cur), [])
     questions = _safe(cur, "questions", lambda: _questions(cur, year), []) if has_cte else []
     questions += _safe(cur, "data checks", lambda: _data_checks(cur, year, receipts), []) if has_cte else []
+    questions += _safe(cur, "books items", lambda: _books_items(cur, year), []) or []
     questions += _standing(_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {})
     company = None
     if checks:
@@ -532,6 +569,8 @@ def _overview(cur, today, tz, year_totals):
 def _with_decisions(cur, items, year=None, checks=None, receipts=None, money=None):
     """Attach the latest owner decision (dropdown choice + comment) and the detail table to each item."""
     latest = _safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}
+    # an item whose decision is marked Fixed is done, even when the data behind it stays the same
+    items = [i for i in items if not (latest.get(i["key"]) and latest[i["key"]]["status"] == "fixed")]
     for i in items:
         i["decision"] = latest.get(i["key"])
         i["table"] = _safe(cur, f"details {i['key']}", lambda: details(cur, i, year, checks, receipts, money or {}))
@@ -728,6 +767,31 @@ def details(cur, item, year, checks, receipts, money):
                                 FROM cte_deals WHERE file_year = %(y)s AND LOWER(TRIM(primary_agent)) = LOWER(%(n)s)""", {"y": year, "n": n})[0]
             out.append([n, str(r["closed"]), str(r["pending"]), best])
         return _tbl(["Name in CTE", "Closed", "Pending", "Closest name in Follow Up Boss"], out, num=(1, 2))
+    if kind == "compass_only":
+        p = item.get("_row")
+        if p:
+            cur.execute("""SELECT txn_date, txn_type, name, memo, account, amount FROM qbo_income_txns
+                           WHERE txn_date BETWEEN %s AND %s ORDER BY txn_date""",
+                        (p["date"] - timedelta(days=14), p["date"] + timedelta(days=14)))
+            near = cur.fetchall()
+            rows = [["Compass", _d(p["date"]), "Paid by escrow" if p["kind"] == "escrow" else "Payment",
+                     (p["property"] or "")[:60], f"${p['amount']:,.2f}"]]
+            rows += [["QuickBooks", _d(r[0]), f"{r[1] or ''} · {r[4] or ''}", " ".join((r[3] or r[2] or "").split())[:60], f"${float(r[5]):,.2f}"]
+                     for r in near]
+            return _tbl(["", "Date", "Type", "Property / memo", "Amount"], rows, num=(4,))
+    if kind == "qb_only":
+        t = item.get("_row")
+        if t:
+            cur.execute("""SELECT COALESCE(paid_on, (received_at AT TIME ZONE 'America/Los_Angeles')::date) AS d, kind, property, total
+                           FROM compass_payments WHERE total IS NOT NULL
+                             AND COALESCE(paid_on, (received_at AT TIME ZONE 'America/Los_Angeles')::date) BETWEEN %s AND %s ORDER BY 1""",
+                        (t["date"] - timedelta(days=21), t["date"] + timedelta(days=21)))
+            near = cur.fetchall()
+            rows = [["QuickBooks", _d(t["date"]), f"{t['type'] or ''} · {t['account'] or ''}",
+                     " ".join((t["memo"] or t["name"] or "").split())[:60], f"${t['amount']:,.2f}"]]
+            rows += [["Compass", _d(r[0]), "Paid by escrow" if r[1] == "escrow" else "Payment", (r[2] or "")[:60], f"${float(r[3]):,.2f}"]
+                     for r in near]
+            return _tbl(["", "Date", "Type", "Property / memo", "Amount"], rows, num=(4,))
     if kind == "unmatched_receipts":
         return _tbl(["Date", "Compass says", "Statement", "Gross", "Paid"],
                     [[_d(r.get("bill_date") or r.get("paid_on")), r.get("property") or r.get("description") or "",
