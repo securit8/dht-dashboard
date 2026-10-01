@@ -1061,6 +1061,10 @@ def _year_extras(cur, years, agent=None):
     uid = None
     if agent:
         uid = _fub_name_map(cur).get(agent.lower())
+    by_year = {}
+    if has_fub and fub_from and (not agent or uid):
+        start = datetime(fub_from.year, 1, 1, tzinfo=TEAM_TZ)
+        by_year = R.appt_counts(cur, R.Filters(start, datetime.now(TEAM_TZ) + timedelta(days=1), uid, None, TEAM_TZ_NAME), "year")
     for y in years:
         yr = y["year"]
         y["compass"] = None if agent else HOME._safe(cur, "compass ytd", lambda: HOME._compass_ytd(cur, yr))
@@ -1075,10 +1079,8 @@ def _year_extras(cur, years, agent=None):
         y["cte_company"] = (inc - cos) if (inc and cos and cos > 0.15 * inc) else None
         y["appts"] = None
         if has_fub and fub_from and fub_from.year <= yr and (not agent or uid):
-            start = datetime(yr, 1, 1, tzinfo=TEAM_TZ)
-            c = R.funnel_counts(cur, R.Filters(start, start.replace(year=yr + 1), uid, None, TEAM_TZ_NAME))
-            y["appts"] = {"set": c["appts_set"], "held": c["held"], "not_held": c["not_held"],
-                          "partial": fub_from.year == yr}
+            c = by_year.get(yr, {"set": 0, "held": 0, "not_held": 0})
+            y["appts"] = {**c, "partial": fub_from.year == yr}
     return years
 
 
@@ -1099,6 +1101,7 @@ def _agent_extras(cur, agents, start, end):
                 sum(float(r["amount"] or 0) for r in d["receipts"])
     uids = _fub_name_map(cur)
     has_fub = R.tables_ready(cur, "people", "appointments")
+    by_agent = R.appt_counts(cur, R.Filters(start, end, None, None, TEAM_TZ_NAME), "agent") if has_fub else {}
     activity = {}
     if R.tables_ready(cur, "agent_events"):
         for r in R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end}):
@@ -1110,8 +1113,7 @@ def _agent_extras(cur, agents, start, end):
         a["fub"] = uid is not None
         a["appts"] = None
         if uid is not None and has_fub:
-            c = R.funnel_counts(cur, R.Filters(start, end, uid, None, TEAM_TZ_NAME))
-            a["appts"] = {"set": c["appts_set"], "held": c["held"], "not_held": c["not_held"]}
+            a["appts"] = by_agent.get(uid, {"set": 0, "held": 0, "not_held": 0})
         ev = activity.get(uid) if uid is not None else None
         a["calls"] = ((ev["attempts"] or 0) + (ev["conversations"] or 0)) if ev else (0 if uid is not None else None)
         a["conversations"] = (ev["conversations"] or 0) if ev else (0 if uid is not None else None)

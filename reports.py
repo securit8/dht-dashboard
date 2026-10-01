@@ -5,6 +5,7 @@ dicts/lists for the templates. Tables are filled by fub_agent_activity_pull.py:
 agent_events, people, appointments, deals, agents. The web app owns
 agent_goals and coaching_notes (see ensure_app_tables).
 """
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
@@ -151,11 +152,26 @@ def agent_names(cur):
     return names
 
 
+_ttl = {}
+
+
+def _cached(key, seconds, fn):
+    """fn() reused for `seconds` (filter dropdown lists change rarely and are read on every page)."""
+    hit = _ttl.get(key)
+    if hit and time.monotonic() - hit[0] < seconds:
+        return hit[1]
+    value = fn()
+    _ttl[key] = (time.monotonic(), value)
+    return value
+
+
 def agent_options(cur):
     """Agents with any activity, for filter dropdowns: [(id, name)] by name."""
-    names = agent_names(cur)
-    active = {r["user_id"] for r in fetch(cur, "SELECT DISTINCT user_id FROM agent_events", {})}
-    return sorted(((uid, names[uid]) for uid in active if uid in names), key=lambda x: x[1].lower())
+    def build():
+        names = agent_names(cur)
+        active = {r["user_id"] for r in fetch(cur, "SELECT DISTINCT user_id FROM agent_events", {})}
+        return sorted(((uid, names[uid]) for uid in active if uid in names), key=lambda x: x[1].lower())
+    return list(_cached("agent_options", 600, build))
 
 
 def most_active_agent(cur, days=30):
@@ -166,8 +182,29 @@ def most_active_agent(cur, days=30):
 
 
 def source_options(cur):
-    return [r["src"] for r in fetch(cur, f"""
-        SELECT {SRC} AS src, COUNT(*) FROM people p GROUP BY 1 ORDER BY 2 DESC""", {})]
+    return list(_cached("source_options", 600, lambda: [r["src"] for r in fetch(cur, f"""
+        SELECT {SRC} AS src, COUNT(*) FROM people p GROUP BY 1 ORDER BY 2 DESC""", {})]))
+
+
+def appt_counts(cur, f, by):
+    """Appointments set / held / not held in f's dates, grouped by year (by="year") or by FUB user
+    (by="agent"), in two queries instead of one funnel_counts per group. Same held / not-held rule."""
+    p = f.params()
+    if by == "year":
+        src, k_set, k_start = "appointments a", "EXTRACT(YEAR FROM a.created_at AT TIME ZONE %(tz)s)::int", \
+            "EXTRACT(YEAR FROM a.start_at AT TIME ZONE %(tz)s)::int"
+    else:
+        src, k_set, k_start = "appointments a CROSS JOIN LATERAL UNNEST(a.agent_ids) AS u(uid)", "u.uid", "u.uid"
+    out = {}
+    for row in fetch(cur, f"""SELECT {k_set} AS k, COUNT(*) AS n FROM {src}
+                              WHERE a.created_at >= %(start)s AND a.created_at < %(end)s AND {APPTS_F} GROUP BY 1""", p):
+        out.setdefault(row["k"], {"set": 0, "held": 0, "not_held": 0})["set"] = row["n"]
+    for row in fetch(cur, f"""SELECT {k_start} AS k, COUNT(*) FILTER (WHERE {APPT_CLASS} = 'held') AS held,
+                                     COUNT(*) FILTER (WHERE {APPT_CLASS} = 'not_held') AS not_held
+                              FROM {src} WHERE a.start_at >= %(start)s AND a.start_at < %(end)s AND {APPTS_F} GROUP BY 1""", p):
+        e = out.setdefault(row["k"], {"set": 0, "held": 0, "not_held": 0})
+        e["held"], e["not_held"] = row["held"], row["not_held"]
+    return out
 
 
 # FUB's default stage order, used to sort the stage filter (other stages go after)
