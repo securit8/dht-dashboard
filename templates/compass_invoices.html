@@ -107,7 +107,7 @@
       <div class="tbl-wrap"><table class="tbl">
         <tr><th>Date</th><th>Type</th><th>No.</th><th>From / name</th><th>Memo</th><th>Income account</th><th class="n">Amount</th></tr>
         {% for r in match.qb_only %}
-        <tr><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ r.type or '' }}</td><td>{{ r.doc or '' }}</td><td>{{ r.name or '' }}</td>
+        <tr id="qb-{{ r.id }}"><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ r.type or '' }}</td><td>{{ r.doc or '' }}</td><td>{{ r.name or '' }}</td>
           <td style="white-space:normal;max-width:320px">{{ r.memo or '' }}</td><td>{{ r.account or '' }}</td><td class="n"><b>{{ '${:,.2f}'.format(r.amount) }}</b></td></tr>
         {% else %}<tr><td colspan="7" class="muted">Every QuickBooks income entry has a Compass payment.</td></tr>{% endfor %}
       </table></div>
@@ -115,7 +115,7 @@
       <div class="tbl-wrap"><table class="tbl">
         <tr><th>Paid</th><th>Statement</th><th>Payment #</th><th>Property</th><th class="n">Amount</th><th></th></tr>
         {% for r in match.compass_only %}
-        <tr><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ 'Escrow statement' if r.kind == 'escrow' else 'Upcoming Payment' }}</td><td>{{ r.payment_no or '' }}</td>
+        <tr id="cp-{{ r.id }}"><td>{{ r.date.strftime('%m/%d/%Y') }}</td><td>{{ 'Escrow statement' if r.kind == 'escrow' else 'Upcoming Payment' }}</td><td>{{ r.payment_no or '' }}</td>
           <td>{{ r.property or '' }}</td><td class="n"><b>{{ '${:,.2f}'.format(r.amount) }}</b></td>
           <td><a href="{{ url_for('compass_invoice_text', message_id=r.id) }}" target="_blank" rel="noopener">text</a></td></tr>
         {% else %}<tr><td colspan="6" class="muted">Every Compass payment is in QuickBooks.</td></tr>{% endfor %}

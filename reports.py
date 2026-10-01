@@ -124,6 +124,11 @@ def fetch(cur, sql, params):
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def fetch_rows(cur, sql, params=None):
+    cur.execute(sql, params or {})
+    return cur.fetchall()
+
+
 def one(cur, sql, params):
     return fetch(cur, sql, params)[0]
 

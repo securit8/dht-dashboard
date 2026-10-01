@@ -141,7 +141,8 @@ def _receipts(cur, year):
             when = (s.get("bill_date") or s.get("paid_on"))
             typos.append({"address": d["address"], "close_date": d["close_date"], "what": what, "fix": fix,
                           "when": when, "anchor": f"deal-{d['file_year']}-{d['row_num']}", "agent": d["agent"],
-                          "gci": d["gci"], "deal_type": d["deal_type"], "receipt": s})
+                          "gci": d["gci"], "deal_type": d["deal_type"], "receipt": s,
+                          "file_year": d["file_year"], "row_num": d["row_num"]})
     return {"total": len(deals), "missing": len(missing), "typos": len(typos), "typo_list": typos,
             "missing_list": missing, "unmatched_list": unmatched,
             "unmatched": len(unmatched), "any_receipts": any(d["receipts"] for d in deals) or bool(unmatched)}
@@ -167,16 +168,69 @@ def low_pct_rows(cur, year):
         if (r["primary_agent"] or "").strip().lower() not in SP.OWNERS]
 
 
+def no_signed_date_rows(cur, year):
+    return R.fetch(cur, """SELECT d.* FROM cte_deals d WHERE file_year = %(y)s AND deal_type = 'Listing' AND signed_date IS NULL
+                           AND status NOT IN ('Cancelled', 'Sale Failed', 'Expired') ORDER BY row_num""", {"y": year})
+
+
+def no_split_rows(cur, year):
+    return R.fetch(cur, """SELECT d.* FROM cte_deals d WHERE file_year = %(y)s AND status = 'Closed'
+                           AND primary_pct IS NULL AND primary_gci IS NULL ORDER BY row_num""", {"y": year})
+
+
+def missing_field_rows(cur, year):
+    return R.fetch(cur, """SELECT d.* FROM cte_deals d WHERE file_year = %(y)s AND status = 'Closed'
+                           AND (source IS NULL OR TRIM(source) = '' OR commission_pct IS NULL) ORDER BY row_num""", {"y": year})
+
+
+# CTE "My Business" sheet: the column letter and header of each field (cte_import.DEAL_COLS)
+CTE_COL = {"deal_type": ("W", "Type"), "status": ("X", "Status"), "address": ("Y", "Address"), "source": ("AA", "Lead Source"),
+           "signed_date": ("AB", "Signed Date"), "list_date": ("AC", "List Date"), "close_date": ("AG", "Close Date"),
+           "sale_price": ("AI", "Sale Price"), "commission_pct": ("AK", "Commission %"), "gci": ("AM", "GCI"),
+           "primary_agent": ("AS", "Primary Agent"), "primary_pct": ("AT", "Primary %"), "primary_gci": ("AU", "Primary GCI")}
+
+
+def cell(field, row):
+    col, name = CTE_COL[field]
+    return f"{name} {col}{row}"
+
+
+def _fix_cells(kind, r):
+    n = r["row_num"]
+    if kind == "low_pct":
+        return f"{cell('commission_pct', n)} / {cell('gci', n)}: approval, or correct if mistyped"
+    if kind == "both_sides":
+        return f"{cell('deal_type', n)}: decide 1 or 2 closings (no edit yet)"
+    if kind == "no_signed_date":
+        return f"{cell('signed_date', n)}: fill in"
+    if kind == "no_split_pct":
+        return f"{cell('primary_pct', n)} / {cell('primary_gci', n)}: fill in"
+    if kind == "missing_fields":
+        out = []
+        if not (r.get("source") or "").strip():
+            out.append(cell("source", n))
+        if r.get("commission_pct") is None:
+            out.append(cell("commission_pct", n))
+        return ", ".join(out) + ": fill in"
+    return ""
+
+
 FOCUS = {"both_sides": ("Sales where we had both sides", both_sides_rows),
-         "low_pct": ("Agent deals under the 2% minimum commission", low_pct_rows)}
+         "low_pct": ("Agent deals under the 2% minimum commission", low_pct_rows),
+         "no_signed_date": ("Listings with no Signed Date", no_signed_date_rows),
+         "no_split_pct": ("Closed deals with no agent split (Primary % / Primary GCI)", no_split_rows),
+         "missing_fields": ("Closed deals missing a lead source or commission %", missing_field_rows)}
 
 
 def focus_deals(cur, kind, year):
-    """(title, deal rows) for the CTE page when it's opened from a Needs-attention item."""
+    """(title, deal rows with the cells to fix) for the CTE page when it's opened from a Needs-attention item."""
     if kind not in FOCUS:
         return None
     title, fn = FOCUS[kind]
-    return {"kind": kind, "title": title, "rows": fn(cur, year)}
+    rows = fn(cur, year)
+    for r in rows:
+        r["fix"] = _fix_cells(kind, r)
+    return {"kind": kind, "title": title, "rows": rows}
 
 
 def _sides(rows):
@@ -589,7 +643,8 @@ def _overview(cur, today, tz, year_totals):
 
 
 def _with_decisions(cur, items, year=None, checks=None, receipts=None, money=None):
-    """Attach the latest owner decision (dropdown choice + comment) and the detail table to each item."""
+    """Attach the latest owner decision (dropdown choice + comment), the detail table and where to fix it."""
+    _safe(cur, "where", lambda: add_where(cur, items, year, receipts))
     latest = _safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}
     # an item whose decision is marked Fixed is done, even when the data behind it stays the same
     items = [i for i in items if not (latest.get(i["key"]) and latest[i["key"]]["status"] == "fixed")]
@@ -820,3 +875,125 @@ def details(cur, item, year, checks, receipts, money):
                       "Escrow" if r.get("kind") == "escrow" else "Upcoming Payment", _m(r.get("gross")), _m(r.get("amount"))]
                      for r in (receipts or {}).get("unmatched_list", [])], num=(3, 4))
     return None
+
+
+
+# ---------------------------------------------------------------- where each item is fixed
+
+def _rows_text(rows, limit=12):
+    nums = [str(r["row_num"]) for r in rows]
+    return ", ".join(nums[:limit]) + (f" and {len(nums) - limit} more" if len(nums) > limit else "")
+
+
+def add_where(cur, items, year, receipts):
+    """Give every item a "Fix in" line (system > file/screen > sheet > row/column or field) and point its
+    link at that exact spot."""
+    files = {fy: sf for fy, sf in R.fetch_rows(cur, "SELECT DISTINCT ON (file_year) file_year, source_file FROM cte_deals ORDER BY file_year, source_file")} \
+        if CTE.ready(cur) else {}
+    cte_file = files.get(year, f"CTE {year} workbook")
+    sheet = f"OneDrive › CTE FILES › {cte_file} › My Business"
+    for i in items:
+        kind, _, arg = i["key"].partition(":")
+        w = None
+        if kind == "typo":
+            t = next((t for t in (receipts or {}).get("typo_list", []) if f"{t['address']}|{t['close_date']}" == arg), None)
+            if t:
+                f = files.get(t["file_year"], cte_file)
+                if t["what"] == "close date":
+                    w = (f"OneDrive › CTE FILES › {f} › My Business › {cell('close_date', t['row_num'])}: "
+                         f"change {t['close_date'].strftime('%m/%d/%Y')} to {t['when'].strftime('%m/%d/%Y') if t['when'] else 'the Compass date'}")
+                else:
+                    num = (t["fix"].split() or [""])[0]
+                    parts = t["address"].split(None, 1)
+                    new = num + (" " + parts[1] if len(parts) > 1 else "")
+                    w = f"OneDrive › CTE FILES › {f} › My Business › {cell('address', t['row_num'])}: change “{t['address']}” to “{new}”"
+        elif kind == "both_sides":
+            w = f"{sheet} › {CTE_COL['deal_type'][1]} column {CTE_COL['deal_type'][0]}, rows {_rows_text(both_sides_rows(cur, year))}: a decision, no edit yet"
+        elif kind == "low_pct":
+            rows = low_pct_rows(cur, year)
+            w = f"{sheet} › Commission % column AK and GCI column AM, rows {_rows_text(rows)}: written approval, or correct if mistyped"
+        elif kind == "no_signed_date":
+            w = f"{sheet} › Signed Date column AB, rows {_rows_text(no_signed_date_rows(cur, year))}"
+            i["link"] = ("cte", {"focus": "no_signed_date", "_anchor": "focus"})
+        elif kind == "no_split_pct":
+            w = f"{sheet} › Primary % column AT and Primary GCI column AU, rows {_rows_text(no_split_rows(cur, year))}"
+            i["link"] = ("cte", {"focus": "no_split_pct", "_anchor": "focus"})
+        elif kind == "missing_fields":
+            w = f"{sheet} › Lead Source column AA / Commission % column AK, rows {_rows_text(missing_field_rows(cur, year))}"
+            i["link"] = ("cte", {"focus": "missing_fields", "_anchor": "focus"})
+        elif kind == "fell_through":
+            w = f"{sheet} › Status column X = Cancelled (nothing to fix; review why they fell through)"
+            i["link"] = ("business_overview", {"status": "Cancelled", "_anchor": "status-deals"})
+        elif kind == "lead_gen_empty":
+            w = f"OneDrive › CTE FILES › {cte_file} › Lead Gen sheet: one row per agent per day (Dials, Contacts, Written Offers, Open Houses Held…)"
+        elif kind == "same_person":
+            a, _, b = arg.partition("|")
+            where = R.fetch(cur, """SELECT source_file, MIN(row_num) AS first, COUNT(*) AS n FROM cte_deals
+                                    WHERE LOWER(TRIM(primary_agent)) = LOWER(%(n)s) GROUP BY 1 ORDER BY 1""", {"n": a})
+            w = (f"OneDrive › CTE FILES › My Business › Primary Agent column AS (and the Lead Gen sheet's agent name): "
+                 f"“{a}” appears in " + (", ".join(f"{x['source_file']} ({x['n']} row{'s' if x['n'] != 1 else ''}, first is row {x['first']})" for x in where) or "the Lead Gen sheet only")
+                 + f". If it's the same person, decide here (the dashboard counts them together) or retype it as “{b}”.")
+        elif kind == "contract":
+            c = next((c for c in SP.CONTRACTS if c["agent"] == arg), None)
+            if c:
+                w = (f"Google Drive › {c['agent']} folder › {c['file']}: "
+                     + ("needs the agent's signature and date" if c["since"] is None
+                        else "section 3 split table vs the Quick Reference cheat sheet on the last page"))
+        elif kind == "no_contract":
+            w = "Google Drive › each agent's folder: add the signed agreement (a PDF with “contract” or “agreement” in the name)"
+        elif kind == "off_contract":
+            w = "Agent Splits › Every closed deal › Off contract: each deal's Compass receipt vs the agent's agreement; fix the pay with Compass, or the agreement in Drive"
+            i["link"] = ("splits_page", {"_anchor": "deals"})
+        elif kind == "missing_receipts":
+            w = (f"Gmail joesellssandiego@gmail.com › forward the missing Compass statements (the list shows each deal), "
+                 f"or the deal's row in {sheet} if its address or date is wrong")
+        elif kind == "unmatched_receipts":
+            w = f"Compass Invoices › Receipts that match no closed deal: if it's a sale, add it to {sheet}"
+        elif kind == "books_vs_compass":
+            w = "QuickBooks › Banking › deposits vs the Compass statements: see the entry-by-entry list"
+        elif kind == "qb_only":
+            t = i.get("_row")
+            if t:
+                w = (f"QuickBooks › {t['type'] or 'Deposit'} on {t['date'].strftime('%m/%d/%Y')} for ${t['amount']:,.2f}, "
+                     f"income account “{t['account'] or ''}”: say what it is, or fix the account")
+                i["link"] = ("compass_invoices", {"year": year, "_anchor": f"qb-{t['id']}"})
+        elif kind == "compass_only":
+            p = i.get("_row")
+            if p:
+                w = (f"Bank of America business checking (BofA Bus Chk 9123): look for ${p['amount']:,.2f} around "
+                     f"{p['date'].strftime('%m/%d/%Y')}; then QuickBooks › Banking › that deposit")
+                i["link"] = ("compass_invoices", {"year": year, "_anchor": f"cp-{p['id']}"})
+        elif kind == "qb_interest":
+            w = "QuickBooks › Interest Earned account (nothing to fix)"
+        elif kind in ("goal_gross", "goal_net"):
+            w = f"Business Overview › Set {year} goals › " + ("Gross (GCI) goal" if kind == "goal_gross" else "Net income goal")
+        elif kind == "gci_pace":
+            w = f"Business Overview › {year} year totals (goal set under Set {year} goals)"
+        elif kind == "stale_new":
+            w = "Follow Up Boss › People › stage “New”, created over 48 hours ago: contact them and change the stage"
+        elif kind == "held_rate":
+            w = "Follow Up Boss › each appointment's outcome (Held / No show / Canceled) and the lead's stage after it"
+            i["link"] = ("appointments", {"period": "last30", "view_by": "start", "status": "not_held"})
+        elif kind == "source":
+            w = {"QuickBooks": "Dashboard › QuickBooks P&L › Reconnect",
+                 "CTE workbooks (OneDrive)": "Render › cron job dht-dashboard-1 › Logs (the daily import)",
+                 "Follow Up Boss": "Render › cron job dht-dashboard-1 › Logs (the FUB pull)"}.get(arg, "Dashboard › Compass Invoices › Gmail account › Reconnect")
+        elif kind == "cte_not_in_fub":
+            w = "Follow Up Boss › Admin › Users (the user's name) vs the Primary Agent column AS in CTE: say here which FUB user each one is"
+        elif i["key"] == "setup:open_house_leads":
+            w = f"{sheet} › Lead Source column AA = “open house”: a rule for how those leads are split"
+        elif i["key"] == "setup:team_past_client":
+            w = f"{sheet} › Lead Source column AA = “Team Past Client”: a rule for how those leads are split"
+        elif i["key"] == "setup:margaryta_agreements":
+            w = "Google Drive › Margaryta Gvritishvili folder › DHT_Contract.pdf, COMMISSION_MODIFICATION_AGREEMENTdocx.pdf, INDEPENDENT CONTRACTOR AGREEMENT DHT"
+            i["link"] = ("splits_page", {"_anchor": "contract-Margaryta-Gvritishvili"})
+        elif i["key"] == "setup:compass_fee_wording":
+            w = "Google Drive › each agent's agreement › section 3 “How commissions are calculated” (Step 2: Compass fee 10%)"
+        elif i["key"] == "setup:escrow_statements":
+            w = "Compass Invoices › payments list (Escrow statement rows): a decision, no edit"
+        elif i["key"] == "setup:onedrive_duplicate_folder":
+            w = "OneDrive (joecorbisiero@dreamhomesteam) › the “CTE” folder next to “CTE FILES”"
+        elif i["key"] == "setup:onedrive_button":
+            w = "Render › dht-dashboard web service › Environment: the MS_* keys"
+        i["where"] = w
+    return items

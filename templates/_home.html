@@ -56,6 +56,7 @@
           <span class="sev">{{ {'bad': 'Fix', 'warn': 'Check', 'ask': 'Decide', 'info': 'FYI'}[i.level] }}</span>
           <div class="txt">
             <a class="ttl" href="{{ href }}"><b>{{ i.title }}</b></a><span class="muted">{{ i.detail }}</span>
+            {% if i.where %}<div class="where"><b>Fix in:</b> {{ i.where }}</div>{% endif %}
             {% if d %}<div class="decided {{ d.status }}">
               {{ {'new': 'Decided', 'needs_info': 'Needs more info', 'fixed': 'Fixed'}[d.status] }}{% if d.decided_by %} by {{ d.decided_by }}{% endif %}, {{ d.decided_at|fmt_date }}:
               {% if d.choice %}<b>{{ d.choice }}</b>{% endif %}{% if d.choice and d.comment %} &mdash; {% endif %}{% if d.comment %}&ldquo;{{ d.comment }}&rdquo;{% endif %}
