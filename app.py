@@ -278,7 +278,12 @@ def splits_page():
         year = today.year
     with db() as cur:
         rows = SP.deal_check(cur, date(year, 1, 1), date(year + 1, 1, 1))
-    notes = {c["agent"]: c["note"] for c in SP.contracts_table()}
+        miles = SP.milestones(cur)
+    contracts = SP.contracts_table()
+    for c in contracts:
+        m = miles.get((c["agent"], c["since"]))
+        c["volume"], c["crossed"] = (m["volume"], m["crossed"]) if m else (None, None)
+    notes = {c["agent"]: c["note"] for c in contracts}
     agents, total = {}, {"checked": 0, "ok": 0, "under": 0, "over": 0, "company": 0.0, "expected": 0.0, "gap": 0.0}
     for r in rows:
         if r["status"] not in ("ok", "under", "over"):
@@ -293,7 +298,7 @@ def splits_page():
             t["gap"] += r["gap"]
     return render_template("splits.html", year=year, year_choices=list(range(today.year, 2023, -1)),
                            rows=rows, agents=sorted(agents.values(), key=lambda a: a["gap"]), total=total,
-                           contracts=SP.contracts_table(), no_contract=SP.NO_CONTRACT, show=request.args.get("show"))
+                           contracts=contracts, bonus_volume=SP.BONUS_VOLUME, no_contract=SP.NO_CONTRACT, show=request.args.get("show"))
 
 
 @app.route("/login", methods=["GET", "POST"])

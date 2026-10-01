@@ -58,7 +58,7 @@
         <td class="n">{{ '${:,.0f}'.format(r.gci|float) if r.gci is not none else '' }}</td>
         <td class="n">{{ '${:,.2f}'.format(r.company) if r.company is not none else '' }}</td>
         <td class="n"><b>{{ '{:.1f}%'.format(r.actual_pct) if r.actual_pct is not none else '' }}</b></td>
-        <td class="n">{{ '{}%'.format(r.expected_pct) if r.expected_pct is not none else '' }}</td>
+        <td class="n">{{ '{}%'.format(r.expected_pct) if r.expected_pct is not none else '' }}{% if r.bonus %}<div class="sub">after $10M</div>{% endif %}</td>
         <td class="n {{ 'neg' if r.gap is not none and r.gap < -1 else 'pos' if r.gap is not none and r.gap > 1 }}">{{ '${:,.0f}'.format(r.gap) if r.gap is not none else '' }}</td>
         <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>{% if r.zillow_fee %}<div class="sub">after a {{ '{:.0f}'.format(r.zillow_fee) }}% Zillow fee</div>{% endif %}
           {% elif r.status == 'under' %}<span class="tag under">Under contract</span>
@@ -74,13 +74,16 @@
   <div class="card">
     <h3>Contract terms &middot; company share</h3>
     <table class="tbl fit">
-      <tr><th style="width:17%">Agent</th><th style="width:10%">Signed</th><th class="n" style="width:9%">Personal</th><th class="n" style="width:8%">Zillow</th><th class="n" style="width:10%">Team / database</th><th>Notes</th></tr>
+      <tr><th style="width:17%">Agent</th><th style="width:10%">Signed</th><th class="n" style="width:9%">Personal</th><th class="n" style="width:8%">Zillow</th><th class="n" style="width:10%">Team / database</th><th class="n" style="width:9%">After $10M</th><th>Notes</th></tr>
       {% for c in contracts %}
       <tr><td><b>{{ c.agent }}</b><div class="sub">{{ c.file }}</div></td><td>{{ c.since.strftime('%m/%d/%Y') if c.since else 'not signed' }}</td>
-        <td class="n">{{ c.personal }}%</td><td class="n">{{ c.zillow }}%</td><td class="n">{{ c.database }}%</td><td class="muted" style="font-size:13px">{{ c.note }}</td></tr>
+        <td class="n">{{ c.personal }}%</td><td class="n">{{ c.zillow }}%</td><td class="n">{{ c.database }}%</td>
+        <td class="n">{% if c.bonus %}{{ c.bonus }}%<div class="sub">{% if c.crossed %}reached {{ c.crossed.close_date.strftime('%m/%d/%Y') }}{% else %}${{ '{:,.1f}'.format((c.volume or 0) / 1000000) }}M of $10M{% endif %}</div>{% endif %}</td>
+        <td class="muted" style="font-size:13px">{{ c.note }}{% if c.crossed %}<br><b>Passed $10M with {{ c.crossed.address }} ({{ c.crossed.close_date.strftime('%m/%d/%Y') }}{% if c.bonus_from %}, counting from {{ c.bonus_from.strftime('%m/%d/%Y') }}{% endif %}); every later deal is on {{ 100 - c.bonus }}/{{ c.bonus }}.</b>{% endif %}</td></tr>
       {% endfor %}
     </table>
-    <div class="note">All agreements: Compass fee 10% of gross shared by split, $550 TC fee paid by the agent (split for Margaryta and Sam), $1,500 onboarding fee if the agent leaves within 10 months.
+    <div class="note">$10M volume = sale prices of the agent's closed CTE deals (primary or secondary agent), all years unless the agreement counts from its own date.
+      All agreements: Compass fee 10% of gross shared by split, $550 TC fee paid by the agent (split for Margaryta and Sam), $1,500 onboarding fee if the agent leaves within 10 months.
       No agreement found in Drive for {{ no_contract|join(', ') }}.</div>
   </div>
 {% endblock %}
