@@ -82,11 +82,28 @@ CONTRACT_PENDING = {"jason patel": "New agreement being made"}
 LEAD_TYPES = [("personal", "Personal / sphere"), ("zillow", "Zillow"), ("database", "Team / database")]
 
 
-def lead_type(source):
-    """CTE lead source -> the contract's lead type."""
+# Lead sources the owners decided on Needs attention: decision key -> (source pattern, the choice meaning "personal")
+LEAD_TYPE_DECISIONS = {"setup:open_house_leads": (r"open\s*house", "Agent's own (personal) lead"),
+                       "setup:team_past_client": (r"team\s*past\s*client", "Agent's own (personal split)")}
+
+
+def own_lead_patterns(cur):
+    """Source patterns the owners said count as the agent's own leads."""
+    try:
+        import decisions
+        made = decisions.latest(cur)
+    except Exception:
+        return []
+    return [pat for key, (pat, own) in LEAD_TYPE_DECISIONS.items() if (made.get(key) or {}).get("choice") == own]
+
+
+def lead_type(source, own=()):
+    """CTE lead source -> the contract's lead type. `own`: extra source patterns that count as personal."""
     s = (source or "").lower()
     if "zillow" in s:
         return "zillow"
+    if any(re.search(p, s) for p in own):
+        return "personal"
     if re.search(r"sphere|personal|client referral|^past client|family|friend", s) and "team" not in s:
         return "personal"
     return "database"
@@ -172,11 +189,12 @@ def deal_check(cur, start, end):
     sources = {(a, d, g): s for a, d, g, s in cur.fetchall()}
     miles = milestones(cur)
     rows_c = decided_contracts(cur)
+    own = own_lead_patterns(cur)
     out = []
     for d in deals:
         agent = d["agent"] or ""
         src = sources.get((d["address"], d["close_date"], d["agent"]))
-        row = {**d, "source": src, "lead": lead_type(src), "owner": agent.lower() in OWNERS,
+        row = {**d, "source": src, "lead": lead_type(src, own), "owner": agent.lower() in OWNERS,
                "contract": None, "contract_file": None, "bonus": False, "expected_pct": None, "actual_pct": None,
                "company": None, "expected": None, "gap": None, "status": "no_receipt"}
         company = sum(float(r["gross"] or r["amount"] or 0) for r in d["receipts"]) if d["receipts"] else None
