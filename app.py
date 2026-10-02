@@ -53,7 +53,8 @@ NAV = [
                           ("call_time", "Best Call Time Report"), ("cte", "CTE Year by Year"),
                           ("quickbooks", "QuickBooks P&L"), ("compass_invoices", "Compass Invoices"), ("splits_page", "Agent Splits"), ("decisions_page", "Decisions"), ("goals_page", "Goals: Oct–Mar Plan")]),
     ("Sales Reports", [("sales_manager", "Sales Manager Report"), ("appointments", "Appointments Report"),
-                       ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard")]),
+                       ("lead_source", "Lead Source Report"), ("leaderboard", "Leaderboard"),
+                       ("calculator", "Activity Calculator")]),
     ("Agent Reports", [("agent_snapshot", "Agent Snapshot")]),
 ]
 
@@ -875,6 +876,46 @@ def appointments():
                         **filter_options(cur))
     return render_template("appointments.html", ready=ready, rng=rng, view_by=view_by, appt_type=appt_type,
                            status=status, page=page, stage_mode=stage_mode, **data)
+
+
+def activity_stats(cur, f):
+    """Calls, appointments set and held (Follow Up Boss + the CTE Lead Gen sheet), offers accepted and
+    closings (CTE deal log) for the filters, and what each step takes."""
+    p = f.params()
+    calls = R.one(cur, f"""SELECT COUNT(*) AS n FROM agent_events e WHERE e.event_type = 'attempt'
+                           AND e.created_at >= %(start)s AND e.created_at < %(end)s AND {R.EVENTS_F}""", p)["n"]
+    fc = R.funnel_counts(cur, f)
+    s = {"calls": calls, "set": fc["appts_set"], "held": fc["held"], "offers": 0, "closed": 0, "dials": 0, "lg_set": 0, "lg_held": 0}
+    if CTE.ready(cur):
+        cte_agent = cte_agent_for(cur, f.agent)
+        d = CTE.deal_counts(cur, f.start, f.end, cte_agent, f.source)
+        s["offers"], s["closed"] = d["written"], d["closed"]
+        if not f.source:  # the Lead Gen sheet has no lead source
+            lg = CTE.lead_gen_totals(cur, f.start, f.end, cte_agent)
+            s.update(dials=lg["dials"], lg_set=lg["appts"], lg_held=lg["held"])
+            s["calls"] += lg["dials"]; s["set"] += lg["appts"]; s["held"] += lg["held"]
+    per = lambda n: round(s["calls"] / n, 1) if n else None  # noqa: E731
+    s["calls_per"] = {"set": per(s["set"]), "held": per(s["held"]), "offers": per(s["offers"]), "closed": per(s["closed"])}
+    s["rates"] = {"call_set": R.pct(s["set"], s["calls"], 2), "set_held": R.pct(s["held"], s["set"], 1),
+                  "held_offer": R.pct(s["offers"], s["held"], 1), "offer_closed": R.pct(s["closed"], s["offers"], 1)}
+    return s
+
+
+@app.route("/calculator")
+@login_required
+def calculator():
+    """How many calls it takes to get an appointment, a held appointment, an accepted offer and a closing,
+    from the real numbers for the filters; and a calculator to plan backwards or forwards from any step."""
+    rng, f = page_filters("year")
+    with db() as cur:
+        ready = R.tables_ready(cur, "people", "agent_events")
+        data = {}
+        if ready:
+            data = dict(stats=activity_stats(cur, f), **filter_options(cur))
+            if f.agent:  # the team next to the agent
+                data["team"] = activity_stats(cur, R.Filters(f.start, f.end, None, f.source, f.tz))
+                data["agent_name"] = R.agent_names(cur).get(f.agent, "Agent")
+    return render_template("calculator.html", ready=ready, rng=rng, **data)
 
 
 @app.route("/lead/<int:person_id>")
