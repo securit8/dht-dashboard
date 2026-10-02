@@ -36,9 +36,11 @@ API = "https://gmail.googleapis.com/gmail/v1/users/me"
 # "Agent Remittance Paid by Escrow/Title #address - date" (escrow paid at closing; one per deal)
 # A remittance that went to another inbox can be forwarded here and given the Gmail label "DHT receipt";
 # it's read only if its subject is still a Compass remittance subject, and skipped if the original is already in.
+# (until 2025 Compass's payment emails were "Compass Agent Remittance-Payment ##46629118 via ACH-1/30/2024")
 REMITTANCE_QUERY = ('{label:dht-receipt (from:DoNotReply@compass.com (subject:"Upcoming Payment Compass Agent Remittance" '
-                    'OR subject:"Agent Remittance Paid by Escrow"))}')
-REMITTANCE_SUBJECT = re.compile(r"^(Upcoming Payment Compass Agent Remittance|Agent Remittance Paid by Escrow)", re.I)
+                    'OR subject:"Agent Remittance Paid by Escrow" OR subject:"Compass Agent Remittance-Payment"))}')
+REMITTANCE_SUBJECT = re.compile(r"^(Upcoming Payment Compass Agent Remittance|Agent Remittance Paid by Escrow|"
+                                r"Compass Agent Remittance-Payment)", re.I)
 FORWARD_PREFIX = re.compile(r"^\s*((fwd?|fw)\s*:\s*)+", re.I)
 # Assistant contribution payments, not invoices: "Assist Contr Sep 30", "Jul 25 Asst Cont 1 of 2"
 ASSIST_RE = re.compile(r"\b(assist\s*contr?|asst\.?\s*cont)", re.I)
