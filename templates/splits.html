@@ -89,4 +89,33 @@
       {% for n in pending_agents %}{{ n }}'s new agreement is being made; their deals are checked once it's signed and in their Drive folder. {% endfor %}
       {% for n in former_agents %}{{ n }} is no longer with the team (their deals aren't checked). {% endfor %}</div>
   </div>
+
+  <div class="card" id="drive">
+    <div class="card-head"><h3 style="margin:0">Agreements from Google Drive</h3>
+      <div style="display:flex;gap:8px">
+      {% if drive %}
+        <form method="post" action="{{ url_for('drive_refresh') }}"><button class="btn ghost" type="submit">Read Drive now</button></form>
+        <form method="post" action="{{ url_for('drive_disconnect') }}" onsubmit="return confirm('Disconnect Google Drive?')"><button class="btn ghost" type="submit">Disconnect</button></form>
+      {% elif google_ready %}
+        <form method="post" action="{{ url_for('drive_connect') }}"><button class="btn" type="submit">Connect Google Drive (read-only)</button></form>
+      {% endif %}</div>
+    </div>
+    {% if msg %}<div class="note" style="color:#1E7B4C">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="note" style="color:#A33224">{{ err }}</div>{% endif %}
+    <p class="muted" style="font-size:13px;margin:4px 0 10px">
+      {% if drive %}Connected as <b>{{ drive.email }}</b>{% if drive.last_pull_at %} &middot; last read {{ drive.last_pull_at|fmt_date }}{% endif %}{% if drive.needs_reconnect %} &middot; <b style="color:#A33224">needs reconnecting</b>{% endif %}{% if drive.last_error %} &middot; <span style="color:#A33224">{{ drive.last_error }}</span>{% endif %}.
+      Every night new or changed agreement PDFs in the agents' folders are read (read-only: nothing in Drive is ever changed). One that reads cleanly is used right away; anything unclear goes to Needs attention.
+      {% else %}Connect the Google account that sees the agents' folders (shared by sandiegospecialist619). After that, a new or changed agreement is read every night and used by the checks above &mdash; no one has to type it in. Read-only: the dashboard can only list and download files.{% endif %}</p>
+    {% if drive_rows %}
+    <table class="tbl fit">
+      <tr><th>Agent</th><th>File</th><th>Signed</th><th class="n">Personal</th><th class="n">Zillow</th><th class="n">Team</th><th class="n">After $10M</th><th>Status</th></tr>
+      {% for d in drive_rows %}
+      <tr><td><b>{{ d.agent }}</b></td><td class="muted" style="font-size:13px">{{ d.file }}</td><td>{{ d.signed.strftime('%m/%d/%Y') if d.signed else '--' }}</td>
+        <td class="n">{{ d.personal ~ '%' if d.personal is not none else '--' }}</td><td class="n">{{ d.zillow ~ '%' if d.zillow is not none else '--' }}</td>
+        <td class="n">{{ d.database ~ '%' if d.database is not none else '--' }}</td><td class="n">{{ d.bonus ~ '%' if d.bonus else '' }}</td>
+        <td>{% if d.problem %}<span class="tag under">Check</span><div class="sub">{{ d.problem }}</div>{% else %}<span class="tag ok">Read cleanly</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
 {% endblock %}

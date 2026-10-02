@@ -112,6 +112,27 @@ def lead_type(source, own=()):
 AMENDMENT_RUNS = "The 2/23 amendment runs its 12 months"
 
 
+def _drive_contracts(cur, rows, latest):
+    """Agreements read from the agents' Drive folders (drive_contracts.py) that aren't typed in already:
+    the clean ones, and the unclear ones the owners said to use as read."""
+    try:
+        import drive_contracts
+        found = drive_contracts.rows(cur)
+    except Exception:
+        return []
+    have = {(c["agent"].lower(), c["since"]) for c in rows}
+    out = []
+    for d in found:
+        use = not d["problem"] or (latest.get(f"drive_contract:{d['file_id']}") or {}).get("choice") == drive_contracts.USE_AS_READ
+        if not use or None in (d["personal"], d["zillow"], d["database"]) or (d["agent"].lower(), d["signed"]) in have:
+            continue
+        out.append(_c(d["agent"], d["signed"], d["personal"], d["zillow"], d["database"], d["file"],
+                      "Read from Google Drive" + (f" ({d['problem']}; used as read)" if d["problem"] else ""),
+                      bonus=d["bonus"]))
+        have.add((d["agent"].lower(), d["signed"]))
+    return out
+
+
 def decided_contracts(cur):
     """CONTRACTS with the owners' answers on the dashboard applied: which reading of a contradicting
     agreement is right, and the signing date of an unsigned one."""
@@ -122,6 +143,8 @@ def decided_contracts(cur):
         made = {k[len("contract:"):]: d for k, d in latest.items() if k.startswith("contract:")}
     except Exception:
         return rows
+    rows += _drive_contracts(cur, rows, latest)
+    rows.sort(key=lambda c: c["since"] or date.max)  # contract_for takes the latest one per agent
     # Margaryta's 2/23/2026 Commission Modification runs 12 months (75/25 on every deal, 80/20 after $10M
     # closed in the period): when the owners say so, her 4/18 agreement only starts after it ends
     if (latest.get("setup:margaryta_agreements") or {}).get("choice") == AMENDMENT_RUNS:
@@ -173,7 +196,7 @@ def milestones(cur):
     """For every agreement with a $10M bonus: the deal that took the agent past BONUS_VOLUME
     (counting closed CTE deals where the agent is primary or secondary, from bonus_from or the start)."""
     out = {}
-    for c in CONTRACTS:
+    for c in decided_contracts(cur):
         if not c["bonus"]:
             continue
         cur.execute("""SELECT file_year, row_num, close_date, address, sale_price FROM cte_deals

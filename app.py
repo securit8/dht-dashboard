@@ -17,6 +17,7 @@ import goals as G
 import qbo
 import qbo_reports as QR
 import gmail_import
+import drive_contracts
 import cte_import
 import splits as SP
 import home as HOME
@@ -250,6 +251,18 @@ def gmail_connect():
 @app.route("/gmail/callback")
 @login_required
 def gmail_callback():
+    # the Drive connection comes back here too (same Google client and redirect address)
+    drive_state = session.pop("drive_state", None)
+    if drive_state and secrets.compare_digest(request.args.get("state", ""), drive_state):
+        if request.args.get("error") or not request.args.get("code"):
+            return redirect(url_for("splits_page", err=f"Drive did not connect: {request.args.get('error', 'no code')}", _anchor="drive"))
+        try:
+            email = drive_contracts.connect(DATABASE_URL, request.args["code"], _gmail_redirect_uri())
+            n = drive_contracts.pull(DATABASE_URL)
+        except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
+            return redirect(url_for("splits_page", err=str(e), _anchor="drive"))
+        HOME.clear_cache()
+        return redirect(url_for("splits_page", msg=f"Connected Drive as {email}; read {n} agreement file(s).", _anchor="drive"))
     expected = session.pop("gmail_state", None)
     if not expected or not secrets.compare_digest(request.args.get("state", ""), expected):
         return redirect(url_for("compass_invoices", err="Connection check failed (state mismatch). Please try again."))
@@ -261,6 +274,33 @@ def gmail_callback():
         return redirect(url_for("compass_invoices", err=str(e)))
     gmail_import.pull_in_background(DATABASE_URL, email)
     return redirect(url_for("compass_invoices", msg=f"Connected {email}. Importing the remittance emails now; refresh in a minute."))
+
+
+@app.route("/drive/connect", methods=["POST"])
+@login_required
+def drive_connect():
+    if not gmail_import.configured():
+        return redirect(url_for("splits_page", err="Google keys are not set in Render yet.", _anchor="drive"))
+    session["drive_state"] = secrets.token_urlsafe(24)
+    return redirect(drive_contracts.authorize_url(_gmail_redirect_uri(), session["drive_state"]))
+
+
+@app.route("/drive/refresh", methods=["POST"])
+@login_required
+def drive_refresh():
+    try:
+        n = drive_contracts.pull(DATABASE_URL)
+    except (gmail_import.NeedsReconnect, gmail_import.GmailError) as e:
+        return redirect(url_for("splits_page", err=str(e), _anchor="drive"))
+    HOME.clear_cache()
+    return redirect(url_for("splits_page", msg=f"Read {n} new or changed agreement file(s) from Drive.", _anchor="drive"))
+
+
+@app.route("/drive/disconnect", methods=["POST"])
+@login_required
+def drive_disconnect():
+    drive_contracts.disconnect(DATABASE_URL)
+    return redirect(url_for("splits_page", msg="Google Drive disconnected.", _anchor="drive"))
 
 
 @app.route("/gmail/refresh", methods=["POST"])
@@ -294,6 +334,8 @@ def splits_page():
         rows = SP.deal_check(cur, date(year, 1, 1), date(year + 1, 1, 1))
         miles = SP.milestones(cur)
         contracts = SP.contracts_table(cur)
+        drive = drive_contracts.status(cur)
+        drive_rows = drive_contracts.rows(cur)
     for c in contracts:
         m = miles.get((c["agent"], c["since"]))
         c["volume"], c["crossed"] = (m["volume"], m["crossed"]) if m else (None, None)
@@ -313,7 +355,9 @@ def splits_page():
     return render_template("splits.html", year=year, year_choices=list(range(today.year, 2023, -1)),
                            rows=rows, agents=sorted(agents.values(), key=lambda a: a["gap"]), total=total,
                            contracts=contracts, bonus_volume=SP.BONUS_VOLUME, no_contract=SP.NO_CONTRACT, show=request.args.get("show"),
-                           pending_agents=[n.title() for n in SP.CONTRACT_PENDING], former_agents=[n.title() for n in SP.FORMER_AGENTS])
+                           pending_agents=[n.title() for n in SP.CONTRACT_PENDING], former_agents=[n.title() for n in SP.FORMER_AGENTS],
+                           drive=drive, drive_rows=drive_rows, google_ready=gmail_import.configured(),
+                           msg=request.args.get("msg"), err=request.args.get("err"))
 
 
 @app.route("/version")

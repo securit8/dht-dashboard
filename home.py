@@ -488,6 +488,17 @@ def _questions(cur, year):
     answered = {k[len("contract:"):] for k, d in (_safe(cur, "decisions", lambda: decisions.latest(cur), {}) or {}).items()
                 if k.startswith("contract:") and d["choice"] and (d["choice"] in SP.READINGS.get(k[len("contract:"):], {})
                                                                   or (d["choice"].startswith("Signed") and d["comment"]))}
+    import drive_contracts
+    for d in _safe(cur, "drive contracts", lambda: drive_contracts.rows(cur), []) or []:
+        if d["problem"]:
+            read = (f"Read: company {d['personal']}% personal / {d['zillow']}% Zillow / {d['database']}% team"
+                    + (f", {d['bonus']}% after $10M" if d["bonus"] else "")
+                    + (f", signed {d['signed'].strftime('%m/%d/%Y')}" if d["signed"] else "") + ".")
+            items.append({"level": "ask", "key": f"drive_contract:{d['file_id']}",
+                          "title": f"New agreement in Drive for {d['agent']}: {d['problem']}",
+                          "detail": f"{d['file']}. {read} Until it's decided, the splits don't use it.",
+                          "link": ("splits_page", {"_anchor": "drive"}),
+                          "choices": [drive_contracts.USE_AS_READ, "Ignore this file"]})
     for c in SP.CONTRACTS:
         if c["agent"] in answered:
             continue
@@ -919,6 +930,11 @@ def _rows_text(rows, limit=12):
     return ", ".join(nums[:limit]) + (f" and {len(nums) - limit} more" if len(nums) > limit else "")
 
 
+def drive_contracts_rows(cur):
+    import drive_contracts
+    return drive_contracts.rows(cur)
+
+
 def add_where(cur, items, year, receipts):
     """Give every item a "Fix in" line (system > file/screen > sheet > row/column or field) and point its
     link at that exact spot."""
@@ -967,6 +983,11 @@ def add_where(cur, items, year, receipts):
             w = (f"OneDrive › CTE FILES › My Business › Primary Agent column AS (and the Lead Gen sheet's agent name): "
                  f"“{a}” appears in " + (", ".join(f"{x['source_file']} ({x['n']} row{'s' if x['n'] != 1 else ''}, first is row {x['first']})" for x in where) or "the Lead Gen sheet only")
                  + f". If it's the same person, decide here (the dashboard counts them together) or retype it as “{b}”.")
+        elif kind == "drive_contract":
+            d = next((d for d in drive_contracts_rows(cur) if d["file_id"] == arg), None)
+            if d:
+                w = (f"Google Drive › {d['folder']} folder › {d['file']}: section 3 split table, the cheat sheet on "
+                     "the last page and the signatures (fix the file, or decide here to use what was read)")
         elif kind == "contract":
             c = next((c for c in SP.CONTRACTS if c["agent"] == arg), None)
             if c:

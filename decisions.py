@@ -108,7 +108,10 @@ def apply_fixes(cur):
     decided = sorted(latest(cur).values(), key=lambda d: (d["item_key"] or "").startswith("fix:"))
     for dec in decided:
         key = dec["item_key"] or ""
-        if key.startswith("fix:") and dec["choice"] == APPLY:
+        if key.startswith("drive_contract:") and dec["choice"] and dec["status"] != "fixed":
+            done.append((dec["id"], "Applied: the splits " + ("use this agreement as read from Drive."
+                                                             if dec["choice"].startswith("Use") else "ignore this file.")))
+        elif key.startswith("fix:") and dec["choice"] == APPLY:
             parts = key[len("fix:"):].split("|")
             if len(parts) != 5 or parts[2] not in FIELD_FIXES:
                 continue

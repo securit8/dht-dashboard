@@ -660,6 +660,10 @@ def main():
     # Compass remittance emails from connected Gmail accounts (read-only)
     gmail_import.cron_pull(database_url)
 
+    # Agents' signed agreements from Google Drive (read-only): new or changed ones are used by the splits
+    import drive_contracts
+    drive_contracts.cron_pull(database_url)
+
 
 if __name__ == "__main__":
     main()
