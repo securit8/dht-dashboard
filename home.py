@@ -5,6 +5,7 @@ and lists what needs someone's attention, each linking to the report with the de
 Every section is read on its own, so one source being down or not connected yet doesn't break the page.
 """
 import logging
+import re
 import threading
 import time
 from difflib import SequenceMatcher
@@ -577,6 +578,24 @@ def _questions(cur, year):
     return items
 
 
+def _books_recon(cur, year, money):
+    """Why QuickBooks income and Compass's YTD income differ: Compass's resource fees (Compass reports the
+    commission before its fee, the bank gets it after), Compass payments with no QuickBooks deposit, and
+    what's left (mostly earlier-year closings paid this year)."""
+    fees = 0.0
+    cur.execute("""SELECT i.components FROM compass_payment_items i JOIN compass_payments p ON p.message_id = i.message_id
+                   WHERE EXTRACT(YEAR FROM COALESCE(p.paid_on, (p.received_at AT TIME ZONE 'America/Los_Angeles')::date)) = %s""", (year,))
+    for (comp,) in cur.fetchall():
+        for m in re.finditer(r"Compass Resource Fee\s*-?\$?([\d,]+\.\d\d)", comp or ""):
+            fees += float(m.group(1).replace(",", ""))
+    match = gmail_import.books_match(cur, year) or {}
+    missing = match.get("compass_only", [])
+    miss_total = sum(p["amount"] for p in missing)
+    carry = money["books"] - (money["compass"] - fees - miss_total)
+    return {"fees": fees, "missing": miss_total, "missing_n": len(missing), "carry": carry,
+            "missing_list": [(p["date"], p.get("property") or p.get("subject") or "", p["amount"]) for p in missing]}
+
+
 def _freshness(cur):
     """When each source last brought in new data."""
     out = []
@@ -632,12 +651,16 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
                       "link": ("compass_invoices", {"deals": "missing"})})
     if money and money.get("compass") is not None and money.get("books") is not None:
         diff = money["books"] - money["compass"]
-        if abs(diff) > max(1000, 0.01 * money["compass"]):
-            items.append({"level": "warn", "key": f"books_vs_compass:{now.year}",
-                          "choices": ["Income from outside Compass: OK", "Something is missing: look into it"],
-                          "title": f"QuickBooks and Compass differ by ${diff:+,.0f} this year",
-                          "detail": f"QuickBooks income ${money['books']:,.0f} vs Compass YTD ${money['compass']:,.0f}.",
-                          "link": ("compass_invoices", {"_anchor": "books-match"})})
+        if abs(diff) > 1000:
+            r = money.get("recon") or {"fees": 0.0, "missing": 0.0, "missing_n": 0, "carry": diff, "missing_list": []}
+            items.append({"level": "ask", "key": f"books_vs_compass:{now.year}",
+                          "choices": ["Explained: OK", "Something is missing: look into it"],
+                          "title": f"{now.year}: QuickBooks is ${diff:+,.0f} off from Compass",
+                          "detail": (f"Compass ${money['compass']:,.0f} − Compass resource fees ${r['fees']:,.0f} − "
+                                     f"{r['missing_n']} Compass payment{'s' if r['missing_n'] != 1 else ''} not in QuickBooks ${r['missing']:,.0f} "
+                                     f"+ money from earlier-year closings paid this year ≈ ${r['carry']:,.0f} = QuickBooks ${money['books']:,.0f}. "
+                                     "Joe: are the missing payments deposited somewhere else, and is the rest last year's December closings?"),
+                          "link": ("compass_invoices", {"_anchor": "books-match"}), "_recon": r})
     if money and money.get("gross_vs") and money["gross_vs"]["pace_diff"] < 0:
         g = money["gross_vs"]
         items.append({"level": "warn", "key": f"gci_pace:{now.year}", "title": f"GCI is ${-g['pace_diff']:,.0f} behind the pace for the year's goal",
@@ -702,6 +725,8 @@ def _overview(cur, today, tz, year_totals):
     money = _safe(cur, "money", lambda: dict(year_totals(cur, year, today)), {}) or {}
     money["compass"] = _safe(cur, "compass ytd", lambda: _compass_ytd(cur, year))
     money["books"] = (money.get("books") or {}).get("income") if isinstance(money.get("books"), dict) else None
+    if money.get("compass") is not None and money.get("books") is not None:
+        money["recon"] = _safe(cur, "books recon", lambda: _books_recon(cur, year, money))
     has_cte = _safe(cur, "cte ready", lambda: CTE.ready(cur), False)
     has_fub = _safe(cur, "fub ready", lambda: R.tables_ready(cur, "people"), False)
     deals = _safe(cur, "deals", lambda: _deals(cur, today, tz)) if has_cte else None
@@ -813,6 +838,15 @@ def details(cur, item, year, checks, receipts, money):
                     [[_d(d["close_date"]), d["address"], d["agent"] or "", d["deal_type"] or "", _m(d["gci"]),
                       "; ".join(f"{s.get('property') or s.get('description')} ({s['why']})" for s in d["suggestions"][:1])]
                      for d in miss], num=(4,))
+    if kind == "books_vs_compass" and item.get("_recon"):
+        r = item["_recon"]
+        rows = [["Compass YTD income", _m(money.get("compass")), "Compass's own running total, before its fee"],
+                ["− Compass resource fees", _m(-r["fees"]), "Compass reports the commission before the fee; the bank gets it after"]]
+        rows += [[f"− Not in QuickBooks: {_d(dt)} {prop[:40]}", _m(-amt), "No QuickBooks deposit within 3 weeks"]
+                 for dt, prop, amt in r["missing_list"]]
+        rows += [["+ Earlier-year closings paid this year (the rest)", _m(r["carry"]), "Mostly last December's closings deposited in January"],
+                 ["= QuickBooks income", _m(money.get("books")), "Total Income in the books"]]
+        return _tbl(["", "Amount", "What it is"], rows, num=(1,))
     if kind == "books_vs_compass":
         rows = gmail_import.monthly_vs_books(cur, int(arg))
         return _tbl(["Month", "Compass this month", "QuickBooks this month", "Compass YTD", "QuickBooks YTD", "Difference"],
