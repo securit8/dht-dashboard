@@ -109,15 +109,26 @@ def lead_type(source, own=()):
     return "database"
 
 
+AMENDMENT_RUNS = "The 2/23 amendment runs its 12 months"
+
+
 def decided_contracts(cur):
     """CONTRACTS with the owners' answers on the dashboard applied: which reading of a contradicting
     agreement is right, and the signing date of an unsigned one."""
     rows = [dict(c) for c in CONTRACTS]
     try:
         import decisions
-        made = {k[len("contract:"):]: d for k, d in decisions.latest(cur).items() if k.startswith("contract:")}
+        latest = decisions.latest(cur)
+        made = {k[len("contract:"):]: d for k, d in latest.items() if k.startswith("contract:")}
     except Exception:
         return rows
+    # Margaryta's 2/23/2026 Commission Modification runs 12 months (75/25 on every deal, 80/20 after $10M
+    # closed in the period): when the owners say so, her 4/18 agreement only starts after it ends
+    if (latest.get("setup:margaryta_agreements") or {}).get("choice") == AMENDMENT_RUNS:
+        for c in rows:
+            if c["agent"] == "Margaryta Gvritishvili" and c["since"] == date(2026, 4, 18):
+                c["since"] = date(2027, 2, 23)
+                c["note"] = "Starts after the 2/23/2026 amendment's 12 months (owners' decision). " + c["note"]
     for c in rows:
         d = made.get(c["agent"])
         if not d or not d["choice"]:
@@ -222,9 +233,9 @@ def deal_check(cur, start, end):
             row["gap"] = company - row["expected"]
             diff = row["actual_pct"] - row["expected_pct"]
             row["status"] = "ok" if abs(diff) <= TOLERANCE else ("under" if diff < 0 else "over")
-            # Zillow's referral fee (usually 35-40% of the commission) comes off the top before the split,
-            # so a Zillow deal paid at the contract % of what was left is on contract
-            if row["lead"] == "zillow" and row["status"] == "under":
+            # Zillow's / Realtor.com's referral fee (usually 35-40% of the commission) comes off the top before
+            # the split, so a deal paid at the contract % of what was left is on contract
+            if (row["lead"] == "zillow" or "realtor.com" in (src or "").lower()) and row["status"] == "under":
                 fee = 1 - row["actual_pct"] / row["expected_pct"]
                 if ZILLOW_FEE[0] <= fee <= ZILLOW_FEE[1]:
                     row.update(status="ok", zillow_fee=fee * 100, expected=company, gap=0.0)
