@@ -95,6 +95,36 @@ def _deals(cur, today, tz):
     return out
 
 
+def _pipeline(cur, today, tz, funnel, deals, money):
+    """The year so far from lead to money, each step from where it's recorded: Follow Up Boss (leads, talks,
+    appointments), the CTE deal log (accepted, closed) and Compass / QuickBooks (paid)."""
+    steps = []
+    if funnel and funnel["leads"]:
+        y = R.funnel_counts(cur, R.Filters(today.replace(month=1, day=1), today + timedelta(days=1), None, None, tz))
+        steps += [
+            {"label": "New leads", "value": funnel["leads"], "src": "FUB", "sub": "added to Follow Up Boss"},
+            {"label": "Appointments set", "value": y["appts_set"], "src": "FUB", "sub": "set this year"},
+            {"label": "Appointments held", "value": y["held"], "src": "FUB",
+             "sub": f"{R.pct(y['held'], y['held'] + y['not_held'], 0):.0f}% of the ones with an outcome"},
+        ]
+    if deals:
+        d = deals["ytd"]
+        steps += [
+            {"label": "Offers accepted", "value": d["written"], "src": "CTE",
+             "sub": f"{d['cancelled']} fell through" if d["cancelled"] else "went under contract"},
+            {"label": "Closed", "value": d["closed"], "src": "CTE", "sub": f"${float(d['closed_vol']) / 1e6:.1f}M volume"},
+        ]
+    for i, s in enumerate(steps):
+        s["of_prev"] = R.pct(s["value"], steps[i - 1]["value"], 0) if i and steps[i - 1]["value"] else None
+        s["bar"] = R.pct(s["value"], steps[0]["value"], 1) if steps[0]["value"] else 0
+    paid = None
+    if money:
+        books = money.get("books") or {}
+        paid = {"compass": money.get("compass"), "books": books.get("income"), "net": money.get("net"),
+                "gci": float(deals["ytd"]["gci"]) if deals else None}
+    return {"steps": steps, "paid": paid} if steps else None
+
+
 def _leads(cur, today, tz):
     """Follow Up Boss: last 30 days against the 30 days before."""
     f = R.Filters(today - timedelta(days=29), today + timedelta(days=1), None, None, tz)
@@ -681,7 +711,9 @@ def _overview(cur, today, tz, year_totals):
     if checks:
         paid = [r["company"] for r in checks if r["company"] is not None]
         company = {"total": sum(paid), "deals": len(paid)}
-    return {"year": year, "money": money, "deals": deals, "leads": leads, "funnel": funnel, "agents": agents, "company": company,
+    pipeline = _safe(cur, "pipeline", lambda: _pipeline(cur, today, tz, funnel, deals, money))
+    return {"year": year, "money": money, "deals": deals, "leads": leads, "funnel": funnel, "pipeline": pipeline,
+            "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
             "attention": _with_decisions(cur, _attention(money, deals, leads, receipts, checks, fresh, now, questions),
                                          year, checks, receipts, money)}

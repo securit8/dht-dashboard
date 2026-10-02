@@ -37,35 +37,52 @@
     {% endif %}
   </section>
 
-  {% if H.funnel and H.funnel.leads %}
+  {% if H.pipeline %}
   <style>
     .hf-band { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
-    .hf-steps { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 8px; }
-    .hf-steps > div { padding: 4px 18px 4px 0; margin-right: 18px; border-right: 1px solid var(--line, #E8EBF0); }
+    .hf-steps { display: grid; grid-template-columns: repeat({{ H.pipeline.steps|length + (1 if H.pipeline.paid else 0) }}, minmax(0, 1fr)); margin-top: 8px; }
+    .hf-steps > div { padding: 4px 16px 4px 0; margin-right: 16px; border-right: 1px solid var(--line, #E8EBF0); }
     .hf-steps > div:last-child { border-right: 0; margin-right: 0; }
     .hf-steps .kpi-lbl { min-height: 2.6em; }
+    .hf-steps .kpi-val { font-size: 28px; }
+    .hf-src { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; border-radius: 6px; padding: 1px 6px; margin-left: 4px; vertical-align: 2px; }
+    .hf-src.FUB { background: #EEF0FC; color: #3A4FBF; } .hf-src.CTE { background: #E8F5EE; color: #1E7B4C; } .hf-src.PAY { background: #FFF3DC; color: #8A5A00; }
     .hf-bar { height: 6px; border-radius: 3px; background: var(--bg); margin: 8px 0 2px; }
-    .hf-bar div { height: 100%; border-radius: 3px; background: #3E55C9; }
+    .hf-bar div { height: 100%; border-radius: 3px; background: #3E55C9; min-width: 3px; }
+    .hf-bar.CTE div { background: #2E9E62; }
+    .hf-conv { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .hf-conv b { color: var(--ink, #1F2430); font-weight: 600; }
     @media (max-width: 1200px) { .hf-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 14px; }
                                  .hf-steps > div:nth-child(4n) { border-right: 0; } }
     @media (max-width: 700px) { .hf-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                                 .hf-steps > div:nth-child(2n) { border-right: 0; } }
   </style>
   <div class="card" style="margin-bottom:20px">
-    <div class="card-head"><div class="hf-band">Lead funnel &middot; how far the {{ H.funnel.leads|num }} leads created in {{ H.year }} have got</div>
+    <div class="card-head"><div class="hf-band">Pipeline &middot; {{ H.year }} so far &middot; from lead to money, every source</div>
       <span class="muted"><a href="{{ url_for('lead_source') }}">Lead Source Report &rsaquo;</a></span></div>
     <div class="hf-steps">
-      {% for s in H.funnel.steps %}
-      <div title="{{ s.at }} {{ 'lead is' if s.at == 1 else 'leads are' }} at this step right now">
-        <div class="kpi-lbl">{{ s.stage }}</div>
-        <div class="kpi-val">{{ s.reached|num }}</div>
-        <div class="kpi-sub">{{ s.pct|round|int }}% {{ 'of leads' if loop.first else 'reached' }}</div>
-        <div class="hf-bar"><div style="width: {{ s.pct }}%"></div></div>
+      {% for s in H.pipeline.steps %}
+      <div>
+        <div class="kpi-lbl">{{ s.label }}<span class="hf-src {{ s.src }}">{{ s.src }}</span></div>
+        <div class="kpi-val">{{ s.value|num }}</div>
+        <div class="kpi-sub">{{ s.sub }}</div>
+        <div class="hf-bar {{ s.src }}"><div style="width: {{ s.bar }}%"></div></div>
+        <div class="hf-conv">{% if s.of_prev is not none %}<b>{{ s.of_prev|round|int }}%</b> of the step before{% else %}&nbsp;{% endif %}</div>
       </div>
       {% endfor %}
+      {% if H.pipeline.paid %}{% set p = H.pipeline.paid %}
+      <div>
+        <div class="kpi-lbl">Company got paid<span class="hf-src PAY">{{ 'COMPASS' if p.compass else 'QB' }}</span></div>
+        <div class="kpi-val">{{ (p.compass or p.books)|money if (p.compass or p.books) else '--' }}</div>
+        <div class="kpi-sub">{% if p.compass %}Compass YTD income{% else %}QuickBooks income{% endif %}{% if p.gci %} of {{ p.gci|money }} GCI{% endif %}</div>
+        <div class="hf-bar"><div style="width: 0"></div></div>
+        <div class="hf-conv">{% if p.books and p.compass %}QuickBooks <b>{{ p.books|money }}</b>{% endif %}{% if p.net is not none %} &middot; net <b>{{ p.net|money }}</b>{% endif %}</div>
+      </div>
+      {% endif %}
     </div>
-    <div class="note">Each step counts leads that reached at least that stage in Follow Up Boss today. Folded in: Attempted contact, Unresponsive and Trash count as Lead; Sphere and Past client as Nurture; Appointment set as Spoke with customer;
-      Listing agreement and Active listing as Showing homes; Under contract and Pending as Submitting offers.</div>
+    <div class="note">Leads and appointments come from Follow Up Boss (leads added this year; appointments set and held this year).
+      Accepted offers and closings come from the CTE deal log, so they include sphere, referral and repeat clients who were never a FUB lead.
+      What the company got paid comes from the Compass statements (with QuickBooks next to it). Each step counts its own source for {{ H.year }}, so a step isn't always a subset of the one before.</div>
   </div>
   {% endif %}
 
