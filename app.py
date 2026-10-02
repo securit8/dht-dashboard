@@ -665,7 +665,8 @@ def dashboard():
     parts = {**HOME.timings(), "lead_health": t_lead - t_overview, "render": time_mod.perf_counter() - t_lead,
              "total": time_mod.perf_counter() - started}
     app.logger.warning("dashboard timing: %s", ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1])))
-    resp = Response(html + "\n<!-- timing: " + ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1])) + " -->")
+    resp = Response(html + "\n<!-- timing: " + ", ".join(f"{k}={v:.2f}s" for k, v in sorted(parts.items(), key=lambda x: -x[1]))
+                    + "".join(f" | FAILED {k}: {v}" for k, v in HOME.LAST_ERRORS.items()) + " -->")
     resp.headers["Server-Timing"] = ", ".join(f"{k.replace(' ', '_')};dur={v * 1000:.0f}" for k, v in parts.items())
     return resp
 
