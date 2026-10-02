@@ -123,8 +123,7 @@ def _pipeline(cur, today, tz, funnel, deals, money):
         s["bar"] = R.pct(s["value"], steps[0]["value"], 1) if steps[0]["value"] else 0
     paid = None
     if money:
-        books = money.get("books") or {}
-        paid = {"compass": money.get("compass"), "books": books.get("income"), "net": money.get("net"),
+        paid = {"compass": money.get("compass"), "books": money.get("books"), "net": money.get("net"),
                 "gci": float(deals["ytd"]["gci"]) if deals else None}
     return {"steps": steps, "paid": paid} if steps else None
 
