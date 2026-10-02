@@ -16,7 +16,9 @@
       <div class="t-lbl">Company income &middot; Compass</div>
       <div class="t-val">{{ M.compass|dollars if M.compass is not none else '&mdash;'|safe }}</div>
       <div class="t-sub">{% if M.books is not none %}QuickBooks {{ M.books|dollars }}{% if M.compass is not none %} &middot;
-        <b class="{{ 'up' if (M.books - M.compass)|abs < 1000 else 'down' }}">{{ (M.books - M.compass)|dollars }} difference</b>{% endif %}{% else %}YTD Income on the latest statement{% endif %}</div>
+        {% if M.recon %}{% if M.recon.missing_n %}<b class="down">{{ M.recon.missing_n }} payment{{ 's' if M.recon.missing_n != 1 }} ({{ M.recon.missing|dollars }}) not in QuickBooks</b>
+        {% else %}<b class="up">every Compass payment is in QuickBooks</b>{% endif %}
+        {% else %}<b class="{{ 'up' if (M.books - M.compass)|abs < 1000 else 'down' }}">{{ (M.books - M.compass)|dollars }} difference</b>{% endif %}{% endif %}{% else %}YTD Income on the latest statement{% endif %}</div>
     </a>
     <a class="tile" href="{{ url_for('quickbooks') }}">
       <div class="t-lbl">Net income &middot; QuickBooks</div>

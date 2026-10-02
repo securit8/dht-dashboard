@@ -801,7 +801,13 @@ def books_match(cur, year):
                     p["match"] = [t]
     inyear = lambda x: x["date"].year == year
     qb_y, cp_y = [t for t in qb if inyear(t)], [p for p in cp if inyear(p)]
-    return {"qb_only": [t for t in qb_y if not t["match"]], "compass_only": [p for p in cp_y if not p["match"]],
+    # money crossing the year line, measured by the matches (not assumed): QuickBooks entries this year that are
+    # Compass payments from last year, and Compass payments this year booked in QuickBooks next year
+    carry_in = [t for t in qb_y if t["match"] and all(not inyear(p) for p in t["match"])]
+    carry_out = [p for p in cp_y if p["match"] and all(not inyear(t) for t in p["match"])]
+    return {"carry_in": carry_in, "carry_in_total": sum(t["amount"] for t in carry_in),
+            "carry_out": carry_out, "carry_out_total": sum(p["amount"] for p in carry_out),
+            "qb_only": [t for t in qb_y if not t["match"]], "compass_only": [p for p in cp_y if not p["match"]],
             "matched": sum(1 for t in qb_y if t["match"]), "qb_count": len(qb_y), "compass_count": len(cp_y),
             "qb_total": sum(t["amount"] for t in qb_y), "compass_total": sum(p["amount"] for p in cp_y),
             "qb_only_total": sum(t["amount"] for t in qb_y if not t["match"]),
