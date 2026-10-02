@@ -24,12 +24,16 @@ ZILLOW_FEE = (0.25, 0.45)  # Zillow referral fee range (share of the commission)
 BONUS_VOLUME = 10_000_000  # closed sales volume that unlocks the bonus split
 
 
-def _c(agent, since, personal, zillow, database, file, note="", bonus=None, bonus_from=None, keep_old=()):
+def _c(agent, since, personal, zillow, database, file, note="", bonus=None, bonus_from=None, keep_old=(),
+       bonus_skip=(), special=None):
     """bonus: company % on every deal after the agent passes BONUS_VOLUME; bonus_from: count volume from
     this date (None = all the agent's closed deals with the team); keep_old: addresses that stay on the
-    agent's previous agreement."""
+    agent's previous agreement; bonus_skip: lead types the bonus doesn't change ("team generated leads stay
+    as originally structured"); special: {CTE lead-source pattern: company %} for clients with their own
+    rate in the agreement (e.g. prior clients disclosed before signing, immediate family)."""
     return {"agent": agent, "since": since, "personal": personal, "zillow": zillow, "database": database,
-            "file": file, "note": note, "bonus": bonus, "bonus_from": bonus_from, "keep_old": keep_old}
+            "file": file, "note": note, "bonus": bonus, "bonus_from": bonus_from, "keep_old": keep_old,
+            "bonus_skip": bonus_skip, "special": special or {}}
 
 
 # Company share (%) by lead type, from each agent's signed agreement, oldest first per agent.
@@ -50,7 +54,10 @@ CONTRACTS = [
     _c("Margaryta Gvritishvili", date(2026, 4, 18), 25, 35, 35, "INDEPENDENT CONTRACTOR AGREEMENT DHT",
        "TC fee 50/50; 80/20 on everything after $10M career sales", bonus=20),
     _c("Darrion Jackson", date(2026, 5, 26), 30, 40, 40, "Darrion_Jacksondocx.pdf",
-       "Split table says 70/60/60, but the cheat sheet says 80/65/60"),
+       "Section 3 table 70/30 personal, 60/40 Zillow and team; prior clients disclosed before signing 80/20, "
+       "immediate family 75/25 (section 7); 75/25 after $10M, team leads stay 60/40. The cheat sheet's "
+       "80/65/60 and the Zillow example's 65/35 math are leftovers from the standard template",
+       bonus=25, bonus_skip=("database",), special={r"prior client|disclosed": 20, r"family|relative": 25}),
     _c("Sam Foote", date(2026, 6, 25), 25, 35, 40, "DHT Independent Agent Contract Sam.docx.pdf",
        "TC fee by split; 80/20 on everything after $10M career sales", bonus=20),
     _c("Donna Karen Ray", date(2026, 7, 24), 20, 35, 40, "Independent_Contractor_Agreement- Donna Karen Ray 2026.pdf",
@@ -237,9 +244,13 @@ def deal_check(cur, start, end):
         if c:
             row["contract"], row["contract_file"] = c["agent"], c["file"]
             row["expected_pct"] = c[row["lead"]]
+            for pat, pct_ in (c.get("special") or {}).items():  # clients with their own rate in the agreement
+                if row["lead"] == "personal" and re.search(pat, src or "", re.I):
+                    row["expected_pct"] = pct_
+                    break
             m = miles.get((c["agent"], c["since"]))
-            if m and m["crossed"] and m["order"].get((d["file_year"], d["row_num"]), -1) > m["crossed"]["index"]:
-                row["bonus"], row["expected_pct"] = True, c["bonus"]
+            if m and m["crossed"] and m["order"].get((d["file_year"], d["row_num"]), -1) > m["crossed"]["index"]                     and row["lead"] not in c.get("bonus_skip", ()):
+                row["bonus"], row["expected_pct"] = True, min(c["bonus"], row["expected_pct"])
         if company is not None and d["gci"] and base(d["gci"]) > 0:
             row["actual_pct"] = company / base(d["gci"]) * 100
         if row["owner"]:
