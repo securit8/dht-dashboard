@@ -40,7 +40,7 @@
   {% if H.pipeline %}
   <style>
     .hf-band { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
-    .hf-steps { display: grid; grid-template-columns: repeat({{ H.pipeline.steps|length + (1 if H.pipeline.paid else 0) }}, minmax(0, 1fr)); margin-top: 8px; }
+    .hf-steps { display: grid; grid-template-columns: repeat({{ H.pipeline.steps|length }}, minmax(0, 1fr)); margin-top: 8px; }
     .hf-steps > div { padding: 4px 16px 4px 0; margin-right: 16px; border-right: 1px solid var(--line, #E8EBF0); }
     .hf-steps > div:last-child { border-right: 0; margin-right: 0; }
     .hf-steps .kpi-lbl { min-height: 2.6em; }
@@ -58,31 +58,22 @@
                                 .hf-steps > div:nth-child(2n) { border-right: 0; } }
   </style>
   <div class="card" style="margin-bottom:20px">
-    <div class="card-head"><div class="hf-band">Pipeline &middot; {{ H.year }} so far &middot; from lead to money, every source</div>
+    <div class="card-head"><div class="hf-band">Pipeline &middot; {{ H.year }} so far &middot; from lead to closing, every source</div>
       <span class="muted"><a href="{{ url_for('lead_source') }}">Lead Source Report &rsaquo;</a></span></div>
     <div class="hf-steps">
       {% for s in H.pipeline.steps %}
       <div>
-        <div class="kpi-lbl">{{ s.label }}<span class="hf-src {{ s.src }}">{{ s.src }}</span></div>
+        <div class="kpi-lbl">{{ s.label }}{% for t in s.src %}<span class="hf-src {{ t }}">{{ t }}</span>{% endfor %}</div>
         <div class="kpi-val">{{ s.value|num }}</div>
-        <div class="kpi-sub">{{ s.sub }}</div>
-        <div class="hf-bar {{ s.src }}"><div style="width: {{ s.bar }}%"></div></div>
+        {% for k, v in s.parts %}<div class="kpi-sub">{{ v|num }} {{ k }}</div>{% endfor %}
+        {% if s.sub %}<div class="kpi-sub">{{ s.sub }}</div>{% endif %}
+        <div class="hf-bar {{ s.src|last }}"><div style="width: {{ s.bar }}%"></div></div>
         <div class="hf-conv">{% if s.of_prev is not none %}<b>{{ s.of_prev|round|int }}%</b> of the step before{% else %}&nbsp;{% endif %}</div>
       </div>
       {% endfor %}
-      {% if H.pipeline.paid %}{% set p = H.pipeline.paid %}
-      <div>
-        <div class="kpi-lbl">Company got paid<span class="hf-src PAY">{{ 'COMPASS' if p.compass else 'QB' }}</span></div>
-        <div class="kpi-val">{{ (p.compass or p.books)|money if (p.compass or p.books) else '--' }}</div>
-        <div class="kpi-sub">{% if p.compass %}Compass YTD income{% else %}QuickBooks income{% endif %}{% if p.gci %} of {{ p.gci|money }} GCI{% endif %}</div>
-        <div class="hf-bar"><div style="width: 0"></div></div>
-        <div class="hf-conv">{% if p.books and p.compass %}QuickBooks <b>{{ p.books|money }}</b>{% endif %}{% if p.net is not none %} &middot; net <b>{{ p.net|money }}</b>{% endif %}</div>
-      </div>
-      {% endif %}
     </div>
-    <div class="note">Leads and appointments come from Follow Up Boss (leads added this year; appointments set and held this year).
-      Accepted offers and closings come from the CTE deal log, so they include sphere, referral and repeat clients who were never a FUB lead.
-      What the company got paid comes from the Compass statements (with QuickBooks next to it). Each step counts its own source for {{ H.year }}, so a step isn't always a subset of the one before.</div>
+    <div class="note">Every source added up. Leads: everyone added to Follow Up Boss this year, plus the clients who went under contract this year from sphere, referrals, past clients and open houses (they are only in the CTE deal log).
+      Appointments: Follow Up Boss plus what agents logged on the CTE Lead Gen sheet. Offers accepted and closings: the CTE deal log, which has every deal (Follow Up Boss only has the ones agents entered there).</div>
   </div>
   {% endif %}
 

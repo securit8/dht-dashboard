@@ -99,33 +99,47 @@ def _deals(cur, today, tz):
     return out
 
 
-def _pipeline(cur, today, tz, funnel, deals, money):
-    """The year so far from lead to money, each step from where it's recorded: Follow Up Boss (leads, talks,
-    appointments), the CTE deal log (accepted, closed) and Compass / QuickBooks (paid)."""
-    steps = []
-    if funnel and funnel["leads"]:
-        y = R.funnel_counts(cur, R.Filters(today.replace(month=1, day=1), today + timedelta(days=1), None, None, tz))
-        steps += [
-            {"label": "New leads", "value": funnel["leads"], "src": "FUB", "sub": "added to Follow Up Boss"},
-            {"label": "Appointments set", "value": y["appts_set"], "src": "FUB", "sub": "set this year"},
-            {"label": "Appointments held", "value": y["held"], "src": "FUB",
-             "sub": f"{R.pct(y['held'], y['held'] + y['not_held'], 0):.0f}% of the ones with an outcome"},
-        ]
+# CTE lead sources that never come through Follow Up Boss: the agents' own and referred clients
+OTHER_SOURCES = r"sphere|referral|past client|personal|family|friend|open ?house|vehicle|sign call|repeat|prior client"
+
+
+def _pipeline(cur, today, tz, funnel, deals):
+    """The year so far from lead to closing, adding up every place it's recorded: Follow Up Boss (leads,
+    appointments, deals), the CTE deal log (every deal, including clients who never were a FUB lead) and
+    the CTE Lead Gen sheet (appointments the agents log themselves)."""
+    start, end = today.replace(month=1, day=1), today + timedelta(days=1)
+    fub = R.funnel_counts(cur, R.Filters(start, end, None, None, tz)) if funnel else None
+    p = {"start": start.date(), "end": end.date(), "pat": OTHER_SOURCES}
+    other = R.one(cur, f"""SELECT COUNT(*) FILTER (WHERE uc AND COALESCE(d.source, '') ~* %(pat)s) AS n
+                          FROM (SELECT d.*, {CTE._deal_flags()} FROM cte_deals d) d""", p)["n"] if deals else 0
+    lg = R.one(cur, """SELECT COALESCE(SUM(COALESCE(buyer_appts_set, 0) + COALESCE(listing_appts_set, 0)), 0) AS set,
+                              COALESCE(SUM(COALESCE(buyer_appts_held, 0) + COALESCE(listing_appts_held, 0)), 0) AS held
+                       FROM cte_activity WHERE activity_date >= %(start)s AND activity_date < %(end)s""", p)         if CTE.ready(cur) else {"set": 0, "held": 0}
+    lg_set, lg_held = int(lg["set"]), int(lg["held"])
+    leads = funnel["leads"] if funnel else 0
+    steps = [
+        {"label": "All leads", "value": leads + other, "src": ["FUB", "CTE"],
+         "parts": [("Follow Up Boss", leads), ("sphere, referral & open-house clients (CTE)", other)]},
+        {"label": "Appointments set", "value": (fub["appts_set"] if fub else 0) + lg_set, "src": ["FUB", "CTE"],
+         "parts": [("Follow Up Boss", fub["appts_set"] if fub else 0), ("CTE Lead Gen sheet", lg_set)]},
+        {"label": "Appointments held", "value": (fub["held"] if fub else 0) + lg_held, "src": ["FUB", "CTE"],
+         "parts": [("Follow Up Boss", fub["held"] if fub else 0), ("CTE Lead Gen sheet", lg_held)]},
+    ]
     if deals:
         d = deals["ytd"]
         steps += [
-            {"label": "Offers accepted", "value": d["written"], "src": "CTE",
-             "sub": f"{d['cancelled']} fell through" if d["cancelled"] else "went under contract"},
-            {"label": "Closed", "value": d["closed"], "src": "CTE", "sub": f"${float(d['closed_vol']) / 1e6:.1f}M volume"},
+            {"label": "Offers accepted", "value": d["written"], "src": ["CTE"],
+             "parts": [("in Follow Up Boss", fub["written"] if fub else None)],
+             "sub": f"{d['cancelled']} fell through" if d["cancelled"] else None},
+            {"label": "Closed", "value": d["closed"], "src": ["CTE"],
+             "parts": [("in Follow Up Boss", fub["closed"] if fub else None)],
+             "sub": f"${float(d['closed_vol']) / 1e6:.1f}M volume"},
         ]
     for i, s in enumerate(steps):
+        s["parts"] = [(k, v) for k, v in s["parts"] if v is not None]
         s["of_prev"] = R.pct(s["value"], steps[i - 1]["value"], 0) if i and steps[i - 1]["value"] else None
         s["bar"] = R.pct(s["value"], steps[0]["value"], 1) if steps[0]["value"] else 0
-    paid = None
-    if money:
-        paid = {"compass": money.get("compass"), "books": money.get("books"), "net": money.get("net"),
-                "gci": float(deals["ytd"]["gci"]) if deals else None}
-    return {"steps": steps, "paid": paid} if steps else None
+    return {"steps": steps} if steps[0]["value"] else None
 
 
 def _leads(cur, today, tz):
@@ -714,7 +728,7 @@ def _overview(cur, today, tz, year_totals):
     if checks:
         paid = [r["company"] for r in checks if r["company"] is not None]
         company = {"total": sum(paid), "deals": len(paid)}
-    pipeline = _safe(cur, "pipeline", lambda: _pipeline(cur, today, tz, funnel, deals, money))
+    pipeline = _safe(cur, "pipeline", lambda: _pipeline(cur, today, tz, funnel, deals))
     return {"year": year, "money": money, "deals": deals, "leads": leads, "funnel": funnel, "pipeline": pipeline,
             "agents": agents, "company": company,
             "receipts": receipts, "fresh": fresh,
