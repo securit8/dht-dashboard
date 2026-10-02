@@ -60,7 +60,7 @@
         <td class="n"><b>{{ '{:.1f}%'.format(r.actual_pct) if r.actual_pct is not none else '' }}</b></td>
         <td class="n">{{ '{}%'.format(r.expected_pct) if r.expected_pct is not none else '' }}{% if r.bonus %}<div class="sub">after $10M</div>{% endif %}</td>
         <td class="n {{ 'neg' if r.gap is not none and r.gap < -1 else 'pos' if r.gap is not none and r.gap > 1 }}">{{ '${:,.0f}'.format(r.gap) if r.gap is not none else '' }}</td>
-        <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>{% if r.zillow_fee %}<div class="sub">after a {{ '{:.0f}'.format(r.zillow_fee) }}% Zillow fee</div>{% endif %}
+        <td>{% if r.status == 'ok' %}<span class="tag ok">On contract</span>{% if r.zillow_fee %}<div class="sub">after a {{ '{:.0f}'.format(r.zillow_fee) }}% Zillow fee</div>{% endif %}{% if r.paid_as %}<div class="sub">paid as {{ {'personal': 'a personal', 'zillow': 'a Zillow', 'database': 'a team / database'}[r.paid_as] }} lead (the company decides the lead type)</div>{% endif %}
           {% elif r.status == 'under' %}<span class="tag under">Under contract</span>
           {% elif r.status == 'over' %}<span class="tag over">Over contract</span>
           {% elif r.status == 'owner' %}<span class="tag none">Owner deal</span>

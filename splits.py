@@ -239,5 +239,12 @@ def deal_check(cur, start, end):
                 fee = 1 - row["actual_pct"] / row["expected_pct"]
                 if ZILLOW_FEE[0] <= fee <= ZILLOW_FEE[1]:
                     row.update(status="ok", zillow_fee=fee * 100, expected=company, gap=0.0)
+            # every agreement says "The Company decides which category a lead falls into": a deal paid at
+            # another of the agent's own rates was classified that way by the company (before the $10M bonus)
+            if row["status"] != "ok" and not row["bonus"]:
+                for kind in ("personal", "zillow", "database"):
+                    if kind != row["lead"] and abs(row["actual_pct"] - c[kind]) <= TOLERANCE:
+                        row.update(status="ok", paid_as=kind, expected=company, gap=0.0)
+                        break
         out.append(row)
     return out
