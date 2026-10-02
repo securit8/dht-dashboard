@@ -761,6 +761,7 @@ def lead_source_overview(cur, f):
         return c
 
     c, p = counts(f), counts(f.previous())
+    c["prev"] = p
     c["held_pct"] = pct(c["held"], c["appts"], 0)
     for k in ("calls", "texts", "emails"):
         c[k + "_share"] = pct(c[k], c["outbound"], 0)

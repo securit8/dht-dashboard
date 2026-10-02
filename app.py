@@ -917,8 +917,30 @@ def lead_source():
                 c["chg_deals"] = R.change(c["closed"] + c["pending"], pc["closed"] + pc["pending"])
                 data["ov"]["cte"] = c
                 data["top_agents_cte"] = CTE.top_deals(cur, f.start, f.end, "closed", f.source)
-            # the funnel adds the clients only in the CTE log (not when a FUB lead source is picked)
-            other = CTE.other_source_deals(cur, f.start, f.end, cte_agent_for(cur, f.agent))                 if CTE.ready(cur) and not f.source else None
+            # every source (not when a FUB lead source is picked): the clients only in the CTE log, and
+            # the appointments and dials agents logged on the CTE Lead Gen sheet
+            other = None
+            if CTE.ready(cur) and not f.source:
+                cte_agent, prev = cte_agent_for(cur, f.agent), f.previous()
+                other = CTE.other_source_deals(cur, f.start, f.end, cte_agent)
+                other_prev = CTE.other_source_deals(cur, prev.start, prev.end, cte_agent)
+                lg, lg_prev = CTE.lead_gen_totals(cur, f.start, f.end, cte_agent), CTE.lead_gen_totals(cur, prev.start, prev.end, cte_agent)
+                ov, pv = data["ov"], data["ov"]["prev"]
+                ov["all"] = all_ = {
+                    "leads": ov["leads"] + other["written"], "other": other["written"],
+                    "calls": ov["calls"] + lg["dials"], "dials": lg["dials"],
+                    "appts": ov["appts"] + lg["appts"], "held": ov["held"] + lg["held"], "lg_appts": lg["appts"], "lg_held": lg["held"]}
+                all_["outbound"] = all_["calls"] + ov["texts"] + ov["emails"]
+                for k in ("calls", "texts", "emails"):
+                    all_[k + "_share"] = R.pct(all_[k] if k == "calls" else ov[k], all_["outbound"], 0)
+                all_["held_pct"] = R.pct(all_["held"], all_["appts"], 0)
+                all_["chg"] = {"leads": R.change(all_["leads"], pv["leads"] + other_prev["written"]),
+                               "outbound": R.change(all_["outbound"], pv["outbound"] + lg_prev["dials"]),
+                               "appts": R.change(all_["appts"], pv["appts"] + lg_prev["appts"])}
+                if ov.get("cte"):
+                    c = ov["cte"]
+                    c["closed_pct"] = R.pct(c["closed"], all_["leads"], 2)
+                    c["closed_pending_pct"] = R.pct(c["closed"] + c["pending"], all_["leads"], 2)
             data["funnel"] = R.lead_funnel(cur, f, other)
     return render_template("lead_source.html", ready=ready, rng=rng, **data)
 

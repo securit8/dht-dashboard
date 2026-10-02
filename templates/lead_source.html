@@ -27,23 +27,27 @@
 {% if not ready %}
   {{ m.empty() }}
 {% else %}
+  {% set a = ov.all if ov.all else none %}
   <div class="card ov">
-    <div class="band-label">Time period <b>{{ rng.label }}</b></div>
+    <div class="band-label">Time period <b>{{ rng.label }}</b>{% if a %} &middot; every source{% endif %}</div>
     <div class="kpis">
-      <div><div class="kpi-lbl">Leads</div><div class="kpi-val">{{ ov.leads|num }}</div>
-        <div class="kpi-sub">new leads created</div>{{ m.chg(ov.chg.leads) }}</div>
+      <div><div class="kpi-lbl">Leads</div><div class="kpi-val">{{ (a.leads if a else ov.leads)|num }}</div>
+        <div class="kpi-sub">{% if a %}{{ ov.leads|num }} new in Follow Up Boss + {{ a.other|num }} sphere, referral &amp; open-house clients (CTE){% else %}new leads created{% endif %}</div>
+        {{ m.chg(a.chg.leads if a else ov.chg.leads) }}</div>
       <div><div class="kpi-lbl">Outbound Communication</div>
         <div class="split">
-          <div><b>{{ ov.calls|num }}</b>Calls {{ ov.calls_share }}%</div>
-          <div><b>{{ ov.texts|num }}</b>Texts {{ ov.texts_share }}%</div>
-          <div><b>{{ ov.emails|num }}</b>Emails {{ ov.emails_share }}%</div>
-        </div>{{ m.chg(ov.chg.outbound) }}</div>
+          <div><b>{{ (a.calls if a else ov.calls)|num }}</b>Calls {{ a.calls_share if a else ov.calls_share }}%</div>
+          <div><b>{{ ov.texts|num }}</b>Texts {{ a.texts_share if a else ov.texts_share }}%</div>
+          <div><b>{{ ov.emails|num }}</b>Emails {{ a.emails_share if a else ov.emails_share }}%</div>
+        </div>{% if a and a.dials %}<div class="kpi-sub">calls include {{ a.dials|num }} dials from the CTE Lead Gen sheet</div>{% endif %}
+        {{ m.chg(a.chg.outbound if a else ov.chg.outbound) }}</div>
       <div><div class="kpi-lbl">Appointments</div>
         <div class="split">
-          <div><b>{{ ov.appts|num }}</b>Overall</div>
-          <div><b>{{ ov.held|num }}</b>Held</div>
-          <div><b>{{ ov.held_pct }}%</b>Held %</div>
-        </div>{{ m.chg(ov.chg.appts) }}</div>
+          <div><b>{{ (a.appts if a else ov.appts)|num }}</b>Overall</div>
+          <div><b>{{ (a.held if a else ov.held)|num }}</b>Held</div>
+          <div><b>{{ a.held_pct if a else ov.held_pct }}%</b>Held %</div>
+        </div>{% if a and (a.lg_appts or a.lg_held) %}<div class="kpi-sub">incl. {{ a.lg_appts|num }} set / {{ a.lg_held|num }} held from the CTE Lead Gen sheet</div>{% endif %}
+        {{ m.chg(a.chg.appts if a else ov.chg.appts) }}</div>
       <div><div class="kpi-lbl">Deals{% if ov.cte %} &middot; CTE{% endif %}</div>
         {% if ov.cte %}
         <div class="split">
@@ -58,7 +62,7 @@
           <div><b>{{ ov.pending|num }}</b>Pending</div>
           <div><b>{{ ov.closed|num }}</b>Closed</div>
         </div>{{ m.chg(ov.chg.deals) }}</div>
-      <div><div class="kpi-lbl">Conversion{% if ov.cte %} &middot; CTE{% endif %}</div>
+      <div><div class="kpi-lbl">Conversion{% if ov.cte %} &middot; CTE{% if a %} (of all {{ a.leads|num }} leads){% endif %}{% endif %}</div>
         {% if ov.cte %}
         <div class="split">
           <div><b>{{ ov.cte.closed_pct }}%</b>Closed %</div>

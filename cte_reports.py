@@ -350,6 +350,19 @@ def other_source_deals(cur, start, end, cte_agent=None):
         WHERE uc AND COALESCE(d.source, '') ~* %(pat)s""", p)
 
 
+def lead_gen_totals(cur, start, end, cte_agent=None):
+    """What agents logged on the CTE Lead Gen sheet in the period: appointments set and held, dials."""
+    p = {"start": start.date() if hasattr(start, "date") else start, "end": end.date() if hasattr(end, "date") else end,
+         "cte_agent": cte_agent}
+    r = one(cur, """
+        SELECT COALESCE(SUM(COALESCE(buyer_appts_set, 0) + COALESCE(listing_appts_set, 0)), 0) AS appts,
+               COALESCE(SUM(COALESCE(buyer_appts_held, 0) + COALESCE(listing_appts_held, 0)), 0) AS held,
+               COALESCE(SUM(COALESCE(dials, 0)), 0) AS dials
+        FROM cte_activity WHERE activity_date >= %(start)s AND activity_date < %(end)s
+          AND (%(cte_agent)s::text IS NULL OR LOWER(TRIM(agent_name)) = LOWER(TRIM(%(cte_agent)s)))""", p)
+    return {k: int(v) for k, v in r.items()}
+
+
 def deal_counts(cur, start, end, cte_agent=None, source=None):
     """written = went under contract in the period; pending = still pending and
     went under contract in the period; closed = closed in the period."""
