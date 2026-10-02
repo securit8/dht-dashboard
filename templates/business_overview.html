@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m with context %}
 {% block title %}Business Overview{% endblock %}
-{% block body_class %}cc{% endblock %}
 {% block eyebrow %}Business Overview{% endblock %}
 {% block heading %}Your business KPIs by quarter and month{% endblock %}
 {% block style %}
@@ -45,74 +44,6 @@
   .grid3[hidden], .tbl[hidden] { display: none; }
   @media (max-width: 900px) { .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .status-tiles { grid-template-columns: 1fr; } }
-  /* ================= command-center look (this page only) ================= */
-  body.cc { --ink: #E6E9F0; --muted: #7C8496; --soft: #A3ABBD; --line: #232A3A; --bg: #0E1219; --accent: #4F8CFF; --accent-ink: #8DB4FF;
-            --accent-soft: rgba(79,140,255,.12); --up: #2FD27A; --down: #FF5468; --panel: rgba(17,21,30,.86);
-            background: #07090D; color: var(--ink); }
-  body.cc .wrap { background-color: transparent; background-image: none; position: relative; }
-  body.cc::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background: radial-gradient(900px 500px at 85% -10%, rgba(79,140,255,.13), transparent 60%),
-                radial-gradient(700px 500px at 10% 110%, rgba(44,213,196,.07), transparent 60%),
-                linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px) 0 0 / 100% 32px,
-                linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px) 0 0 / 32px 100%;
-    animation: ccdrift 40s linear infinite; }
-  @keyframes ccdrift { to { background-position: 0 0, 0 0, 0 320px, 320px 0; } }
-  body.cc::after { content: ""; position: fixed; left: 0; right: 0; top: -20vh; height: 20vh; pointer-events: none; z-index: 40;
-    background: linear-gradient(180deg, transparent, rgba(79,140,255,.04) 60%, rgba(79,140,255,.08), transparent); animation: ccscan 7s linear infinite; }
-  @keyframes ccscan { to { transform: translateY(140vh); } }
-  body.cc .page { position: relative; z-index: 1; }
-  body.cc .ccglow { position: fixed; width: 520px; height: 520px; border-radius: 50%; pointer-events: none; z-index: 0; left: 0; top: 0;
-    background: radial-gradient(circle, rgba(79,140,255,.10), transparent 60%); transition: transform .25s ease-out; }
-  /* sidebar */
-  body.cc .side { background: #0A0D14; border-right-color: #1A2030; }
-  body.cc .side .logo span { color: #E6E9F0; }
-  body.cc .side nav a { color: #8F98AC; } body.cc .side nav a:hover { background: #121826; color: #E6E9F0; }
-  body.cc .side nav a.on { background: rgba(79,140,255,.14); color: #9CC0FF; box-shadow: inset 2px 0 0 #4F8CFF; }
-  body.cc .side .foot { border-top-color: #1A2030; } body.cc .side .foot a { color: #8F98AC; }
-  body.cc .mobilebar { background: #0A0D14; border-bottom-color: #1A2030; } body.cc .mobilebar span { color: #E6E9F0; }
-  body.cc .mobilebar button { background: #121826; border-color: #232A3A; } body.cc .mobilebar svg { stroke: #E6E9F0; }
-  /* headings */
-  body.cc .eyebrow { color: #4F8CFF; letter-spacing: .22em; font-family: 'Rajdhani'; font-weight: 600; font-size: 12.5px; }
-  body.cc h1 { font-family: 'Rajdhani', sans-serif; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; font-size: 30px; }
-  body.cc h2, body.cc h3 { font-family: 'Rajdhani', sans-serif; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #AFC4FF; }
-  /* panels */
-  body.cc .card, body.cc .ybox, body.cc .filters { background: var(--panel); border: 1px solid #222938; box-shadow: none; border-radius: 12px; backdrop-filter: blur(6px);
-    position: relative; overflow: hidden; }
-  body.cc .card::before, body.cc .ybox::before { content: ""; position: absolute; left: 0; top: 0; width: 46px; height: 2px; background: #4F8CFF; animation: ccsweep 3.5s ease-in-out infinite; }
-  @keyframes ccsweep { 50% { width: 120px; } }
-  body.cc .card::after, body.cc .ybox::after, body.cc .stile::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
-    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(79,140,255,.10), transparent 70%); }
-  body.cc .card:hover::after, body.cc .ybox:hover::after, body.cc .stile:hover::after { opacity: 1; }
-  body.cc .anim { opacity: 0; transform: translateY(16px) scale(.985); animation: ccrise .8s cubic-bezier(.2,.9,.2,1) forwards; animation-delay: var(--d, 0s); }
-  @keyframes ccrise { to { opacity: 1; transform: none; } }
-  body.cc .ylbl { color: #7C8496; font-size: 11.5px; letter-spacing: .14em; }
-  body.cc .yval, body.cc .stile .count, body.cc .tbl td.n, body.cc .board b { font-family: 'JetBrains Mono', monospace; }
-  body.cc .yval { font-weight: 600; }
-  body.cc .ybar { background: #1A2030; } body.cc .ybar div { background: linear-gradient(90deg, #4F8CFF, #2CD5C4); box-shadow: 0 0 10px rgba(44,213,196,.5); }
-  body.cc .ybar span { background: #F5B23D; box-shadow: 0 0 8px #F5B23D; }
-  body.cc .pos { color: #2FD27A; } body.cc .neg { color: #FF5468; }
-  body.cc .ysrc a, body.cc .goal-edit summary { color: #8DB4FF; }
-  body.cc .goal-edit input { background: #0E1219; color: #E6E9F0; border-color: #2A3245; }
-  /* status tiles: dark glass with the status color as a glowing edge */
-  body.cc .stile { background: linear-gradient(160deg, color-mix(in srgb, var(--tile) 26%, #11151E), #0E1219 75%); border: 1px solid color-mix(in srgb, var(--tile) 45%, #222938);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
-  body.cc .stile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tile); box-shadow: 0 0 14px var(--tile); }
-  body.cc .stile:hover { box-shadow: 0 0 0 1px var(--tile), 0 10px 30px rgba(0,0,0,.5); }
-  body.cc .stile.on { box-shadow: 0 0 0 2px var(--tile), 0 0 24px color-mix(in srgb, var(--tile) 50%, transparent); }
-  body.cc .stile .lbl { font-family: 'Rajdhani'; letter-spacing: .16em; color: color-mix(in srgb, var(--tile) 70%, #fff); }
-  /* tables, filters, tabs */
-  body.cc .tbl th { background: #0E1219; color: #7C8496; border-bottom-color: #232A3A; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
-  body.cc .tbl td { border-bottom-color: #181E2B; }
-  body.cc .tbl tr:hover td { background: rgba(79,140,255,.06); }
-  body.cc .qbtn { color: #8DB4FF; } body.cc .qbtn:hover { background: #121826; } body.cc .qbtn.on { color: #E6E9F0; }
-  body.cc .seg { border-color: #2A3245; } body.cc .seg a { color: #8F98AC; border-left-color: #2A3245; }
-  body.cc .seg a.on { background: #4F8CFF; color: #fff; box-shadow: 0 0 14px rgba(79,140,255,.45); }
-  body.cc .field input, body.cc .field select { background: #0E1219; color: #E6E9F0; border-color: #2A3245; }
-  body.cc .presets a { background: #121826; color: #8F98AC; } body.cc .presets a.on { background: #4F8CFF; color: #fff; }
-  body.cc .btn.ghost { background: #121826; color: #C9D1E2; border-color: #2A3245; }
-  body.cc .board li { border-bottom-color: #181E2B; }
-  body.cc .note, body.cc .muted { color: #7C8496; }
-  body.cc .tbl tr.avg td { background: #121826; }
   /* strip: gauges + ticker */
   .ccstrip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
   .ccg { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center; }
@@ -121,11 +52,11 @@
   .ring .ticks { transform-origin: 60px 60px; animation: ccspin 60s linear infinite; }
   @keyframes ccspin { to { transform: rotate(360deg); } }
   .ring .val { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
-  .ring .val b { font-family: 'JetBrains Mono'; font-size: 21px; font-weight: 600; display: block; color: #E6E9F0; }
+  .ring .val b { font-family: 'JetBrains Mono'; font-size: 21px; font-weight: 600; display: block; color: var(--ink); }
   .ring .val span { font-size: 10px; color: #7C8496; letter-spacing: .12em; text-transform: uppercase; }
   .ring.alarm { animation: ccalarm 1.8s ease-in-out infinite; }
   @keyframes ccalarm { 50% { box-shadow: 0 0 0 6px rgba(255,84,104,.10), 0 0 30px rgba(255,84,104,.25); } }
-  .ccg .k { font-family: 'Rajdhani'; letter-spacing: .14em; text-transform: uppercase; color: #AFC4FF; font-size: 13px; font-weight: 600; }
+  .ccg .k { font-family: 'Rajdhani'; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); font-size: 13px; font-weight: 600; }
   .ccg .big { font-family: 'JetBrains Mono'; font-size: 21px; margin: 4px 0; }
   .ccg .s { font-size: 12px; color: #7C8496; line-height: 1.5; }
   .ccchip { display: inline-block; font-family: 'JetBrains Mono'; font-size: 10.5px; padding: 2px 7px; border-radius: 4px; border: 1px solid; margin-top: 6px; }
@@ -133,15 +64,13 @@
   .ccchip.warn { color: #F5B23D; border-color: rgba(245,178,61,.4); background: rgba(245,178,61,.08); }
   .ccchip.bad { color: #FF5468; border-color: rgba(255,84,104,.45); background: rgba(255,84,104,.08); animation: ccblink 2.2s ease-in-out infinite; }
   @keyframes ccblink { 50% { box-shadow: 0 0 14px rgba(255,84,104,.45); } }
-  .ticker { border: 1px solid #222938; border-radius: 10px; background: rgba(10,13,20,.85); overflow: hidden; white-space: nowrap; position: relative; height: 32px; margin-bottom: 16px; }
+  .ticker { border: 1px solid var(--line); border-radius: 10px; background: var(--panel, #fff); overflow: hidden; white-space: nowrap; position: relative; height: 32px; margin-bottom: 16px; }
   .ticker::before, .ticker::after { content: ""; position: absolute; top: 0; bottom: 0; width: 60px; z-index: 1; }
-  .ticker::before { left: 0; background: linear-gradient(90deg, #0A0D14, transparent); } .ticker::after { right: 0; background: linear-gradient(-90deg, #0A0D14, transparent); }
+  .ticker::before { left: 0; background: linear-gradient(90deg, var(--edge, #fff), transparent); } .ticker::after { right: 0; background: linear-gradient(-90deg, var(--edge, #fff), transparent); }
   .ticker .track { display: inline-flex; gap: 40px; padding-left: 100%; animation: cctick 50s linear infinite; font-family: 'JetBrains Mono'; font-size: 12px; line-height: 32px; color: #7C8496; }
-  .ticker .track b { color: #E6E9F0; font-weight: 600; } .ticker .u { color: #2FD27A; } .ticker .d { color: #FF5468; }
+  .ticker .track b { color: var(--ink); font-weight: 600; } .ticker .u { color: #2FD27A; } .ticker .d { color: #FF5468; }
   @keyframes cctick { to { transform: translateX(-100%); } }
   @media (max-width: 1000px) { .ccstrip { grid-template-columns: 1fr; } }
-  @media (prefers-reduced-motion: reduce) { body.cc *, body.cc *::before, body.cc *::after, body.cc::before, body.cc::after {
-    animation-duration: .01s !important; animation-iteration-count: 1 !important; transition: none !important; } }
 {% endblock %}
 
 {% block filters %}{% if ready %}
@@ -381,17 +310,15 @@
   {% include "_chart.html" %}
   <script>
     // command-center look: dark charts, gauges, panels sliding in, numbers counting up, light that follows the mouse
-    Chart.defaults.color = '#8F98AC';
-    Chart.defaults.borderColor = 'rgba(255,255,255,.06)';
-    SERIES_COLORS.splice(0, 3, '#4F8CFF', '#2CD5C4', '#5B6478');
+    if (document.body.classList.contains('cc')) SERIES_COLORS.splice(0, 3, '#4F8CFF', '#2CD5C4', '#5B6478');
     (function () {
       document.querySelectorAll('.ring').forEach(el => {
         const pct = +el.dataset.pct || 0, color = el.dataset.color, r = 50, c = 2 * Math.PI * r, to = Math.min(pct, 1);
         el.innerHTML = `<svg width="120" height="120" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="${r}" stroke="#1A2030" stroke-width="9" fill="none"/>
+          <circle cx="60" cy="60" r="${r}" stroke="var(--ring-track)" stroke-width="9" fill="none"/>
           <circle class="arc" cx="60" cy="60" r="${r}" stroke="${color}" stroke-width="9" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c}"
             style="transition: stroke-dashoffset 1.4s cubic-bezier(.2,.9,.2,1); filter: drop-shadow(0 0 6px ${color})"/>
-          <g class="ticks">${[...Array(30)].map((_, i) => `<line x1="60" y1="2" x2="60" y2="6" stroke="#2A3142" stroke-width="1.5" transform="rotate(${i * 12} 60 60)"/>`).join('')}</g>
+          <g class="ticks">${[...Array(30)].map((_, i) => `<line x1="60" y1="2" x2="60" y2="6" stroke="var(--ring-track)" stroke-width="1.5" transform="rotate(${i * 12} 60 60)"/>`).join('')}</g>
           <circle class="comet" cx="${60 + r}" cy="60" r="4" fill="${color}" style="filter: drop-shadow(0 0 6px ${color})"/></svg>
           <div class="val"><div><b>${el.dataset.value}</b><span>${el.dataset.label}</span></div></div>`;
         if (pct > 1) el.classList.add('alarm');

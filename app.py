@@ -366,10 +366,28 @@ def version():
     return {"commit": (os.environ.get("RENDER_GIT_COMMIT") or "local")[:7]}
 
 
+@app.route("/settings")
+@login_required
+def settings_page():
+    return render_template("settings.html", themes=THEMES, saved=request.args.get("saved"))
+
+
+@app.route("/settings/theme", methods=["POST"])
+@login_required
+def settings_theme():
+    """Pick the look for the whole dashboard; kept in this browser for a year."""
+    theme = request.form.get("theme", "light")
+    theme = theme if theme in THEMES else "light"
+    resp = redirect(url_for("settings_page", saved=1))
+    resp.set_cookie("theme", theme, max_age=365 * 24 * 3600, samesite="Lax", secure=request.is_secure, httponly=True)
+    return resp
+
+
 @app.before_request
 def _demo_read_only():
-    """In the demo nothing can be changed or connected: every form just goes back to the page."""
-    if DEMO and request.method not in ("GET", "HEAD", "OPTIONS"):
+    """In the demo nothing can be changed or connected: every form just goes back to the page
+    (except the theme, which only changes this browser's look)."""
+    if DEMO and request.method not in ("GET", "HEAD", "OPTIONS") and request.endpoint != "settings_theme":
         return redirect((request.referrer or url_for("dashboard")).split("#")[0])
 
 
@@ -519,9 +537,17 @@ def board_item(row, key):
     return {"name": row["name"], "value": row[key]}
 
 
+THEMES = {"light": "Light", "cc": "Command center"}  # Settings > Theme; remembered in this browser
+
+
+def current_theme():
+    t = request.cookies.get("theme", "light")
+    return t if t in THEMES else "light"
+
+
 @app.context_processor
 def layout_context():
-    return {"nav": NAV, "presets": PRESETS, "money": money, "demo": DEMO,
+    return {"nav": NAV, "presets": PRESETS, "money": money, "demo": DEMO, "theme": current_theme(),
             "month_names": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}
 
 

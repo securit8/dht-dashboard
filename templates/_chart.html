@@ -3,6 +3,7 @@
 <script>
   Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
   Chart.defaults.color = '#5B6472';
+  if (document.body.classList.contains('cc')) { Chart.defaults.color = '#8F98AC'; Chart.defaults.borderColor = 'rgba(255,255,255,.06)'; }
   Chart.defaults.plugins.legend.labels.boxWidth = 12;
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const SERIES_COLORS = ['#7B8FF0', '#C6CBD4', '#E8A87C'];

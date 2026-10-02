@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block eyebrow %}Settings{% endblock %}
+{% block heading %}How the dashboard looks and works{% endblock %}
+{% block style %}
+  .themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 6px; }
+  .theme { border: 2px solid var(--line); border-radius: 14px; padding: 14px; background: var(--panel, #fff); }
+  .theme.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .theme h3 { margin: 12px 0 4px; }
+  .theme p { margin: 0 0 12px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .swatch { height: 120px; border-radius: 10px; display: grid; grid-template-columns: 38px 1fr; overflow: hidden; border: 1px solid var(--line); }
+  .swatch .sb { padding: 10px 6px; display: flex; flex-direction: column; gap: 6px; }
+  .swatch .sb i { display: block; height: 6px; border-radius: 3px; }
+  .swatch .mn { padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-content: start; }
+  .swatch .mn b { display: block; height: 34px; border-radius: 6px; }
+  .swatch .mn u { grid-column: span 3; display: block; height: 42px; border-radius: 6px; text-decoration: none; }
+  .sw-light { background: #F6F7F9; } .sw-light .sb { background: #fff; border-right: 1px solid #E8EBF0; } .sw-light .sb i { background: #DDE1E8; }
+  .sw-light .sb i:first-child { background: #3E55C9; } .sw-light .mn b, .sw-light .mn u { background: #fff; border: 1px solid #E8EBF0; }
+  .sw-cc { background: #07090D; } .sw-cc .sb { background: #0A0D14; border-right: 1px solid #1A2030; } .sw-cc .sb i { background: #1E2534; }
+  .sw-cc .sb i:first-child { background: #4F8CFF; box-shadow: 0 0 8px #4F8CFF; }
+  .sw-cc .mn b, .sw-cc .mn u { background: rgba(17,21,30,.9); border: 1px solid #222938; }
+  .sw-cc .mn b:first-child { box-shadow: inset 0 2px 0 #4F8CFF; } .sw-cc .mn u { box-shadow: inset 3px 0 0 #2CD5C4; }
+  @media (max-width: 700px) { .themes { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block content %}
+  <div class="card" id="theme">
+    <h2>Theme</h2>
+    <p class="muted" style="margin:-6px 0 12px;font-size:14px">The look of every page. It's remembered in this browser; switch back any time.
+      {% if saved %}<b style="color:var(--up, #1E7B4C)">Saved.</b>{% endif %}</p>
+    <div class="themes">
+      {% for key, label in themes.items() %}
+      <form class="theme {{ 'on' if theme == key }}" method="post" action="{{ url_for('settings_theme') }}">
+        <input type="hidden" name="theme" value="{{ key }}">
+        <div class="swatch {{ 'sw-light' if key == 'light' else 'sw-cc' }}" aria-hidden="true">
+          <div class="sb"><i></i><i></i><i></i><i></i></div><div class="mn"><b></b><b></b><b></b><u></u></div>
+        </div>
+        <h3>{{ label }}{% if theme == key %} &middot; <span style="color:var(--accent-ink)">in use</span>{% endif %}</h3>
+        <p>{% if key == 'light' %}Clean and bright: white panels, the original look.{% else %}Dark command center: glowing panels, gauges and motion, like Business Overview.{% endif %}</p>
+        {% if theme == key %}<button class="btn ghost" type="button" disabled>In use</button>
+        {% else %}<button class="btn" type="submit">Use {{ label }}</button>{% endif %}
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}
