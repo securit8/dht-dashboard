@@ -1,5 +1,6 @@
 import csv
 import io
+import math
 import os
 import secrets
 import time as time_mod
@@ -896,6 +897,8 @@ def activity_stats(cur, f):
             s["calls"] += lg["dials"]; s["set"] += lg["appts"]; s["held"] += lg["held"]
     per = lambda n: round(s["calls"] / n, 1) if n else None  # noqa: E731
     s["calls_per"] = {"set": per(s["set"]), "held": per(s["held"]), "offers": per(s["offers"]), "closed": per(s["closed"])}
+    top = math.log10(max(s["calls"], 1) + 1)  # funnel bars on a log scale: a closing still shows next to thousands of calls
+    s["bar"] = {k: (max(math.log10(s[k] + 1) / top * 100, 2) if s[k] else 0) for k in ("calls", "set", "held", "offers", "closed")}
     s["rates"] = {"call_set": R.pct(s["set"], s["calls"], 2), "set_held": R.pct(s["held"], s["set"], 1),
                   "held_offer": R.pct(s["offers"], s["held"], 1), "offer_closed": R.pct(s["closed"], s["offers"], 1)}
     return s

@@ -4,6 +4,35 @@
 {% block eyebrow %}Activity Calculator{% endblock %}
 {% block heading %}How many calls does a closing take?{% endblock %}
 {% block style %}
+  .vstats { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 34px; }
+  .vrow { display: grid; grid-template-columns: 140px 1fr 70px; gap: 12px; align-items: center; }
+  .vlbl { font-size: 13.5px; color: var(--soft); }
+  .vval { font: 600 18px 'Inter', sans-serif; text-align: right; color: var(--ink); }
+  .vbar .bar { height: 22px; border-radius: 6px; background: var(--bg); overflow: hidden; }
+  .vbar .bar div { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), #6C8BF5); }
+  .vconv { margin: 3px 0 3px 152px; font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+  .vconv span { font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; }
+  .vconv i { font-style: normal; }
+  .vnote { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .vside h3 { margin: 0 0 10px; }
+  .vtake { display: grid; grid-template-columns: 130px 1fr 92px; gap: 10px; align-items: center; margin-bottom: 9px; }
+  .vt-l { font-size: 13px; color: var(--soft); }
+  .vt-b { position: relative; }
+  .vt-b .bar { height: 12px; border-radius: 6px; background: var(--bg); overflow: hidden; }
+  .vt-b .bar div { height: 100%; border-radius: 6px; background: var(--accent); }
+  .vt-b .bar.good div { background: #2E9E62; } .vt-b .bar.bad div { background: #E0A63A; }
+  .vt-b .tick { position: absolute; top: -4px; width: 2px; height: 20px; margin-left: -1px; background: var(--ink); opacity: .7; border-radius: 1px; }
+  .vt-v { font: 600 15px 'Inter', sans-serif; color: var(--ink); text-align: right; }
+  .vt-v i { display: block; font: 400 11.5px 'Inter', sans-serif; color: var(--muted); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+  .sw.good { background: #2E9E62; } .sw.bad { background: #E0A63A; } .sw.tk { width: 2px; height: 12px; background: var(--ink); opacity: .7; }
+  .rings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+  .ringc svg { display: block; margin: 0 auto; }
+  .ringc .rv { font: 600 16px 'Inter', sans-serif; color: var(--ink); margin-top: 4px; }
+  .ringc .rl { font-size: 11.5px; color: var(--soft); line-height: 1.3; }
+  .ringc .rt { font-size: 11px; color: var(--muted); }
+  @media (max-width: 1000px) { .vstats { grid-template-columns: 1fr; } .vrow { grid-template-columns: 110px 1fr 56px; } .vconv { margin-left: 122px; }
+                               .rings { grid-template-columns: repeat(2, 1fr); row-gap: 14px; } }
   .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; }
   .steps > div { padding: 4px 14px; border-left: 1px solid var(--line); }
   .steps > div:first-child { border-left: 0; padding-left: 0; }
@@ -36,24 +65,65 @@
   {{ m.empty() }}
 {% else %}
   {% set s = stats %}
+  {% set T = team if team is defined else none %}
+  {% set steps = [('calls', 'Calls', none, none), ('set', 'Appointments set', 'call_set', 'of calls'),
+                  ('held', 'Appointments held', 'set_held', 'of set'), ('offers', 'Offers accepted', 'held_offer', 'of held'),
+                  ('closed', 'Closed', 'offer_closed', 'of offers')] %}
   <div class="card">
     <div class="card-head"><div><h2>Statistics &middot; {{ agent_name if agent_name is defined else 'Whole team' }}</h2>
-      <div class="muted">{{ rng.label }} &middot; what it actually took</div></div></div>
-    <div class="steps">
-      <div><div class="kpi-lbl">Calls</div><div class="kpi-val">{{ s.calls|num }}</div>
-        <div class="team">{% if s.dials %}incl. {{ s.dials|num }} Lead Gen dials{% endif %}{% if team is defined %}{% if s.dials %} · {% endif %}team {{ team.calls|num }}{% endif %}</div></div>
-      {% for key, label, rate_key, rate_label in [('set', 'Appointments set', 'call_set', 'of calls'),
-                                                  ('held', 'Appointments held', 'set_held', 'of set'),
-                                                  ('offers', 'Offers accepted', 'held_offer', 'of held'),
-                                                  ('closed', 'Closed', 'offer_closed', 'of offers')] %}
-      <div><div class="kpi-lbl">{{ label }}</div><div class="kpi-val">{{ s[key]|num }}</div>
-        <div class="per">{% if s.calls_per[key] %}<b>{{ '{:,.1f}'.format(s.calls_per[key]) }}</b> calls for 1{% else %}no {{ label|lower }} yet{% endif %}</div>
-        {% if team is defined %}<div class="team">team: {% if team.calls_per[key] %}{{ '{:,.1f}'.format(team.calls_per[key]) }} calls for 1{% else %}--{% endif %}</div>{% endif %}
-        <span class="rate">{{ s.rates[rate_key] }}% {{ rate_label }}</span></div>
-      {% endfor %}
+      <div class="muted">{{ rng.label }} &middot; what it actually took{% if T %} &middot; team shown beside{% endif %}</div></div></div>
+    <div class="vstats">
+      <div class="vfunnel" aria-label="Funnel from calls to closings">
+        {% for key, label, rk, rl in steps %}
+        {% if rk %}<div class="vconv" title="{{ s.rates[rk] }}% {{ rl }}{% if T %} (team {{ T.rates[rk] }}%){% endif %}"><span>&darr; {{ s.rates[rk] }}%</span>{% if T %}<i>team {{ T.rates[rk] }}%</i>{% endif %}</div>{% endif %}
+        {% set w = s.bar[key] %}
+        <div class="vrow" title="{{ label }}: {{ s[key]|num }}{% if T %} &middot; team {{ T[key]|num }}{% endif %}">
+          <div class="vlbl">{{ label }}</div>
+          <div class="vbar"><div class="bar"><div style="width: {{ w }}%"></div></div></div>
+          <div class="vval">{{ s[key]|num }}</div>
+        </div>
+        {% endfor %}
+        <div class="vnote">Bar length on a log scale, so a closing still shows next to thousands of calls.{% if s.dials %} Calls include {{ s.dials|num }} Lead Gen dials.{% endif %}</div>
+      </div>
+
+      <div class="vside">
+        <h3>Calls it takes for one&hellip;</h3>
+        {% set mx = [s.calls_per.closed or 0, T.calls_per.closed if T and T.calls_per.closed else 0,
+                     s.calls_per.offers or 0, s.calls_per.held or 0, 1]|max %}
+        {% for key, label, rk, rl in steps[1:] %}
+        {% set v = s.calls_per[key] %}{% set tv = T.calls_per[key] if T else none %}
+        <div class="vtake" title="{{ label }}: {{ '{:,.1f}'.format(v) if v else 'none yet' }} calls{% if tv %} &middot; team {{ '{:,.1f}'.format(tv) }}{% endif %}">
+          <div class="vt-l">{{ label }}</div>
+          <div class="vt-b"><div class="bar {{ 'good' if v and tv and v <= tv else ('bad' if v and tv else '') }}"><div style="width: {{ ([v / mx * 100, 100]|min) if v else 0 }}%"></div></div>
+            {% if tv %}<span class="tick" style="left: {{ [tv / mx * 100, 100]|min }}%"></span>{% endif %}</div>
+          <div class="vt-v">{{ '{:,.0f}'.format(v) if v else '--' }}{% if tv %}<i>team {{ '{:,.0f}'.format(tv) }}</i>{% endif %}</div>
+        </div>
+        {% endfor %}
+        {% if T %}<div class="vnote"><span class="sw good"></span>fewer calls than the team &nbsp; <span class="sw bad"></span>more than the team &nbsp; <span class="sw tk"></span>team</div>{% endif %}
+
+        <h3 style="margin-top:18px">Step rates</h3>
+        <div class="rings">
+          {% for key, label, rk, rl in steps[1:] %}
+          {% set r = s.rates[rk] or 0 %}
+          <div class="ringc" title="{{ label }}: {{ r }}% {{ rl }}{% if T %} &middot; team {{ T.rates[rk] }}%{% endif %}">
+            <svg viewBox="0 0 42 42" width="74" height="74" aria-hidden="true">
+              <circle cx="21" cy="21" r="16" fill="none" stroke="var(--ring-track)" stroke-width="5"/>
+              <circle cx="21" cy="21" r="16" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"
+                      stroke-dasharray="{{ ([r, 100]|min) * 1.005 }} 100.5" transform="rotate(-90 21 21)"/>
+              {% if T and T.rates[rk] %}<circle cx="21" cy="21" r="16" fill="none" stroke="var(--ink)" stroke-width="7" stroke-dasharray="0.9 100.5"
+                      stroke-dashoffset="{{ -([T.rates[rk], 100]|min) * 1.005 }}" transform="rotate(-90 21 21)" opacity=".75"/>{% endif %}
+            </svg>
+            <div class="rv">{{ r|round(1) }}%</div>
+            <div class="rl">{{ rl|replace('of ', '') }} &rarr; {{ label|replace('Appointments ', '')|lower }}</div>
+            {% if T %}<div class="rt">team {{ T.rates[rk] }}%</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% if T %}<div class="vnote">The dark mark on each ring is the team's rate.</div>{% endif %}
+      </div>
     </div>
     <div class="note">Calls: Follow Up Boss calls{% if not request.args.get('source') %} plus dials logged on the CTE Lead Gen sheet{% endif %}. Appointments set and held: Follow Up Boss{% if not request.args.get('source') %} plus the Lead Gen sheet{% endif %}, the same "held" rule as the other reports.
-      Offers accepted and closings: the CTE deal log (credited to the primary agent). Each count is for these dates on its own, so "calls for 1" is a ratio of activity, not one lead followed from call to closing.</div>
+      Offers accepted and closings: the CTE deal log (credited to the primary agent). Set counts appointments booked in these dates, held counts appointments that took place in them, so on a short range the steps don't line up one-for-one.</div>
   </div>
 
   <div class="card" id="calc">
