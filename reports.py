@@ -588,13 +588,19 @@ def funnel_step(stage):
     return FUNNEL_STEP.get((stage or "").strip().lower(), 0)
 
 
-def lead_funnel(cur, f):
-    """Leads created in the period (page filters apply): how many reached at least each funnel step today."""
+def lead_funnel(cur, f, other=None):
+    """Leads created in the period (page filters apply): how many reached at least each funnel step today.
+    `other`: {"written", "closed"} clients only in the CTE log; they count as leads that reached
+    Submitting offers (and Closed when closed)."""
     steps = [funnel_step(r["stage"]) for r in fetch(cur, f"""
         SELECT p.stage FROM people p WHERE p.created_at >= %(start)s AND p.created_at < %(end)s AND {PEOPLE_F}""",
         f.params())]
+    fub = len(steps)
+    if other:
+        offers, closed = FUNNEL_STEP["submitting offers"], FUNNEL_STEP["closed"]
+        steps += [closed] * int(other["closed"]) + [offers] * (int(other["written"]) - int(other["closed"]))
     total = len(steps)
-    return {"leads": total, "steps": [{"stage": label, "reached": sum(1 for s in steps if s >= i),
+    return {"leads": total, "fub": fub, "other": total - fub, "steps": [{"stage": label, "reached": sum(1 for s in steps if s >= i),
                                        "pct": pct(sum(1 for s in steps if s >= i), total, 0),
                                        "at": sum(1 for s in steps if s == i)}
                                       for i, (label, _) in enumerate(FUNNEL)]}

@@ -898,7 +898,7 @@ def lead_source():
         data = {}
         if ready:
             data = dict(
-                ov=R.lead_source_overview(cur, f), funnel=R.lead_funnel(cur, f), top_agents=R.top_agents_closed(cur, f),
+                ov=R.lead_source_overview(cur, f), top_agents=R.top_agents_closed(cur, f),
                 stages=R.grouped_stages(R.stage_counts(cur, f)), months=R.leads_by_month(cur, f),
                 trend={"year": year,
                        "leads": [hide_future(R.monthly_series(cur, f, year, "leads"), year),
@@ -917,6 +917,9 @@ def lead_source():
                 c["chg_deals"] = R.change(c["closed"] + c["pending"], pc["closed"] + pc["pending"])
                 data["ov"]["cte"] = c
                 data["top_agents_cte"] = CTE.top_deals(cur, f.start, f.end, "closed", f.source)
+            # the funnel adds the clients only in the CTE log (not when a FUB lead source is picked)
+            other = CTE.other_source_deals(cur, f.start, f.end, cte_agent_for(cur, f.agent))                 if CTE.ready(cur) and not f.source else None
+            data["funnel"] = R.lead_funnel(cur, f, other)
     return render_template("lead_source.html", ready=ready, rng=rng, **data)
 
 

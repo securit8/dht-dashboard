@@ -72,7 +72,7 @@
         </div>{{ m.chg(ov.chg.conversion) }}</div>
     </div>
 
-    <div class="stage-band">Lead funnel &middot; how far the {{ funnel.leads|num }} leads created in this period have got</div>
+    <div class="stage-band">Lead funnel &middot; how far the {{ funnel.leads|num }} leads of this period have got{% if funnel.other %} &middot; {{ funnel.fub|num }} from Follow Up Boss + {{ funnel.other|num }} clients from the CTE log{% endif %}</div>
     <div class="kpis stage-kpis">
       {% for s in funnel.steps %}
       <div title="{{ s.at }} {{ 'lead is' if s.at == 1 else 'leads are' }} at this step right now">
@@ -83,7 +83,7 @@
       </div>
       {% endfor %}
     </div>
-    <div class="note">Each step counts leads that reached at least that stage in Follow Up Boss today. Folded in: Attempted contact, Unresponsive and Trash count as Lead; Sphere and Past client as Nurture; Appointment set as Spoke with customer;
+    <div class="note">{% if funnel.other %}Every source: the leads added to Follow Up Boss in these dates, plus {{ funnel.other|num }} clients who went under contract in these dates from sphere, referrals, past clients and open houses (only in the CTE deal log; they count as reaching Submitting offers, and Closed once closed). {% endif %}Each step counts leads that reached at least that stage in Follow Up Boss today. Folded in: Attempted contact, Unresponsive and Trash count as Lead; Sphere and Past client as Nurture; Appointment set as Spoke with customer;
       Listing agreement and Active listing as Showing homes; Under contract and Pending as Submitting offers.</div>
   </div>
 

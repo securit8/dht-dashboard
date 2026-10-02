@@ -99,19 +99,14 @@ def _deals(cur, today, tz):
     return out
 
 
-# CTE lead sources that never come through Follow Up Boss: the agents' own and referred clients
-OTHER_SOURCES = r"sphere|referral|past client|personal|family|friend|open ?house|vehicle|sign call|repeat|prior client"
-
-
 def _pipeline(cur, today, tz, funnel, deals):
     """The year so far from lead to closing, adding up every place it's recorded: Follow Up Boss (leads,
     appointments, deals), the CTE deal log (every deal, including clients who never were a FUB lead) and
     the CTE Lead Gen sheet (appointments the agents log themselves)."""
     start, end = today.replace(month=1, day=1), today + timedelta(days=1)
     fub = R.funnel_counts(cur, R.Filters(start, end, None, None, tz)) if funnel else None
-    p = {"start": start.date(), "end": end.date(), "pat": OTHER_SOURCES}
-    other = R.one(cur, f"""SELECT COUNT(*) FILTER (WHERE uc AND COALESCE(d.source, '') ~* %(pat)s) AS n
-                          FROM (SELECT d.*, {CTE._deal_flags()} FROM cte_deals d) d""", p)["n"] if deals else 0
+    p = {"start": start.date(), "end": end.date()}
+    other = CTE.other_source_deals(cur, start, end)["written"] if deals else 0
     lg = R.one(cur, """SELECT COALESCE(SUM(COALESCE(buyer_appts_set, 0) + COALESCE(listing_appts_set, 0)), 0) AS set,
                               COALESCE(SUM(COALESCE(buyer_appts_held, 0) + COALESCE(listing_appts_held, 0)), 0) AS held
                        FROM cte_activity WHERE activity_date >= %(start)s AND activity_date < %(end)s""", p)         if CTE.ready(cur) else {"set": 0, "held": 0}

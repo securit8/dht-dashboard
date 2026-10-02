@@ -335,6 +335,21 @@ def _deal_flags():
                AND EXTRACT(YEAR FROM d.close_date) = d.file_year) AS cl"""
 
 
+# CTE lead sources that never come through Follow Up Boss: the agents' own and referred clients
+OTHER_SOURCES = r"sphere|referral|past client|personal|family|friend|open ?house|vehicle|sign call|repeat|prior client"
+
+
+def other_source_deals(cur, start, end, cte_agent=None):
+    """Deals that went under contract in the period from clients only in the CTE log (sphere, referral,
+    past client, open house...): how many, and how many of them have closed."""
+    p = {"start": start.date() if hasattr(start, "date") else start, "end": end.date() if hasattr(end, "date") else end,
+         "cte_agent": cte_agent, "pat": OTHER_SOURCES}
+    return one(cur, f"""
+        SELECT COUNT(*) AS written, COUNT(*) FILTER (WHERE d.status = 'Closed') AS closed
+        FROM (SELECT d.*, {_deal_flags()} FROM cte_deals d WHERE {DEAL_AGENT_MATCH}) d
+        WHERE uc AND COALESCE(d.source, '') ~* %(pat)s""", p)
+
+
 def deal_counts(cur, start, end, cte_agent=None, source=None):
     """written = went under contract in the period; pending = still pending and
     went under contract in the period; closed = closed in the period."""
