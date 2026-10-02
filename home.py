@@ -626,6 +626,17 @@ def _attention(money, deals, leads, receipts, checks, fresh, now, questions=None
                           "detail": f"Company got ${gap:+,.0f} against the contracts this year.",
                           "link": ("splits_page", {"_anchor": "deals"}),
                           "choices": ["Paid right: update the contracts", "Paid wrong: fix with the agents"]})
+        other = [r for r in checks if r.get("paid_as")]
+        if other:
+            names = {"personal": "personal", "zillow": "Zillow", "database": "team / database"}
+            items.append({"level": "warn", "key": f"paid_as_other:{now.year}",
+                          "title": f"{len(other)} deal{'s' if len(other) != 1 else ''} paid at a different lead type than the CTE file says",
+                          "detail": "Compass paid them at another of the agent's own rates, so Splits counts them as on contract "
+                                    "(the agreements say the company decides the lead type). Check each one is really that type: "
+                                    + "; ".join(f"{r['address']} ({r['agent']}: CTE says {r['source'] or 'no source'}, paid as {names[r['paid_as']]})"
+                                                for r in other[:6]) + ".",
+                          "link": ("splits_page", {"_anchor": "deals"}),
+                          "choices": ["Paid right: the CTE lead source is wrong", "Paid wrong: fix with Compass"]})
         pending = sorted({r["agent"] for r in checks if r["status"] == "contract_pending" and r["agent"]})
         for a in pending:
             items.append({"level": "info", "key": f"contract_pending:{a}",
@@ -820,6 +831,13 @@ def details(cur, item, year, checks, receipts, money):
     checks = checks or []
     if kind == "off_contract":
         return _check_rows([r for r in checks if r["status"] in ("under", "over")])
+    if kind == "paid_as_other":
+        names = {"personal": "Personal", "zillow": "Zillow", "database": "Team / database"}
+        return _tbl(["Closed", "Address", "Agent", "CTE source", "GCI", "Company got", "Actual %", "Rate for the CTE label", "Paid as", "Difference vs label"],
+                    [[_d(r["close_date"]), r["address"], r["agent"] or "", r["source"] or "", _m(r["gci"]), _m(r["company"]),
+                      _p(r["actual_pct"]), _p(r.get("label_pct")), names.get(r["paid_as"], r["paid_as"]),
+                      (f"{r['label_gap']:+,.0f}" if r.get("label_gap") is not None else "")]
+                     for r in checks if r.get("paid_as")], num=(4, 5, 6, 7, 9))
     if kind == "no_contract":
         return _check_rows([r for r in checks if r["status"] == "no_contract"])
     if kind == "typo":
@@ -1084,6 +1102,10 @@ def add_where(cur, items, year, receipts):
             w = f"Google Drive › {arg} folder (shared by sandiegospecialist619): add the signed agreement PDF; then tell me and I'll add his splits"
         elif kind == "no_contract":
             w = "Google Drive › each agent's folder: add the signed agreement (a PDF with “contract” or “agreement” in the name)"
+        elif kind == "paid_as_other":
+            w = ("OneDrive › CTE FILES › My Business › Lead Source column AA of each deal if the lead type is wrong; "
+                 "or Compass, if the deal should have been paid at the CTE label's rate")
+            i["link"] = ("splits_page", {"_anchor": "deals"})
         elif kind == "off_contract":
             w = "Agent Splits › Every closed deal › Off contract: each deal's Compass receipt vs the agent's agreement; fix the pay with Compass, or the agreement in Drive"
             i["link"] = ("splits_page", {"_anchor": "deals"})

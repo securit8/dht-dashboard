@@ -278,7 +278,9 @@ def deal_check(cur, start, end):
             if row["status"] != "ok" and not row["bonus"]:
                 for kind in ("personal", "zillow", "database"):
                     if kind != row["lead"] and abs(row["actual_pct"] - c[kind]) <= TOLERANCE:
-                        row.update(status="ok", paid_as=kind, expected=company, gap=0.0)
+                        # keep what the CTE label would have meant, so the owners can still check it
+                        row.update(status="ok", paid_as=kind, label_pct=row["expected_pct"], label_gap=row["gap"],
+                                   expected=company, gap=0.0)
                         break
         out.append(row)
     return out
