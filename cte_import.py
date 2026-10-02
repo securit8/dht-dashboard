@@ -414,6 +414,10 @@ def import_from_onedrive(database_url, force=False, log=print):
     unchanged = sum(1 for f in files if f["etag"] and seen.get(f["name"]) == f["etag"])
     if unchanged and not force:
         log(f"CTE: {unchanged} unchanged since last import, skipped")
+    # when OneDrive was last checked, even if nothing changed (the dashboard's "up to date" check)
+    cur.execute("CREATE TABLE IF NOT EXISTS cte_check (id INT PRIMARY KEY, checked_at TIMESTAMPTZ)")
+    cur.execute("INSERT INTO cte_check VALUES (1, now()) ON CONFLICT (id) DO UPDATE SET checked_at = now()")
+    conn.commit()
     cur.close()
     conn.close()
 

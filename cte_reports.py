@@ -45,9 +45,15 @@ def agent_options(cur):
 
 
 def last_import(cur):
+    """When the workbooks were last read from OneDrive: a changed file imported, or all checked and unchanged."""
     if not table_exists(cur, "cte_import_log"):
         return None
-    return one(cur, "SELECT MAX(imported_at) AS at FROM cte_import_log", {})["at"]
+    at = one(cur, "SELECT MAX(imported_at) AS at FROM cte_import_log", {})["at"]
+    if table_exists(cur, "cte_check"):
+        checked = one(cur, "SELECT checked_at AS at FROM cte_check WHERE id = 1", {})
+        if checked and checked["at"] and (at is None or checked["at"] > at):
+            at = checked["at"]
+    return at
 
 
 def _num(v):
