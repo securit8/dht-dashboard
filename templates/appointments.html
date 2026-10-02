@@ -54,6 +54,23 @@
       No Outcome Yet = the appointment is still ahead, or the lead is still at Appointment set. The outcome typed in Follow Up Boss is shown under each row.</div>
   </div>
 
+  {% set st = set_times %}
+  {% if st and st.total %}
+  <div class="card" id="set-times">
+    <div class="card-head"><div><h2>When appointments get set</h2>
+      <div class="muted">The time each appointment was booked in Follow Up Boss (Pacific) &middot; {{ st.total|num }} appointments in these dates</div></div>
+      <div class="seg" id="st-seg"><a class="on" data-v="hour" href="#set-times">By hour</a><a data-v="day" href="#set-times">By day</a></div></div>
+    <div class="kpis" style="margin-bottom:14px">
+      <div><div class="kpi-lbl">Busiest hour</div><div class="kpi-val">{{ st.best_hour.label }}</div><div class="kpi-sub">{{ st.best_hour.n|num }} appointments &middot; {{ st.best_hour.pct|round|int }}%</div></div>
+      <div><div class="kpi-lbl">Best 3-hour window</div><div class="kpi-val">{{ st.window.label }}</div><div class="kpi-sub">{{ st.window.n|num }} appointments &middot; {{ st.window.pct|round|int }}%</div></div>
+      <div><div class="kpi-lbl">Busiest day</div><div class="kpi-val">{{ st.best_day.label }}</div><div class="kpi-sub">{{ st.best_day.n|num }} appointments &middot; {{ st.best_day.pct|round|int }}%</div></div>
+      <div><div class="kpi-lbl">Top slots</div>{% for t in st.top %}<div class="kpi-sub" style="font-size:13px"><b>{{ t.label }}</b> &middot; {{ t.n }} set, {{ t.held }} held</div>{% endfor %}</div>
+    </div>
+    <div style="position:relative;height:280px"><canvas id="c-settimes"></canvas></div>
+    <div class="note">Blue = appointments set in that hour (or day), green = how many of those were held. {% if st.outside %}{{ st.outside }} were booked outside 6AM–9PM and aren't in the hour chart.{% endif %}</div>
+  </div>
+  {% endif %}
+
   <div class="card">
     <div class="card-head">
       <h2>Appointment Overview</h2>
@@ -101,3 +118,28 @@
   </div>
 {% endif %}
 {% endblock %}
+
+{% block scripts %}{% if ready and set_times and set_times.total %}
+  {% include "_chart.html" %}
+  <script>
+    (function () {
+      const st = {{ set_times|tojson }};
+      const views = { hour: [st.hours, st.by_hour, st.held_by_hour], day: [st.days, st.by_day, st.held_by_day] };
+      const dark = document.body.classList.contains('cc');
+      const chart = new Chart(document.getElementById('c-settimes'), {
+        type: 'bar',
+        data: { labels: views.hour[0], datasets: [
+          { label: 'Appointments set', data: views.hour[1], backgroundColor: dark ? '#4F8CFF' : '#7B8FF0', borderRadius: 4 },
+          { label: 'Held', data: views.hour[2], backgroundColor: dark ? '#2FD27A' : '#7CC9A0', borderRadius: 4 }] },
+        options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+      document.querySelectorAll('#st-seg a').forEach(a => a.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('#st-seg a').forEach(x => x.classList.toggle('on', x === a));
+        const v = views[a.dataset.v];
+        chart.data.labels = v[0]; chart.data.datasets[0].data = v[1]; chart.data.datasets[1].data = v[2]; chart.update();
+      }));
+    })();
+  </script>
+{% endif %}{% endblock %}

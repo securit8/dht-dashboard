@@ -890,6 +890,48 @@ def hour_label(h):
     return f"{(h - 1) % 12 + 1}{'AM' if h < 12 else 'PM'}"
 
 
+SET_HOURS = list(range(6, 22))  # 6AM-9PM: when appointments get booked
+
+
+def appointment_set_times(cur, f, appt_type=None):
+    """When agents book appointments (the time each one was created in Follow Up Boss, Pacific):
+    by hour, by weekday and the busiest day+hour slots, with how many of them were held."""
+    rows = fetch(cur, f"""
+        SELECT EXTRACT(ISODOW FROM a.created_at AT TIME ZONE %(tz)s)::int AS d,
+               EXTRACT(HOUR FROM a.created_at AT TIME ZONE %(tz)s)::int AS h,
+               COUNT(*) AS n, COUNT(*) FILTER (WHERE {APPT_CLASS} = 'held') AS held
+        FROM appointments a
+        WHERE a.created_at >= %(start)s AND a.created_at < %(end)s AND {APPTS_F}
+          AND (%(type)s::text IS NULL OR a.type = %(type)s)
+        GROUP BY 1, 2""", f.params(type=appt_type))
+    total = sum(r["n"] for r in rows)
+    by_hour = {h: [0, 0] for h in range(24)}
+    by_day = {d: [0, 0] for d in range(1, 8)}
+    for r in rows:
+        by_hour[r["h"]][0] += r["n"]; by_hour[r["h"]][1] += r["held"]
+        by_day[r["d"]][0] += r["n"]; by_day[r["d"]][1] += r["held"]
+    outside = sum(n for h, (n, _) in by_hour.items() if h not in SET_HOURS)
+    top = sorted(rows, key=lambda r: -r["n"])[:3]
+    best_h = max(by_hour, key=lambda h: by_hour[h][0]) if total else None
+    best_d = max(by_day, key=lambda d: by_day[d][0]) if total else None
+    # the 3 hours in a row with the most bookings
+    win = max(range(24 - 2), key=lambda h: sum(by_hour[h + i][0] for i in range(3))) if total else None
+    return {
+        "total": total, "outside": outside,
+        "hours": [hour_label(h) for h in SET_HOURS], "by_hour": [by_hour[h][0] for h in SET_HOURS],
+        "held_by_hour": [by_hour[h][1] for h in SET_HOURS],
+        "days": DAYS, "by_day": [by_day[d][0] for d in range(1, 8)], "held_by_day": [by_day[d][1] for d in range(1, 8)],
+        "best_hour": best_h is not None and {"label": f"{hour_label(best_h)} – {hour_label(best_h + 1)}", "n": by_hour[best_h][0],
+                                             "pct": pct(by_hour[best_h][0], total, 0)},
+        "best_day": best_d is not None and {"label": DAY_NAMES[best_d - 1], "n": by_day[best_d][0], "pct": pct(by_day[best_d][0], total, 0)},
+        "window": win is not None and {"label": f"{hour_label(win)} – {hour_label(win + 3)}",
+                                       "n": sum(by_hour[win + i][0] for i in range(3)),
+                                       "pct": pct(sum(by_hour[win + i][0] for i in range(3)), total, 0)},
+        "top": [{"label": f"{DAY_NAMES[r['d'] - 1]} {hour_label(r['h'])} – {hour_label(r['h'] + 1)}", "n": r["n"], "held": r["held"]}
+                for r in top],
+    }
+
+
 def call_time(cur, f):
     grid = {(d, h): [0, 0] for d in range(1, 8) for h in range(24)}  # (isodow, hour) -> [calls, convos]
     for r in fetch(cur, f"""
