@@ -107,3 +107,55 @@ body.cc .alert.warn .sev { color: #F5C46B; }
 body.cc .alert .txt, body.cc .alert .txt b { color: var(--ink); }
 body.cc .att-filter button { background: #121826; color: #8F98AC; }
 body.cc .att-filter button.on { background: #4F8CFF; color: #fff; }
+
+/* ---- motion on every page (static/cc.js) ---- */
+body.cc .hud { position: absolute; inset: 6px; pointer-events: none; z-index: 2; opacity: .55; transition: opacity .3s, inset .3s;
+  background:
+    linear-gradient(#4F8CFF, #4F8CFF) left top / 10px 1.5px no-repeat, linear-gradient(#4F8CFF, #4F8CFF) left top / 1.5px 10px no-repeat,
+    linear-gradient(#4F8CFF, #4F8CFF) right top / 10px 1.5px no-repeat, linear-gradient(#4F8CFF, #4F8CFF) right top / 1.5px 10px no-repeat,
+    linear-gradient(#2CD5C4, #2CD5C4) left bottom / 10px 1.5px no-repeat, linear-gradient(#2CD5C4, #2CD5C4) left bottom / 1.5px 10px no-repeat,
+    linear-gradient(#2CD5C4, #2CD5C4) right bottom / 10px 1.5px no-repeat, linear-gradient(#2CD5C4, #2CD5C4) right bottom / 1.5px 10px no-repeat; }
+body.cc .card:hover > .hud, body.cc .tile:hover > .hud, body.cc .ybox:hover > .hud { opacity: 1; inset: 3px; }
+body.cc .tile, body.cc .pcard, body.cc .ybox { position: relative; overflow: hidden; transition: transform .25s cubic-bezier(.2,.9,.2,1), box-shadow .25s, border-color .25s; }
+body.cc .tile:hover, body.cc .pcard:hover, body.cc .ybox:hover { transform: translateY(-3px); border-color: #34508A;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45), 0 0 0 1px rgba(79,140,255,.25), 0 0 24px rgba(79,140,255,.12); }
+body.cc .tile::after, body.cc .pcard::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), rgba(79,140,255,.13), transparent 70%); }
+body.cc .tile:hover::after, body.cc .pcard:hover::after { opacity: 1; }
+body.cc .cccount { text-shadow: 0 0 18px rgba(79,140,255,.35); }
+body.cc .kpi-val, body.cc .t-val { font-family: 'JetBrains Mono', monospace; letter-spacing: -.02em; }
+/* cascades */
+body.cc .ccin { opacity: 0; transform: translateX(-14px); animation: ccslide .55s cubic-bezier(.2,.9,.2,1) forwards; animation-delay: var(--d, 0s); }
+body.cc tr.ccrow { opacity: 0; animation: ccfade .45s ease-out forwards; animation-delay: var(--d, 0s); }
+@keyframes ccslide { to { opacity: 1; transform: none; } }
+@keyframes ccfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+body.cc .tbl tr:hover td { background: rgba(79,140,255,.09); box-shadow: inset 0 1px 0 rgba(79,140,255,.15), inset 0 -1px 0 rgba(79,140,255,.15); }
+/* bars glow */
+body.cc .hf-bar div, body.cc .fbar div { background: linear-gradient(90deg, #4F8CFF, #2CD5C4); box-shadow: 0 0 10px rgba(44,213,196,.45); }
+body.cc .hf-bar.CTE div { background: linear-gradient(90deg, #2FD27A, #2CD5C4); }
+/* alerts that need fixing pulse */
+body.cc .alert.bad { animation: ccbad 2.4s ease-in-out infinite; }
+@keyframes ccbad { 50% { box-shadow: 0 0 0 1px rgba(255,84,104,.35), 0 0 22px rgba(255,84,104,.18); } }
+body.cc .alert.bad .sev { animation: ccblinktxt 1.6s steps(2, start) infinite; }
+@keyframes ccblinktxt { 50% { opacity: .35; } }
+body.cc .alert:hover { border-color: #2F3A52; transform: translateX(2px); transition: transform .2s; }
+/* menu: the open page breathes, others slide on hover */
+body.cc .side nav a { transition: background .2s, color .2s, padding-left .2s; }
+body.cc .side nav a:hover { padding-left: 14px; }
+body.cc .side nav a.on { animation: ccbreathe 3s ease-in-out infinite; }
+@keyframes ccbreathe { 50% { box-shadow: inset 2px 0 0 #4F8CFF, 0 0 18px rgba(79,140,255,.25); } }
+/* page title: a light sweeps across it once */
+body.cc h1 { background: linear-gradient(100deg, #E6E9F0 40%, #9CC0FF 50%, #E6E9F0 60%) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text;
+  color: transparent; animation: cctitle 2.4s ease-out .2s both; }
+@keyframes cctitle { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* click ripple */
+body.cc .ccripple-host { position: relative; overflow: hidden; }
+body.cc .ccripple { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; pointer-events: none;
+  background: rgba(156,192,255,.55); animation: ccripple .65s ease-out forwards; }
+@keyframes ccripple { to { transform: scale(28); opacity: 0; } }
+/* tags and chips glow a little */
+body.cc .tag, body.cc .chip, body.cc .hf-src { box-shadow: inset 0 0 8px color-mix(in srgb, currentColor 30%, transparent); text-shadow: 0 0 6px color-mix(in srgb, currentColor 60%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  body.cc .ccin, body.cc tr.ccrow { opacity: 1; transform: none; animation: none; }
+  body.cc h1 { animation: none; background-position: 0 0; }
+}

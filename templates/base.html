@@ -146,7 +146,7 @@
     :root { --ring-track: #E8EBF0; --edge: #fff; }
     {% block style %}{% endblock %}
   </style>
-  <link rel="stylesheet" href="{{ url_for('static', filename='cc.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='cc.css', v=asset_v) }}">
 </head>
 <body class="{% block body_class %}{% endblock %}{{ ' cc' if theme == 'cc' }}">
 {% set icons = {
@@ -200,5 +200,6 @@
 </main>
 </div>
 {% block scripts %}{% endblock %}
+{% if theme == 'cc' %}<script src="{{ url_for('static', filename='cc.js', v=asset_v) }}"></script>{% endif %}
 </body>
 </html>

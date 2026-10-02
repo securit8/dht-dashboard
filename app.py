@@ -548,6 +548,7 @@ def current_theme():
 @app.context_processor
 def layout_context():
     return {"nav": NAV, "presets": PRESETS, "money": money, "demo": DEMO, "theme": current_theme(),
+            "asset_v": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],  # new deploy -> browsers fetch cc.css/cc.js again
             "month_names": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}
 
 

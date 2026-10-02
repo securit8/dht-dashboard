@@ -311,6 +311,7 @@
   <script>
     // command-center look: dark charts, gauges, panels sliding in, numbers counting up, light that follows the mouse
     if (document.body.classList.contains('cc')) SERIES_COLORS.splice(0, 3, '#4F8CFF', '#2CD5C4', '#5B6478');
+    window.CC_PAGE_MOTION = true;  // this page runs its own count-up and panel motion (static/cc.js skips them)
     (function () {
       document.querySelectorAll('.ring').forEach(el => {
         const pct = +el.dataset.pct || 0, color = el.dataset.color, r = 50, c = 2 * Math.PI * r, to = Math.min(pct, 1);
