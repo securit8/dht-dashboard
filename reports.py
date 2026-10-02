@@ -1022,15 +1022,20 @@ def agent_funnel(cur, f):
                    COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM appointments a WHERE a.person_id = p.person_id)) AS appt_set,
                    COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM appointments a WHERE a.person_id = p.person_id
                                                   AND {APPT_CLASS} = 'held')) AS appt_met,
+                   COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM appointments a WHERE a.person_id = p.person_id
+                                                  AND {APPT_CLASS} = 'none')) AS appt_pending,
                    COUNT(*) FILTER (WHERE LOWER(TRIM(p.stage)) = ANY(%(closed_stages)s)
                                     OR EXISTS (SELECT 1 FROM deals d WHERE p.person_id = ANY(d.person_ids)
                                                AND {DEAL_CLASS} IN ('closed', 'pending'))) AS closed
             FROM people p WHERE p.created_at >= %(start)s AND p.created_at < %(end)s AND {PEOPLE_F}""",
             ff.params())
     c, p = counts(f), counts(f.previous())
+    # Open houses come from a Google Sheet the owner is setting up; 0 until it's connected
+    c["open_house"] = p["open_house"] = 0
     steps = [("New Leads", "new_leads"), ("Contacted", "contacted"), ("Appt. Set", "appt_set"),
-             ("Appt. Met", "appt_met"), ("Closed Deal", "closed")]
-    return [{"label": label, "count": c[k], "pct": pct(c[k], c["new_leads"]), "chg": change(c[k], p[k])}
+             ("Appt. Met", "appt_met"), ("Pending Appts", "appt_pending"), ("Open House", "open_house"),
+             ("Closed Deal", "closed")]
+    return [{"label": label, "key": k, "count": c[k], "pct": pct(c[k], c["new_leads"]), "chg": change(c[k], p[k])}
             for label, k in steps]
 
 

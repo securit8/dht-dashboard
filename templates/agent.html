@@ -8,10 +8,11 @@
   .who { align-items: center; }
   .who .photo { width: 56px; height: 56px; border-radius: 999px; object-fit: cover; }
   .who span { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; display: block; }
-  .funnel { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; }
+  .funnel { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; }
   .funnel > div { text-align: center; padding: 0 8px; border-left: 1px solid var(--bg); }
   .funnel > div:first-child { border-left: 0; }
-  .funnel .kpi-val { font-size: 32px; }
+  .funnel .kpi-val { font-size: 30px; }
+  @media (max-width: 1250px) { .funnel { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; } }
   .fbar-wrap { height: 150px; display: flex; align-items: flex-end; margin-top: 16px; }
   .fbar { width: 100%; background: var(--accent); border-radius: 8px 8px 0 0; color: #fff; font-weight: 700; font-size: 13px; padding-top: 8px; min-height: 28px; }
   .stack3 { display: flex; height: 18px; border-radius: 999px; overflow: hidden; background: var(--bg); margin: 10px 0 6px; }
@@ -66,14 +67,15 @@
           <div class="kpi-val">{{ s.count|num }}</div>
           {{ m.chg(s.chg) }}
           <div class="fbar-wrap"><div class="fbar" style="height: {{ [s.pct, 4]|max }}%">{{ s.pct }}%</div></div>
-          <div class="muted" style="margin-top:6px">{{ s.count|num }} Leads</div>
+          <div class="muted" style="margin-top:6px">{% if s.key == 'open_house' %}Coming from the open-house sheet{% elif s.key == 'appt_pending' %}{{ s.count|num }} Leads &middot; not happened yet{% else %}{{ s.count|num }} Leads{% endif %}</div>
           {% if loop.last and cte_closed is defined %}
             <div class="muted" style="margin-top:4px"><b style="color:var(--ink)">{{ cte_closed.closed|num }}</b> closed in CTE ({{ cte_closed.closed_vol|money }})</div>
           {% endif %}
         </div>
         {% endfor %}
       </div>
-      <div class="note">New leads assigned to {{ info.name }} in {{ rng.label }}, and how many of them were contacted, got an appointment, met, and closed (at any time since).</div>
+      <div class="note">New leads assigned to {{ info.name }} in {{ rng.label }}, and how many of them were contacted, got an appointment, met, and closed (at any time since).
+        Pending Appts = leads whose appointment hasn't happened yet or has no outcome. Open House will count from the open-house Google Sheet once it's connected (0 until then).</div>
     </div>
 
   {% elif tab == 'opportunities' %}
