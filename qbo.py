@@ -395,39 +395,6 @@ def _cols(report):
     return out
 
 
-def parse_income_detail(report):
-    """Every entry on the income accounts of a Profit & Loss Detail report:
-    [{txn_id, txn_type, txn_date, doc_num, name, memo, account, amount}]."""
-    cols = _cols(report)
-    out = []
-
-    def walk(rows, account, income):
-        for row in rows or []:
-            if row.get("type") == "Section" or "Rows" in row:
-                head = (row.get("Header", {}).get("ColData") or [{}])[0].get("value") or account
-                # income sections: tagged by group in some reports, only named "Income" / "Other Income" in others
-                group = row.get("group") or ""
-                inc = income or group in ("Income", "OtherIncome") or (head or "").strip().lower() in ("income", "other income")
-                walk(row.get("Rows", {}).get("Row", []), head, inc)
-            elif row.get("type") == "Data" and income:
-                cells = row.get("ColData", [])
-                v = {cols[i] if i < len(cols) else str(i): c.get("value") for i, c in enumerate(cells)}
-                ids = {cols[i] if i < len(cols) else str(i): c.get("id") for i, c in enumerate(cells)}
-                amount = _num(v.get("subt_nat_amount") or v.get("amount"))
-                if not v.get("tx_date") or not amount:
-                    continue
-                try:
-                    when = date.fromisoformat(v["tx_date"])
-                except ValueError:
-                    continue
-                out.append({"txn_id": ids.get("txn_type") or ids.get("tx_date"), "txn_type": v.get("txn_type"),
-                            "txn_date": when, "doc_num": v.get("doc_num"), "name": v.get("name"),
-                            "memo": v.get("memo"), "account": account, "amount": amount})
-
-    walk(report.get("Rows", {}).get("Row", []), None, False)
-    return out
-
-
 SECTIONS = {"income": "Income", "cost of goods sold": "Cost of sales", "cost of sales": "Cost of sales",
             "expenses": "Expenses", "expense": "Expenses", "other income": "Other income",
             "other expenses": "Other expenses", "other expense": "Other expenses"}

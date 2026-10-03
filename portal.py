@@ -1,34 +1,30 @@
-"""Agent portal: each agent signs in with their Google Workspace account and sees only their own numbers.
+"""Agent portal: each agent signs in with the username and password the owners made for them and sees only
+their own numbers.
 
 It is a separate Flask app mounted at /portal on the same service (app.py), kept apart from the owners'
 dashboard on purpose:
 - its own session cookie (name, secret key, path /portal), so an agent's sign-in is never valid on the
   dashboard and the dashboard's sign-in means nothing here;
-- its own database login (dht_portal) that can only read the activity, deal and contract tables and add a
-  sign-in request; it can't read the QuickBooks / Gmail / Drive tokens, coaching notes or anything else;
+- its own database login (dht_portal) that can only read the activity, deal and contract tables and note
+  when someone signed in; it can't read the QuickBooks / Gmail / Drive tokens, coaching notes or anything else;
 - no owner pages at all: every query is filtered by the Follow Up Boss user the owners linked to the
-  signed-in email (Settings > Agent portal), never by anything the browser sends.
+  signed-in login (Settings > Agent portal), never by anything the browser sends.
 
 Sign-in: a username and password the owners create for each agent on Settings (stored as a salted hash), with
-too many wrong tries locked out for a while. Google sign-in (OpenID Connect, email and name only, only accounts on
-PORTAL_EMAIL_DOMAIN, a first sign-in waits for approval) is there too and shows once PORTAL_GOOGLE=1 is set.
+too many wrong tries locked out for a while. Nobody can sign themselves up.
 """
-import base64
 import hashlib
 import hmac
-import json
 import os
-import secrets
 import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from functools import wraps
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import psycopg2
 import psycopg2.extensions
-import requests
-from flask import Flask, abort, redirect, render_template, request, session, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import cte_reports as CTE
@@ -36,10 +32,7 @@ import reports as R
 import splits as SP
 
 ROLE = "dht_portal"
-EMAIL_DOMAIN = (os.environ.get("PORTAL_EMAIL_DOMAIN") or "dhtsandiego.com").strip().lower().lstrip("@")
-AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
-ISSUERS = ("https://accounts.google.com", "accounts.google.com")
+
 
 # What the portal's database login may read. Everything else (tokens, QuickBooks, coaching notes, goals
 # plans, ...) stays out of reach even if a bug in the portal let someone run their own query.
@@ -114,8 +107,8 @@ def set_user(cur, email, status, fub_user_id=None):
 def setup_role(owner_url, secret):
     """Create / refresh the read-only dht_portal login with the owners' connection and return
     (database url for the portal, mode). mode 'role' = the limited login; 'readonly' = the database refused
-    to create a login, so the portal uses the main one with every transaction read-only (sign-in requests are
-    then written through the main login, nothing else is)."""
+    to create a login, so the portal uses the main one with every transaction read-only (only the sign-in time
+    is then written through the main login)."""
     explicit = os.environ.get("PORTAL_DATABASE_URL")
     if explicit:
         return explicit, "role"
@@ -139,8 +132,8 @@ def setup_role(owner_url, secret):
             cur.execute("SELECT to_regclass(%s) IS NOT NULL", (t,))
             if cur.fetchone()[0]:
                 cur.execute(f"GRANT SELECT ON {t} TO {ROLE}")
-        cur.execute(f"GRANT SELECT, INSERT ON portal_users TO {ROLE}")
-        cur.execute(f"GRANT UPDATE (name, picture, last_seen) ON portal_users TO {ROLE}")
+        cur.execute(f"GRANT SELECT ON portal_users TO {ROLE}")
+        cur.execute(f"GRANT UPDATE (last_seen) ON portal_users TO {ROLE}")
         cur.execute(f"ALTER ROLE {ROLE} SET statement_timeout = '30s'")
         conn.close()
     except psycopg2.Error as e:
@@ -167,7 +160,7 @@ def create(main):
     """The portal app. `main` is app.py (shared filters and the activity statistics)."""
     owner_url = main.DATABASE_URL
     db_url, db_mode = setup_role(owner_url, main.app.secret_key)
-    status = {"mode": db_mode, "domain": EMAIL_DOMAIN}
+    status = {"mode": db_mode}
 
     p = Flask(__name__, template_folder=main.app.template_folder, static_folder=main.app.static_folder)
     p.secret_key = os.environ.get("PORTAL_SECRET_KEY") or _derive(main.app.secret_key, "dht-portal-session")
@@ -207,7 +200,7 @@ def create(main):
 
     @contextmanager
     def db_write():
-        """Only for the sign-in request row (portal_users): the limited login when there is one."""
+        """Only for noting when someone signed in (portal_users.last_seen): the limited login when there is one."""
         conn = psycopg2.connect(db_url if db_mode == "role" else owner_url)
         cur = conn.cursor()
         try:
@@ -216,17 +209,6 @@ def create(main):
         finally:
             cur.close()
             conn.close()
-
-    def client():
-        cid = os.environ.get("PORTAL_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
-        sec = os.environ.get("PORTAL_GOOGLE_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET")
-        return cid, sec
-
-    def redirect_uri():
-        if os.environ.get("PORTAL_REDIRECT_URI"):
-            return os.environ["PORTAL_REDIRECT_URI"]
-        scheme = "http" if request.host.split(":")[0] in ("localhost", "127.0.0.1") else "https"
-        return f"{scheme}://{request.host}/portal/auth/callback"
 
     def signed_in(view):
         """The agent this browser is signed in as, checked against the database on every request, so
@@ -242,8 +224,7 @@ def create(main):
                                        WHERE u.email = %(e)s""", {"e": email})
             u = rows[0] if rows else None
             if not u or u["status"] != "approved" or not u["fub_user_id"]:
-                if not u or u["status"] == "disabled":
-                    session.clear()
+                session.clear()
                 return redirect(url_for("signin"))
             request.portal_user = u
             return view(*args, **kwargs)
@@ -253,20 +234,13 @@ def create(main):
 
     @p.route("/signin")
     def signin():
-        email = session.get("email")
-        state = None
-        if email:
+        if session.get("email"):
             with db() as cur:
-                rows = R.fetch(cur, "SELECT status, fub_user_id FROM portal_users WHERE email = %(e)s", {"e": email})
+                rows = R.fetch(cur, "SELECT status, fub_user_id FROM portal_users WHERE email = %(e)s", {"e": session["email"]})
             if rows and rows[0]["status"] == "approved" and rows[0]["fub_user_id"]:
                 return redirect(url_for("home"))
-            state = rows[0]["status"] if rows else None
-            if state != "pending":
-                session.clear()
-                email = None
-        return render_template("portal_signin.html", email=email, state=state, domain=EMAIL_DOMAIN,
-                               google=all(client()) and os.environ.get("PORTAL_GOOGLE") == "1",
-                               error=request.args.get("error"))
+            session.clear()
+        return render_template("portal_signin.html", error=request.args.get("error"))
 
     failures = {}  # ip -> [time of each wrong try]; this server worker only
 
@@ -295,55 +269,6 @@ def create(main):
         session.clear()
         session.permanent = True
         session["email"] = username
-        return redirect(url_for("home"))
-
-    @p.route("/auth/start", methods=["POST"])
-    def auth_start():
-        cid, _ = client()
-        if not cid:
-            abort(503)
-        session.clear()
-        session["oauth_state"] = secrets.token_urlsafe(24)
-        session["oauth_nonce"] = secrets.token_urlsafe(24)
-        return redirect(AUTH_URL + "?" + urlencode({
-            "client_id": cid, "redirect_uri": redirect_uri(), "response_type": "code", "scope": "openid email profile",
-            "state": session["oauth_state"], "nonce": session["oauth_nonce"], "hd": EMAIL_DOMAIN,
-            "prompt": "select_account"}))
-
-    @p.route("/auth/callback")
-    def auth_callback():
-        expected, nonce = session.pop("oauth_state", None), session.pop("oauth_nonce", None)
-        if not expected or not secrets.compare_digest(request.args.get("state", ""), expected):
-            return redirect(url_for("signin", error="The sign-in check failed. Please try again."))
-        if request.args.get("error") or not request.args.get("code"):
-            return redirect(url_for("signin", error="Google sign-in was cancelled."))
-        cid, sec = client()
-        try:
-            r = requests.post(TOKEN_URL, timeout=20, data={
-                "code": request.args["code"], "client_id": cid, "client_secret": sec,
-                "redirect_uri": redirect_uri(), "grant_type": "authorization_code"})
-            body = r.json()
-            # the ID token comes straight from Google's token endpoint over TLS, so its claims can be read
-            # directly (OpenID Connect Core 3.1.3.7); every claim that matters is still checked
-            part = body["id_token"].split(".")[1]
-            claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-        except (requests.RequestException, ValueError, KeyError, IndexError):
-            return redirect(url_for("signin", error="Google didn't confirm the sign-in. Please try again."))
-        email = (claims.get("email") or "").strip().lower()
-        ok = (claims.get("iss") in ISSUERS and claims.get("aud") == cid and claims.get("exp", 0) > time.time()
-              and nonce and secrets.compare_digest(str(claims.get("nonce", "")), nonce)
-              and claims.get("email_verified") is True
-              and (claims.get("hd") or "").lower() == EMAIL_DOMAIN and email.endswith("@" + EMAIL_DOMAIN))
-        if not ok:
-            return redirect(url_for("signin", error=f"Only verified @{EMAIL_DOMAIN} Google accounts can sign in here."))
-        name, picture = (claims.get("name") or "")[:120], (claims.get("picture") or "")[:500]
-        with db_write() as cur:
-            cur.execute("""INSERT INTO portal_users (email, name, picture) VALUES (%s, %s, %s)
-                           ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, picture = EXCLUDED.picture,
-                                                             last_seen = now()""", (email, name, picture))
-        session.clear()
-        session.permanent = True
-        session["email"] = email
         return redirect(url_for("home"))
 
     @p.route("/signout", methods=["POST"])

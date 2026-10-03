@@ -491,7 +491,6 @@ APPT_CLASS = f"""(CASE
     ELSE 'not_held' END)"""
 
 
-
 def stage_events_sql(cur):
     """(person_id, stage, at) rows from whatever stage history exists."""
     parts = []
@@ -621,49 +620,6 @@ def _move(at, now):
     if now in PIPELINE_RANK and PIPELINE_RANK[now] > PIPELINE_RANK.get(at, -1):
         return "advanced"
     return "back"
-
-
-def appointment_stage_moves(cur, f, view_by, appt_type, stage=None, stage_mode="current"):
-    """Each lead's stage at their first appointment in the period vs. today. Only leads with
-    stage history before the appointment count (otherwise both stages are today's)."""
-    col = APPT_DATE_FIELDS[view_by]
-    stage_sql, known_sql = stage_at_appt_sql(cur)
-    rows = fetch(cur, f"""
-        SELECT DISTINCT ON (a.person_id) a.person_id, {stage_sql} AS at_stage, {known_sql} AS known, p.stage AS now_stage
-        FROM appointments a LEFT JOIN people p ON p.person_id = a.person_id
-        WHERE a.person_id IS NOT NULL AND {col} >= %(start)s AND {col} < %(end)s AND {APPTS_F}
-          AND (%(type)s::text IS NULL OR a.type = %(type)s){appt_stage_filter(cur, stage_mode)}
-        ORDER BY a.person_id, COALESCE(a.start_at, a.created_at)""", f.params(type=appt_type, stage=stage))
-    known = [r for r in rows if r["known"]]
-    counts = {k: 0 for k, _, _ in MOVE_GROUPS}
-    pairs = {}
-    met = 0
-    for r in known:
-        m = _move(r["at_stage"], r["now_stage"])
-        counts[m] += 1
-        if m != "stayed":
-            key = (r["at_stage"] or "(none)", r["now_stage"] or "(none)")
-            pairs[key] = pairs.get(key, 0) + 1
-        at_rank = PIPELINE_RANK.get((r["at_stage"] or "").strip().lower(), -1)
-        now_rank = PIPELINE_RANK.get((r["now_stage"] or "").strip().lower(), -1)
-        if at_rank < MET_RANK <= now_rank:
-            met += 1
-    n = len(known)
-    # Funnel tiles: of every lead with an appointment in the period, how many reached at least each step
-    # today, and the gain since their first appointment (unknown stage then = counted as today's)
-    flow = []
-    now_steps = [funnel_step(r["now_stage"]) for r in rows]
-    at_steps = [funnel_step(r["at_stage"]) for r in rows]
-    for i, (label, _) in enumerate(FUNNEL):
-        now = sum(1 for s in now_steps if s >= i)
-        at = sum(1 for s in at_steps if s >= i)
-        flow.append({"stage": label, "now": now, "at": at, "diff": now - at, "pct": pct(now, len(rows), 0),
-                     "stuck": sum(1 for s in now_steps if s == i)})
-    return {"leads": len(rows), "known": n, "met": met, "met_pct": pct(met, n, 0), "flow": flow,
-            "groups": [{"key": k, "label": label, "color": c, "n": counts[k], "pct": pct(counts[k], n, 0)}
-                       for k, label, c in MOVE_GROUPS],
-            "pairs": sorted(({"from": a, "to": b, "n": v} for (a, b), v in pairs.items()),
-                            key=lambda x: -x["n"])[:12]}
 
 
 # ---------------------------------------------------------------- Lead history

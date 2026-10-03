@@ -74,10 +74,6 @@ FIELD_FIXES = {"sale_price": float, "gci": float, "commission_pct": float, "addr
                "close_date": lambda s: datetime.strptime(s, "%Y-%m-%d").date()}
 
 
-def field_fix_key(address, close_date, field, old, new):
-    return f"fix:{address}|{close_date}|{field}|{'' if old is None else old}|{new}"
-
-
 def _typo_fix(dec):
     """(old address, old close date, field, new value) from a typo decision, or None."""
     m = re.match(r"typo:(.+)\|(\d{4}-\d{2}-\d{2})$", dec["item_key"] or "")

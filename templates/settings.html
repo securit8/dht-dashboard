@@ -62,7 +62,7 @@
     </form>
     {% if portal_users %}
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Login</th><th>Status</th><th>Agent</th><th>Asked</th><th>Last seen</th><th></th></tr></thead>
+      <thead><tr><th>Login</th><th>Status</th><th>Agent</th><th>Created</th><th>Last seen</th><th></th></tr></thead>
       <tbody>
       {% for u in portal_users %}
         <tr>
@@ -75,7 +75,7 @@
                 <option value="">Pick the agent…</option>
                 {% for id, name in agent_options %}<option value="{{ id }}" {{ 'selected' if u.suggest == id }}>{{ name }}</option>{% endfor %}
               </select>
-              <button class="btn" type="submit">{{ 'Save' if u.status == 'approved' else 'Approve' }}</button>
+              <button class="btn" type="submit">{{ 'Save' if u.status == 'approved' else 'Switch on' }}</button>
             </form>
           </td>
           <td>{{ u.requested_at|fmt_date }}</td>
