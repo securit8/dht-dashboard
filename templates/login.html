@@ -17,6 +17,9 @@
     .try p { font-size: 12.5px; color: #5B6472; margin: 0 0 10px; line-height: 1.5; }
     .try a { display: block; padding: 10px; border-radius: 8px; border: 1px solid #C9D2F7; color: #3A4FBF; font-size: 14px; font-weight: 600; text-decoration: none; }
     .try a:hover { background: #F2F4FD; }
+    .agent { margin-top: 18px; font-size: 13px; color: #5B6472; }
+    .agent a { color: #3A4FBF; font-weight: 600; text-decoration: none; }
+    .agent a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -31,6 +34,7 @@
       <input type="password" id="password" name="password" autocomplete="current-password" required>
       <button type="submit">Sign in</button>
     </form>
+    <div class="agent">Are you an agent? <a href="/portal/signin">Agent portal &rarr;</a></div>
     {% if demo_url %}
     <div class="try">
       <p>Just looking? Explore the full dashboard filled with random numbers. It's a separate demo with no real data.</p>
