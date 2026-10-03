@@ -9,8 +9,9 @@ dashboard on purpose:
 - no owner pages at all: every query is filtered by the Follow Up Boss user the owners linked to the
   signed-in email (Settings > Agent portal), never by anything the browser sends.
 
-Sign-in: Google OpenID Connect, asking only for the email address and name (no Gmail, no Drive), only for
-accounts on PORTAL_EMAIL_DOMAIN. The first sign-in waits for an owner to approve it and pick the agent.
+Sign-in: a username and password the owners create for each agent on Settings (stored as a salted hash), with
+too many wrong tries locked out for a while. Google sign-in (OpenID Connect, email and name only, only accounts on
+PORTAL_EMAIL_DOMAIN, a first sign-in waits for approval) is there too and shows once PORTAL_GOOGLE=1 is set.
 """
 import base64
 import hashlib
@@ -28,6 +29,7 @@ import psycopg2
 import psycopg2.extensions
 import requests
 from flask import Flask, abort, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import cte_reports as CTE
 import reports as R
@@ -65,6 +67,29 @@ def ensure_users_table(cur):
             requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             decided_at TIMESTAMPTZ, last_seen TIMESTAMPTZ
         )""")
+    cur.execute("ALTER TABLE portal_users ADD COLUMN IF NOT EXISTS password_hash TEXT")  # username = the email column
+
+
+USERNAME_OK = set("abcdefghijklmnopqrstuvwxyz0123456789._-@")
+
+
+def add_login(cur, username, password, fub_user_id):
+    """An owner creates (or resets) an agent's username and password; it's approved at once.
+    Returns an error message, or None."""
+    username = (username or "").strip().lower()
+    if not (3 <= len(username) <= 80) or set(username) - USERNAME_OK:
+        return "Username: 3-80 letters, numbers, dots, dashes or @."
+    if len(password or "") < 8:
+        return "Password: at least 8 characters."
+    if not fub_user_id:
+        return "Pick the agent."
+    ensure_users_table(cur)
+    cur.execute("""INSERT INTO portal_users (email, status, fub_user_id, password_hash, decided_at)
+                   VALUES (%s, 'approved', %s, %s, now())
+                   ON CONFLICT (email) DO UPDATE SET status = 'approved', fub_user_id = EXCLUDED.fub_user_id,
+                                                     password_hash = EXCLUDED.password_hash, decided_at = now()""",
+                (username, fub_user_id, generate_password_hash(password)))
+    return None
 
 
 def users(cur):
@@ -240,7 +265,37 @@ def create(main):
                 session.clear()
                 email = None
         return render_template("portal_signin.html", email=email, state=state, domain=EMAIL_DOMAIN,
-                               ready=all(client()), error=request.args.get("error"))
+                               google=all(client()) and os.environ.get("PORTAL_GOOGLE") == "1",
+                               error=request.args.get("error"))
+
+    failures = {}  # ip -> [time of each wrong try]; this server worker only
+
+    @p.route("/login", methods=["POST"])
+    def password_login():
+        ip = request.access_route[0] if request.access_route else request.remote_addr
+        now = time.time()
+        recent = [t for t in failures.get(ip, []) if now - t < 900]
+        if len(recent) >= 8:
+            return redirect(url_for("signin", error="Too many wrong tries. Wait 15 minutes and try again."))
+        username = (request.form.get("username") or "").strip().lower()[:80]
+        password = request.form.get("password") or ""
+        with db() as cur:
+            rows = R.fetch(cur, """SELECT email, status, fub_user_id, password_hash FROM portal_users
+                                   WHERE email = %(u)s""", {"u": username})
+        u = rows[0] if rows else None
+        ok = bool(u and u["password_hash"] and check_password_hash(u["password_hash"], password))
+        if not ok or u["status"] != "approved" or not u["fub_user_id"]:
+            if not u or not u["password_hash"]:
+                check_password_hash(generate_password_hash("x"), password)  # same time whether the user exists or not
+            failures[ip] = recent + [now]
+            return redirect(url_for("signin", error="Wrong username or password." if not ok else "This login is switched off. Ask the owners."))
+        failures.pop(ip, None)
+        with db_write() as cur:
+            cur.execute("UPDATE portal_users SET last_seen = now() WHERE email = %s", (username,))
+        session.clear()
+        session.permanent = True
+        session["email"] = username
+        return redirect(url_for("home"))
 
     @p.route("/auth/start", methods=["POST"])
     def auth_start():

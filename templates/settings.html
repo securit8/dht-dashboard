@@ -46,11 +46,23 @@
   {% if portal_on %}
   <div class="card" id="portal">
     <div class="card-head"><div><h2>Agent portal</h2>
-      <div class="muted">Agents sign in at <b>{{ request.host_url }}portal</b> with their @{{ portal_status.domain }} Google account and see only their own numbers.
-        A first sign-in waits here: link it to the agent and approve.</div></div></div>
+      <div class="muted">Agents sign in at <b>{{ request.host_url }}portal</b> (or the "Agent portal" link on the sign-in page) and see only their own numbers.
+        Only logins made here work.</div></div></div>
+    {% if portal_err %}<div class="callout warn" style="margin-bottom:14px">{{ portal_err }}</div>{% endif %}
+    {% if portal_ok %}<div class="callout" style="margin-bottom:14px">Saved. <b>{{ portal_ok }}</b> can sign in now with the password you typed.</div>{% endif %}
+    <form method="post" action="{{ url_for('settings_portal') }}" class="filters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end" autocomplete="off">
+      <input type="hidden" name="action" value="add_login">
+      <div class="field"><label for="pl-agent">Agent</label>
+        <select id="pl-agent" name="agent" required><option value="">Pick the agent…</option>
+          {% for id, name in agent_options %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="pl-user">Username</label><input id="pl-user" name="username" required minlength="3" maxlength="80" autocomplete="off" placeholder="e.g. otar"></div>
+      <div class="field"><label for="pl-pw">Password</label><input id="pl-pw" name="password" type="text" required minlength="8" autocomplete="new-password" placeholder="8+ characters"></div>
+      <button class="btn" type="submit">Create login</button>
+      <span class="muted" style="flex-basis:100%">Same username again = new password (to reset it). Give the agent their username and password yourself.</span>
+    </form>
     {% if portal_users %}
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Google account</th><th>Status</th><th>Agent</th><th>Asked</th><th>Last seen</th><th></th></tr></thead>
+      <thead><tr><th>Login</th><th>Status</th><th>Agent</th><th>Asked</th><th>Last seen</th><th></th></tr></thead>
       <tbody>
       {% for u in portal_users %}
         <tr>

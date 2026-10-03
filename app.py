@@ -381,6 +381,7 @@ def settings_page():
         for u in portal_users:
             u["suggest"] = u["fub_user_id"] or emails.get(u["email"])
     return render_template("settings.html", themes=THEMES, saved=request.args.get("saved"), portal_on=PORTAL_APP is not None,
+                           portal_err=request.args.get("portal_err"), portal_ok=request.args.get("portal_ok"),
                            portal_users=portal_users, agent_options=agent_options,
                            portal_status=getattr(PORTAL_APP, "portal_status", None))
 
@@ -394,12 +395,17 @@ def settings_portal():
     action = request.form.get("action")
     email = (request.form.get("email") or "").strip().lower()
     uid = request.form.get("agent", type=int)
+    err = None
     with db() as cur:
-        if action == "approve" and uid:
+        if action == "add_login":
+            err = PORTAL.add_login(cur, request.form.get("username"), request.form.get("password"), uid)
+        elif action == "approve" and uid:
             PORTAL.set_user(cur, email, "approved", uid)
         elif action in ("disabled", "delete"):
             PORTAL.set_user(cur, email, action)
-    return redirect(url_for("settings_page", _anchor="portal"))
+    if err:
+        return redirect(url_for("settings_page", portal_err=err, _anchor="portal"))
+    return redirect(url_for("settings_page", portal_ok=request.form.get("username") if action == "add_login" else None, _anchor="portal"))
 
 
 @app.route("/settings/theme", methods=["POST"])
