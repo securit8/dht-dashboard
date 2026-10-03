@@ -371,7 +371,35 @@ def version():
 @app.route("/settings")
 @login_required
 def settings_page():
-    return render_template("settings.html", themes=THEMES, saved=request.args.get("saved"))
+    portal_users, agent_options = [], []
+    if PORTAL_APP is not None:
+        with db() as cur:
+            portal_users = PORTAL.users(cur)
+            agent_options = R.agent_options(cur) if R.table_exists(cur, "agent_events") else []
+            emails = {(a["email"] or "").strip().lower(): a["user_id"]
+                      for a in R.fetch(cur, "SELECT user_id, email FROM agents", {})} if R.table_exists(cur, "agents") else {}
+        for u in portal_users:
+            u["suggest"] = u["fub_user_id"] or emails.get(u["email"])
+    return render_template("settings.html", themes=THEMES, saved=request.args.get("saved"), portal_on=PORTAL_APP is not None,
+                           portal_users=portal_users, agent_options=agent_options,
+                           portal_status=getattr(PORTAL_APP, "portal_status", None))
+
+
+@app.route("/settings/portal", methods=["POST"])
+@login_required
+def settings_portal():
+    """Approve an agent's portal sign-in (and link it to their Follow Up Boss user), switch it off, or remove it."""
+    if PORTAL_APP is None:
+        abort(404)
+    action = request.form.get("action")
+    email = (request.form.get("email") or "").strip().lower()
+    uid = request.form.get("agent", type=int)
+    with db() as cur:
+        if action == "approve" and uid:
+            PORTAL.set_user(cur, email, "approved", uid)
+        elif action in ("disabled", "delete"):
+            PORTAL.set_user(cur, email, action)
+    return redirect(url_for("settings_page", _anchor="portal"))
 
 
 @app.route("/settings/theme", methods=["POST"])
@@ -604,22 +632,26 @@ LEADERBOARD_COUNTS = """
 
 
 def get_agents(start, end):
+    with db() as cur:
+        return leaderboard_rows(cur, start, end)
+
+
+def leaderboard_rows(cur, start, end):
     """Every active agent on the FUB roster (lenders excluded), with 0s for
     no activity, like FUB's own leaderboard. Anyone with activity who isn't
-    on the roster still shows up."""
-    with db() as cur:
-        if R.tables_ready(cur, "agents"):
-            rows = R.fetch(cur, f"""
-                WITH c AS ({LEADERBOARD_COUNTS}),
-                     r AS (SELECT user_id, name, picture_url FROM agents
-                           WHERE LOWER(COALESCE(status, '')) IN ('', 'active')
-                             AND LOWER(COALESCE(role, '')) <> 'lender')
-                SELECT COALESCE(r.user_id, c.user_id) AS user_id, COALESCE(r.name, c.agent_name) AS agent_name, r.picture_url,
-                       c.appts, c.conversations, c.conversations_dur_min, c.attempts, c.texts, c.zillow, c.emails
-                FROM r FULL JOIN c ON c.user_id = r.user_id
-            """, {"start": start, "end": end})
-        else:
-            rows = R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end})
+    on the roster still shows up. (Also the agent portal's leaderboard.)"""
+    if R.tables_ready(cur, "agents"):
+        rows = R.fetch(cur, f"""
+            WITH c AS ({LEADERBOARD_COUNTS}),
+                 r AS (SELECT user_id, name, picture_url FROM agents
+                       WHERE LOWER(COALESCE(status, '')) IN ('', 'active')
+                         AND LOWER(COALESCE(role, '')) <> 'lender')
+            SELECT COALESCE(r.user_id, c.user_id) AS user_id, COALESCE(r.name, c.agent_name) AS agent_name, r.picture_url,
+                   c.appts, c.conversations, c.conversations_dur_min, c.attempts, c.texts, c.zillow, c.emails
+            FROM r FULL JOIN c ON c.user_id = r.user_id
+        """, {"start": start, "end": end})
+    else:
+        rows = R.fetch(cur, LEADERBOARD_COUNTS, {"start": start, "end": end})
 
     agents = []
     for r in rows:
@@ -1554,6 +1586,17 @@ def add_note():
             cur.execute("INSERT INTO coaching_notes (user_id, author, note_type, body) VALUES (%s, %s, %s, %s)",
                         (uid, author, note_type, body[:5000]))
     return redirect(url_for("agent_snapshot", agent=uid, tab="coaching"))
+
+
+# ---------------------------------------------------------------- Agent portal (/portal, a separate app)
+
+import sys  # noqa: E402
+from werkzeug.middleware.dispatcher import DispatcherMiddleware  # noqa: E402
+import portal as PORTAL  # noqa: E402
+
+PORTAL_APP = None if DEMO else PORTAL.create(sys.modules[__name__])
+if PORTAL_APP is not None:
+    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {"/portal": PORTAL_APP})
 
 
 if __name__ == "__main__":

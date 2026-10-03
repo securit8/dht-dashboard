@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}My deals & pay{% endblock %}
+{% block eyebrow %}Agent portal{% endblock %}
+{% block heading %}My deals &amp; pay &middot; {{ year }}{% endblock %}
+{% block style %}
+  .split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .split > div { background: var(--bg); border-radius: 12px; padding: 14px 16px; }
+  .split b { display: block; font-size: 26px; font-weight: 600; margin: 4px 0 2px; }
+  .prog { height: 14px; border-radius: 999px; background: var(--bg); overflow: hidden; margin: 12px 0 6px; }
+  .prog div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #6C8BF5); }
+  .tag { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--bg); color: var(--soft); }
+  .tag.bonus { background: #E3F4EA; color: #1F7A48; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block filters %}
+<div class="filters"><div class="presets" style="margin:0">
+  {% for y in year_choices %}<a class="{{ 'on' if y == year }}" href="{{ qs(year=y) }}">{{ y }}</a>{% endfor %}
+</div></div>
+{% endblock %}
+
+{% block content %}
+{% if not cte_name %}
+  <div class="card empty">Your deals aren't in the team's deal log yet, or your name there doesn't match Follow Up Boss. Ask the owners to check.</div>
+{% else %}
+  <div class="kpis card">
+    <div><div class="kpi-lbl">Closed deals</div><div class="kpi-val">{{ rows|length }}</div><div class="kpi-sub">{{ totals.volume|money }} volume</div></div>
+    <div><div class="kpi-lbl">Commission (GCI)</div><div class="kpi-val">{{ totals.gci|dollars }}</div><div class="kpi-sub">before Compass and the team</div></div>
+    <div><div class="kpi-lbl">Team share</div><div class="kpi-val">{{ totals.company|dollars }}</div><div class="kpi-sub">from the Compass statements</div></div>
+    <div><div class="kpi-lbl">Your side</div><div class="kpi-val">{{ totals.mine|dollars }}</div><div class="kpi-sub">{{ totals.mine_n }} of {{ rows|length }} deals worked out &middot; see below</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>My split</h2>
+      {% if contract %}
+        <div class="split">
+          <div><span class="muted">Your own clients</span><b>{{ 100 - contract.personal }}%</b><span class="muted">team {{ contract.personal }}%</span></div>
+          <div><span class="muted">Zillow leads</span><b>{{ 100 - contract.zillow }}%</b><span class="muted">team {{ contract.zillow }}%</span></div>
+          <div><span class="muted">Team / database leads</span><b>{{ 100 - contract.database }}%</b><span class="muted">team {{ contract.database }}%</span></div>
+        </div>
+        <div class="note">Your agreement{% if contract.since %} signed {{ contract.since.strftime('%m/%d/%Y') }}{% endif %}. Percentages are of the commission after Compass's 7.5% and its transaction fee.</div>
+      {% else %}
+        <p class="muted">No agreement on file for you yet. Ask the owners.</p>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h2>$10M bonus</h2>
+      {% if contract and contract.bonus %}
+        {% set vol = milestone.volume if milestone else 0 %}
+        <div class="kpi-val">{{ vol|money }} <span class="muted" style="font-size:15px">{% if milestone and milestone.crossed %}closed &middot; bonus reached{% else %}of {{ bonus_volume|money }} closed{% endif %}</span></div>
+        <div class="prog"><div style="width: {{ [vol / bonus_volume * 100, 100]|min }}%"></div></div>
+        {% if milestone and milestone.crossed %}
+          <p class="muted">Passed on {{ milestone.crossed.close_date.strftime('%m/%d/%Y') }} ({{ milestone.crossed.address }}). Every deal after that is on the bonus split: team {{ contract.bonus }}%.</p>
+        {% else %}
+          <p class="muted">{{ (bonus_volume - vol)|money }} to go. After that, the team keeps {{ contract.bonus }}% instead.</p>
+        {% endif %}
+        <div class="note">Closed sales volume with the team{% if contract.bonus_from %} since {{ contract.bonus_from.strftime('%m/%d/%Y') }}{% endif %}, from the deal log (your deals as primary or second agent).</div>
+      {% else %}
+        <p class="muted">Your agreement has no volume bonus.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Closed deals {{ year }}</h2>
+    {% if rows %}
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Closed</th><th>Address</th><th>Lead</th><th class="n">Price</th><th class="n">GCI</th><th class="n">Team share</th><th class="n">Team %</th><th class="n">Your side</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.close_date.strftime('%m/%d/%Y') if r.close_date }}</td>
+          <td>{{ r.address }}</td>
+          <td><span class="tag {{ 'bonus' if r.bonus }}">{{ {'personal': 'Own client', 'zillow': 'Zillow', 'database': 'Team lead'}.get(r.paid_as or r.lead, r.lead) }}{{ ' · bonus' if r.bonus }}</span></td>
+          <td class="n">{{ r.sale_price|dollars if r.sale_price else '' }}</td>
+          <td class="n">{{ r.gci|dollars if r.gci else '' }}</td>
+          <td class="n">{{ r.company|dollars if r.company is not none else 'no statement yet' }}</td>
+          <td class="n">{{ '%.1f%%'|format(r.actual_pct) if r.actual_pct is not none else '' }}</td>
+          <td class="n">{% if r.mine is not none %}<b>{{ r.mine|dollars }}</b>{% elif r.zillow_fee %}after referral fee{% else %}--{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted">No closed deals in {{ year }} yet.</p>{% endif %}
+    <div class="note">Your side = commission &minus; Compass's 7.5% and transaction fee &minus; the team share on Compass's statement. It's before anything you share with a co-agent,
+      and it isn't worked out for Zillow / Realtor.com deals, because their referral fee comes off first (see your Compass statement). Deals are the ones where you're the primary agent.</div>
+  </div>
+
+  {% if pending %}
+  <div class="card">
+    <h2>In progress</h2>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Status</th><th>Address</th><th>Under contract</th><th class="n">Price</th><th class="n">GCI</th></tr></thead>
+      <tbody>{% for d in pending %}
+        <tr><td>{{ d.status }}</td><td>{{ d.address }}</td><td>{{ d.under_contract_date.strftime('%m/%d/%Y') if d.under_contract_date }}</td>
+            <td class="n">{{ d.sale_price|dollars if d.sale_price else '' }}</td><td class="n">{{ d.gci|dollars if d.gci else '' }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

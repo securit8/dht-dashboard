@@ -59,7 +59,7 @@
                                .steps > div { border-left: 0; padding-left: 0; } .pace { grid-template-columns: 1fr; } }
 {% endblock %}
 
-{% block filters %}{% if ready %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endblock %}
+{% block filters %}{% if ready %}{% if portal %}{{ m.filter_bar(rng) }}{% else %}{{ m.filter_bar(rng, agent_options, source_options) }}{% endif %}{% endif %}{% endblock %}
 
 {% block content %}
 {% if not ready %}

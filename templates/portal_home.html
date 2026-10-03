@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}My numbers{% endblock %}
+{% block eyebrow %}Agent portal{% endblock %}
+{% block heading %}{{ info.name if info else me.agent_name }}{% endblock %}
+{% block style %}
+  .funnel { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; }
+  .funnel > div { text-align: center; padding: 0 8px; border-left: 1px solid var(--bg); }
+  .funnel > div:first-child { border-left: 0; }
+  .funnel .kpi-val { font-size: 30px; }
+  @media (max-width: 1250px) { .funnel { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; } }
+  .fbar-wrap { height: 150px; display: flex; align-items: flex-end; margin-top: 16px; }
+  .fbar { width: 100%; background: var(--accent); border-radius: 8px 8px 0 0; color: #fff; font-weight: 700; font-size: 13px; padding-top: 8px; min-height: 28px; }
+  .go { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .go a { text-decoration: none; }
+  .go .card { margin: 0; height: 100%; }
+  .go p { margin: 4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  @media (max-width: 900px) { .funnel { grid-template-columns: repeat(2, 1fr); } .funnel > div { border-left: 0; padding: 10px 0; } .go { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block filters %}{% if ready %}{{ m.filter_bar(rng) }}{% endif %}{% endblock %}
+
+{% block content %}
+{% if not ready %}
+  {{ m.empty() }}
+{% else %}
+  <div class="card">
+    <h2>My funnel</h2>
+    <div class="funnel">
+      {% for s in funnel %}
+      <div>
+        <div class="kpi-lbl">{{ s.label }}</div>
+        <div class="kpi-val">{{ s.count|num }}</div>
+        {{ m.chg(s.chg) }}
+        <div class="fbar-wrap"><div class="fbar" style="height: {{ [s.pct, 4]|max }}%">{{ s.pct }}%</div></div>
+        <div class="muted" style="margin-top:6px">{% if s.key == 'open_house' %}Coming soon{% elif s.key == 'appt_pending' %}not happened yet{% else %}{{ s.count|num }} leads{% endif %}</div>
+        {% if loop.last and cte_closed is defined %}
+          <div class="muted" style="margin-top:4px"><b style="color:var(--ink)">{{ cte_closed.closed|num }}</b> closed in the deal log ({{ cte_closed.closed_vol|money }})</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="note">New leads assigned to you in {{ rng.label }} in Follow Up Boss, and how many of them were contacted, got an appointment, met and closed (at any time since).
+      Pending Appts = appointments that haven't happened yet or have no outcome.</div>
+  </div>
+
+  <div class="go">
+    <a href="{{ url_for('calculator') }}"><div class="card"><h3>Activity Calculator</h3><p>How many calls it takes you to get a conversation, an appointment and a closing, next to the team, and a calculator for your goal.</p></div></a>
+    <a href="{{ url_for('pay') }}"><div class="card"><h3>My deals &amp; pay</h3><p>Your closed deals this year, what the team kept and what was left for you, your split and your progress to the $10M bonus.</p></div></a>
+    <a href="{{ url_for('leaderboard') }}"><div class="card"><h3>Leaderboard</h3><p>Calls, conversations and appointments across the team today or for any dates.</p></div></a>
+  </div>
+{% endif %}
+{% endblock %}

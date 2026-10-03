@@ -26,6 +26,7 @@
   .row .name { width: 160px; font-weight: 600; font-size: 13px; margin: 0; }
   .row .stats { flex-grow: 1; justify-content: flex-start; margin: 0; }
   .row .score { font-size: 16px; }
+  .pcard.me, .row.me { box-shadow: 0 0 0 2px var(--accent); }
   @media (max-width: 900px) { .podium { grid-template-columns: 1fr; } .totals { grid-template-columns: repeat(2, 1fr); } .row { flex-wrap: wrap; } }
 {% endblock %}
 
@@ -38,7 +39,7 @@
 
   <div class="podium">
     {% for agent in podium %}
-    <a class="pcard" href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot">
+    <a class="pcard{{ ' me' if portal and agent.uid == me_uid }}" {% if not portal %}href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot"{% endif %}>
       <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="badge">{{ agent.rank }}</div>
       <div class="name">{{ agent.name }}</div>
@@ -66,7 +67,7 @@
 
   <div class="rows">
     {% for agent in rest %}
-    <a class="row {{ 'zero' if not agent.score }}" href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot">
+    <a class="row {{ 'zero' if not agent.score }}{{ ' me' if portal and agent.uid == me_uid }}" {% if not portal %}href="{{ url_for('agent_snapshot', agent=agent.uid) }}" title="Open {{ agent.name }}'s Agent Snapshot"{% endif %}>
       <div class="rank">{{ agent.rank }}</div>
       <div class="avatar" style="background: {{ agent.avatar_bg }};">{{ agent.initials }}{% if agent.picture %}<img src="{{ agent.picture }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}</div>
       <div class="name">{{ agent.name }}</div>

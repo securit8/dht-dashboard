@@ -42,4 +42,48 @@
       {% endfor %}
     </div>
   </div>
+
+  {% if portal_on %}
+  <div class="card" id="portal">
+    <div class="card-head"><div><h2>Agent portal</h2>
+      <div class="muted">Agents sign in at <b>{{ request.host_url }}portal</b> with their @{{ portal_status.domain }} Google account and see only their own numbers.
+        A first sign-in waits here: link it to the agent and approve.</div></div></div>
+    {% if portal_users %}
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Google account</th><th>Status</th><th>Agent</th><th>Asked</th><th>Last seen</th><th></th></tr></thead>
+      <tbody>
+      {% for u in portal_users %}
+        <tr>
+          <td>{{ u.email }}{% if u.name %}<div class="muted">{{ u.name }}</div>{% endif %}</td>
+          <td>{% if u.status == 'approved' %}<span class="pill">Approved</span>{% elif u.status == 'pending' %}<span class="pill warn">Waiting</span>{% else %}<span class="pill warn" style="background:#FBE7E4;color:#A33224">Switched off</span>{% endif %}</td>
+          <td>
+            <form method="post" action="{{ url_for('settings_portal') }}" style="display:flex;gap:8px;align-items:center">
+              <input type="hidden" name="email" value="{{ u.email }}"><input type="hidden" name="action" value="approve">
+              <select name="agent" required style="font:500 13px Inter,sans-serif;border:1px solid var(--line);border-radius:8px;padding:6px 8px">
+                <option value="">Pick the agent…</option>
+                {% for id, name in agent_options %}<option value="{{ id }}" {{ 'selected' if u.suggest == id }}>{{ name }}</option>{% endfor %}
+              </select>
+              <button class="btn" type="submit">{{ 'Save' if u.status == 'approved' else 'Approve' }}</button>
+            </form>
+          </td>
+          <td>{{ u.requested_at|fmt_date }}</td>
+          <td>{{ u.last_seen|fmt_date if u.last_seen else '--' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('settings_portal') }}" style="display:flex;gap:6px">
+              <input type="hidden" name="email" value="{{ u.email }}">
+              {% if u.status != 'disabled' %}<button class="btn ghost" name="action" value="disabled" type="submit">Switch off</button>{% endif %}
+              <button class="btn ghost" name="action" value="delete" type="submit" onclick="return confirm('Remove this account? They can ask again by signing in.')">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+      <p class="muted">Nobody has signed in yet.</p>
+    {% endif %}
+    <div class="note">Database access for the portal: {% if portal_status.mode == 'role' %}its own read-only login (can't see QuickBooks, Gmail or Drive data){% else %}read-only transactions on the main login (the database didn't allow a separate login){% endif %}.
+      Switching someone off takes effect on their next click.</div>
+  </div>
+  {% endif %}
 {% endblock %}
