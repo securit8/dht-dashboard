@@ -40,6 +40,9 @@ READ_TABLES = ("agent_events", "agents", "appointments", "people", "people_stage
                "action_plan_people", "agent_goals", "cte_activity", "cte_deals", "cte_import_log", "cte_check",
                "compass_payments", "compass_payment_items", "owner_decisions", "drive_contracts", "pull_state")
 
+# Portal logins that aren't a Follow Up Boss agent (the owners' own login to look at the portal); they see no data
+LOGIN_ONLY = {-1: "Otar Porchkhidze"}
+
 TABS = [("home", "My numbers"), ("calculator", "Activity Calculator"), ("pay", "My deals & pay"),
         ("leaderboard", "Leaderboard")]
 
@@ -77,17 +80,17 @@ def add_login(cur, username, password, fub_user_id):
     if not fub_user_id:
         return "Pick the agent."
     ensure_users_table(cur)
-    cur.execute("""INSERT INTO portal_users (email, status, fub_user_id, password_hash, decided_at)
-                   VALUES (%s, 'approved', %s, %s, now())
-                   ON CONFLICT (email) DO UPDATE SET status = 'approved', fub_user_id = EXCLUDED.fub_user_id,
+    cur.execute("""INSERT INTO portal_users (email, name, status, fub_user_id, password_hash, decided_at)
+                   VALUES (%s, %s, 'approved', %s, %s, now())
+                   ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, status = 'approved', fub_user_id = EXCLUDED.fub_user_id,
                                                      password_hash = EXCLUDED.password_hash, decided_at = now()""",
-                (username, fub_user_id, generate_password_hash(password)))
+                (username, LOGIN_ONLY.get(fub_user_id), fub_user_id, generate_password_hash(password)))
     return None
 
 
 def users(cur):
     ensure_users_table(cur)
-    return R.fetch(cur, """SELECT u.*, a.name AS agent_name FROM portal_users u
+    return R.fetch(cur, """SELECT u.*, COALESCE(a.name, u.name) AS agent_name FROM portal_users u
                            LEFT JOIN agents a ON a.user_id = u.fub_user_id
                            ORDER BY (u.status = 'pending') DESC, u.requested_at DESC""", {})
 
@@ -219,7 +222,7 @@ def create(main):
             if not email:
                 return redirect(url_for("signin"))
             with db() as cur:
-                rows = R.fetch(cur, """SELECT u.email, u.name, u.picture, u.status, u.fub_user_id, a.name AS agent_name
+                rows = R.fetch(cur, """SELECT u.email, u.name, u.picture, u.status, u.fub_user_id, COALESCE(a.name, u.name) AS agent_name
                                        FROM portal_users u LEFT JOIN agents a ON a.user_id = u.fub_user_id
                                        WHERE u.email = %(e)s""", {"e": email})
             u = rows[0] if rows else None

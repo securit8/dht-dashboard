@@ -375,7 +375,7 @@ def settings_page():
     if PORTAL_APP is not None:
         with db() as cur:
             portal_users = PORTAL.users(cur)
-            agent_options = R.agent_options(cur) if R.table_exists(cur, "agent_events") else []
+            agent_options = (R.agent_options(cur) if R.table_exists(cur, "agent_events") else []) +                 [(k, f"{v} (login only, no data)") for k, v in PORTAL.LOGIN_ONLY.items()]
             emails = {(a["email"] or "").strip().lower(): a["user_id"]
                       for a in R.fetch(cur, "SELECT user_id, email FROM agents", {})} if R.table_exists(cur, "agents") else {}
         for u in portal_users:
