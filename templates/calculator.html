@@ -26,7 +26,7 @@
   .vt-v i { display: block; font: 400 11.5px 'Inter', sans-serif; color: var(--muted); }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   .sw.good { background: #2E9E62; } .sw.bad { background: #E0A63A; } .sw.tk { width: 2px; height: 12px; background: var(--ink); opacity: .7; }
-  .rings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+  .rings { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; text-align: center; }
   .ringc svg { display: block; margin: 0 auto; }
   .ringc .rv { font: 600 16px 'Inter', sans-serif; color: var(--ink); margin-top: 4px; }
   .ringc .rl { font-size: 11.5px; color: var(--soft); line-height: 1.3; }
@@ -41,12 +41,12 @@
   .per b { color: var(--accent-ink); font-size: 15px; }
   .team { font-size: 12px; color: var(--muted); margin-top: 3px; }
   .rate { display: inline-block; font-size: 12px; font-weight: 600; color: var(--soft); background: var(--bg); border-radius: 999px; padding: 2px 9px; margin-top: 8px; }
-  .calc { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: end; }
+  .calc { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; align-items: end; }
   .calc label { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
   .calc input { width: 100%; box-sizing: border-box; font: 600 22px 'Inter', sans-serif; color: var(--ink); background: var(--panel, #fff);
                 border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .calc input.src { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .rates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+  .rates { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
   .rates label { display: block; font-size: 12px; color: var(--soft); margin-bottom: 4px; }
   .rates input { width: 100%; box-sizing: border-box; font: 500 15px 'Inter', sans-serif; color: var(--ink); background: var(--panel, #fff);
                  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
@@ -54,6 +54,7 @@
   .pace input { width: 100%; box-sizing: border-box; font: 500 15px 'Inter', sans-serif; color: var(--ink); background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
   .pace-out { font-size: 14px; line-height: 1.7; }
   .pace-out b { color: var(--accent-ink); }
+  @media (max-width: 1200px) { .calc { grid-template-columns: repeat(3, minmax(0, 1fr)); } .rates { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (max-width: 1000px) { .steps, .calc { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; } .rates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                                .steps > div { border-left: 0; padding-left: 0; } .pace { grid-template-columns: 1fr; } }
 {% endblock %}
@@ -66,7 +67,8 @@
 {% else %}
   {% set s = stats %}
   {% set T = team if team is defined else none %}
-  {% set steps = [('calls', 'Calls', none, none), ('set', 'Appointments set', 'call_set', 'of calls'),
+  {% set steps = [('calls', 'Calls', none, none), ('convos', 'Conversations', 'call_conv', 'of calls'),
+                  ('set', 'Appointments set', 'conv_set', 'of conversations'),
                   ('held', 'Appointments held', 'set_held', 'of set'), ('offers', 'Offers accepted', 'held_offer', 'of held'),
                   ('closed', 'Closed', 'offer_closed', 'of offers')] %}
   <div class="card">
@@ -83,7 +85,8 @@
           <div class="vval">{{ s[key]|num }}</div>
         </div>
         {% endfor %}
-        <div class="vnote">Bar length on a log scale, so a closing still shows next to thousands of calls.{% if s.dials %} Calls include {{ s.dials|num }} Lead Gen dials.{% endif %}</div>
+        <div class="vnote">Bar length on a log scale, so a closing still shows next to thousands of calls.{% if s.dials %} Calls include {{ s.dials|num }} Lead Gen dials{% if s.lg_contacts %}, conversations {{ s.lg_contacts|num }} Lead Gen contacts{% endif %}.{% endif %}
+          A conversation is a Follow Up Boss call of 2 minutes or more.</div>
       </div>
 
       <div class="vside">
@@ -114,7 +117,7 @@
                       stroke-dashoffset="{{ -([T.rates[rk], 100]|min) * 1.005 }}" transform="rotate(-90 21 21)" opacity=".75"/>{% endif %}
             </svg>
             <div class="rv">{{ r|round(1) }}%</div>
-            <div class="rl">{{ rl|replace('of ', '') }} &rarr; {{ label|replace('Appointments ', '')|lower }}</div>
+            <div class="rl">{{ rl|replace('of ', '')|replace('conversations', 'convos') }} &rarr; {{ label|replace('Appointments ', '')|replace('Conversations', 'convos')|lower }}</div>
             {% if T %}<div class="rt">team {{ T.rates[rk] }}%</div>{% endif %}
           </div>
           {% endfor %}
@@ -131,12 +134,12 @@
       <div class="muted">Type a number in any box &mdash; the rest fill in from the rates below. Start from a goal (closings) to see the calls it takes, or from calls to see what they should bring.</div></div>
       <button type="button" class="btn ghost" id="calc-reset">Reset rates</button></div>
     <div class="calc">
-      {% for key, label in [('calls', 'Calls'), ('set', 'Appointments set'), ('held', 'Appointments held'), ('offers', 'Offers accepted'), ('closed', 'Closings')] %}
+      {% for key, label in [('calls', 'Calls'), ('convos', 'Conversations'), ('set', 'Appointments set'), ('held', 'Appointments held'), ('offers', 'Offers accepted'), ('closed', 'Closings')] %}
       <div><label for="in-{{ key }}">{{ label }}</label><input id="in-{{ key }}" data-k="{{ key }}" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
       {% endfor %}
     </div>
     <div class="rates">
-      {% for key, label in [('call_set', 'Calls → appointment set (%)'), ('set_held', 'Set → held (%)'), ('held_offer', 'Held → offer accepted (%)'), ('offer_closed', 'Offer → closed (%)')] %}
+      {% for key, label in [('call_conv', 'Calls → conversation (%)'), ('conv_set', 'Conversation → appointment set (%)'), ('set_held', 'Set → held (%)'), ('held_offer', 'Held → offer accepted (%)'), ('offer_closed', 'Offer → closed (%)')] %}
       <div><label for="r-{{ key }}">{{ label }}</label><input id="r-{{ key }}" data-r="{{ key }}" type="number" min="0" max="100" step="0.1"></div>
       {% endfor %}
     </div>
@@ -154,10 +157,10 @@
 <script>
   (function () {
     const base = {{ stats.rates|tojson }};
-    const order = ['calls', 'set', 'held', 'offers', 'closed'];
-    const rateBetween = ['call_set', 'set_held', 'held_offer', 'offer_closed'];  // rate from order[i] to order[i+1]
+    const order = ['calls', 'convos', 'set', 'held', 'offers', 'closed'];
+    const rateBetween = ['call_conv', 'conv_set', 'set_held', 'held_offer', 'offer_closed'];  // rate from order[i] to order[i+1]
     const inp = k => document.getElementById('in-' + k), rin = k => document.getElementById('r-' + k);
-    const fill = () => rateBetween.forEach(k => { rin(k).value = base[k] ? (+base[k]).toFixed(k === 'call_set' ? 2 : 1) : ''; });
+    const fill = () => rateBetween.forEach(k => { rin(k).value = base[k] ? (+base[k]).toFixed(1) : ''; });
     fill();
     let source = null;
     const rate = k => (parseFloat(rin(k).value) || 0) / 100;
@@ -174,9 +177,10 @@
         inp(k).value = isFinite(x) ? (i < i0 ? Math.ceil(x) : Math.round(x * 10) / 10) : '';
       });
       const months = parseFloat(document.getElementById('in-months').value) || 1;
-      const calls = parseFloat(inp('calls').value) || 0, set = parseFloat(inp('set').value) || 0;
+      const calls = parseFloat(inp('calls').value) || 0, set = parseFloat(inp('set').value) || 0, convos = parseFloat(inp('convos').value) || 0;
       document.getElementById('pace').innerHTML = calls
         ? `Calls: <b>${Math.ceil(calls / months).toLocaleString()}</b> a month · <b>${Math.ceil(calls / months / 4.33).toLocaleString()}</b> a week · <b>${Math.ceil(calls / months / 21.7).toLocaleString()}</b> a working day`
+          + (convos ? `<br>Conversations: <b>${Math.ceil(convos / months).toLocaleString()}</b> a month · <b>${Math.ceil(convos / months / 21.7)}</b> a working day` : '')
           + (set ? `<br>Appointments set: <b>${Math.ceil(set / months)}</b> a month · <b>${(set / months / 4.33).toFixed(1)}</b> a week` : '')
         : 'Type a number above to see the pace.';
     }

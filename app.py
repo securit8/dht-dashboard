@@ -883,23 +883,28 @@ def activity_stats(cur, f):
     """Calls, appointments set and held (Follow Up Boss + the CTE Lead Gen sheet), offers accepted and
     closings (CTE deal log) for the filters, and what each step takes."""
     p = f.params()
-    calls = R.one(cur, f"""SELECT COUNT(*) AS n FROM agent_events e WHERE e.event_type = 'attempt'
-                           AND e.created_at >= %(start)s AND e.created_at < %(end)s AND {R.EVENTS_F}""", p)["n"]
+    ev = R.one(cur, f"""SELECT COUNT(*) FILTER (WHERE e.event_type = 'attempt') AS calls,
+                               COUNT(*) FILTER (WHERE e.event_type = 'conversation') AS convos
+                        FROM agent_events e WHERE e.event_type IN ('attempt', 'conversation')
+                          AND e.created_at >= %(start)s AND e.created_at < %(end)s AND {R.EVENTS_F}""", p)
     fc = R.funnel_counts(cur, f)
-    s = {"calls": calls, "set": fc["appts_set"], "held": fc["held"], "offers": 0, "closed": 0, "dials": 0, "lg_set": 0, "lg_held": 0}
+    s = {"calls": ev["calls"], "convos": ev["convos"], "set": fc["appts_set"], "held": fc["held"], "offers": 0, "closed": 0,
+         "dials": 0, "lg_contacts": 0, "lg_set": 0, "lg_held": 0}
     if CTE.ready(cur):
         cte_agent = cte_agent_for(cur, f.agent)
         d = CTE.deal_counts(cur, f.start, f.end, cte_agent, f.source)
         s["offers"], s["closed"] = d["written"], d["closed"]
         if not f.source:  # the Lead Gen sheet has no lead source
             lg = CTE.lead_gen_totals(cur, f.start, f.end, cte_agent)
-            s.update(dials=lg["dials"], lg_set=lg["appts"], lg_held=lg["held"])
-            s["calls"] += lg["dials"]; s["set"] += lg["appts"]; s["held"] += lg["held"]
+            s.update(dials=lg["dials"], lg_contacts=lg["contacts"], lg_set=lg["appts"], lg_held=lg["held"])
+            s["calls"] += lg["dials"]; s["convos"] += lg["contacts"]; s["set"] += lg["appts"]; s["held"] += lg["held"]
     per = lambda n: round(s["calls"] / n, 1) if n else None  # noqa: E731
-    s["calls_per"] = {"set": per(s["set"]), "held": per(s["held"]), "offers": per(s["offers"]), "closed": per(s["closed"])}
+    s["calls_per"] = {"convos": per(s["convos"]), "set": per(s["set"]), "held": per(s["held"]), "offers": per(s["offers"]),
+                      "closed": per(s["closed"])}
     top = math.log10(max(s["calls"], 1) + 1)  # funnel bars on a log scale: a closing still shows next to thousands of calls
-    s["bar"] = {k: (max(math.log10(s[k] + 1) / top * 100, 2) if s[k] else 0) for k in ("calls", "set", "held", "offers", "closed")}
-    s["rates"] = {"call_set": R.pct(s["set"], s["calls"], 2), "set_held": R.pct(s["held"], s["set"], 1),
+    s["bar"] = {k: (max(math.log10(s[k] + 1) / top * 100, 2) if s[k] else 0) for k in ("calls", "convos", "set", "held", "offers", "closed")}
+    s["rates"] = {"call_conv": R.pct(s["convos"], s["calls"], 1), "conv_set": R.pct(s["set"], s["convos"], 1),
+                  "call_set": R.pct(s["set"], s["calls"], 2), "set_held": R.pct(s["held"], s["set"], 1),
                   "held_offer": R.pct(s["offers"], s["held"], 1), "offer_closed": R.pct(s["closed"], s["offers"], 1)}
     return s
 

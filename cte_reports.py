@@ -363,7 +363,8 @@ def lead_gen_totals(cur, start, end, cte_agent=None):
     r = one(cur, """
         SELECT COALESCE(SUM(COALESCE(buyer_appts_set, 0) + COALESCE(listing_appts_set, 0)), 0) AS appts,
                COALESCE(SUM(COALESCE(buyer_appts_held, 0) + COALESCE(listing_appts_held, 0)), 0) AS held,
-               COALESCE(SUM(COALESCE(dials, 0)), 0) AS dials
+               COALESCE(SUM(COALESCE(dials, 0)), 0) AS dials,
+               COALESCE(SUM(COALESCE(contacts, 0)), 0) AS contacts
         FROM cte_activity WHERE activity_date >= %(start)s AND activity_date < %(end)s
           AND (%(cte_agent)s::text IS NULL OR LOWER(TRIM(agent_name)) = LOWER(TRIM(%(cte_agent)s)))""", p)
     return {k: int(v) for k, v in r.items()}
